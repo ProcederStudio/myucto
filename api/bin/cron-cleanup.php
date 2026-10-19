@@ -5,6 +5,7 @@ declare(strict_types=1);
 /**
  * Denní cleanup — login_attempts (>24h), expirované a staré odvolané sessions,
  * použité password_resets, login_otps + trusted_devices, WebAuthn flow/proofy,
+ * rozpracovaná OAuth přihlášení k externím službám,
  * expirované jednorázové granty, log files >90 dní, soubory nahrané do převodů
  * (Money S3, POHODA/PAMICA, PREMIER, Stereo NX, MyÚčto) a importů na pozadí po 24 hodinách
  * bez práce s nimi a assety frontendu z předchozích vydání.
@@ -82,6 +83,15 @@ $report['login_otps'] = (int) $n;
 // 3c) trusted_devices — expirovaná „zapamatovaná zařízení"
 $n = $pdo->exec("DELETE FROM trusted_devices WHERE expires_at < NOW()");
 $report['trusted_devices'] = (int) $n;
+
+// 3c1) Rozpracovaná OAuth přihlášení k externím službám (oauth_sessions) a jejich
+// předchůdce u bank (bank_oauth_sessions) — den po expiraci, tajemství dokončených
+// přihlášení se maže už při dokončení.
+$n = $pdo->exec('DELETE FROM oauth_sessions WHERE expires_at < CURRENT_TIMESTAMP(6) - INTERVAL 1 DAY');
+$report['oauth_sessions'] = (int) $n;
+$n = $pdo->exec("DELETE FROM bank_oauth_sessions
+    WHERE status IN ('pending','processing','completed','failed') AND expires_at < CURRENT_TIMESTAMP(6) - INTERVAL 1 DAY");
+$report['bank_oauth_sessions'] = (int) $n;
 
 // 3d) api_request_log — log volání veřejného API (MCP server) starší 90 dní.
 // Není to auditní stopa podle § 33a (ta je v activity_log a maže se NIKDY), jen

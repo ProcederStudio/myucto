@@ -3597,8 +3597,10 @@ final class Routes
         $app->post   ('/api/settings/currencies',                     [SettingsAction::class, 'createCurrency']);
         $app->put    ('/api/settings/currencies/{id:[0-9]+}',         [SettingsAction::class, 'updateCurrency']);
         $app->delete ('/api/settings/currencies/{id:[0-9]+}',         [SettingsAction::class, 'deleteCurrency']);
+        // Společný návrat z OAuth přihlášení k externím službám (OAuthClientFlow).
+        $app->get    ('/api/oauth/callback', \MyInvoice\Action\OAuth\OAuthCallbackAction::class);
         $app->get    ('/api/settings/bank-connections', [BankConnectionAction::class, 'list']);
-        $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/kb-plus/onboarding', [KbPlusOnboardingAction::class, 'status']);
+        $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/kb-plus/onboarding',[KbPlusOnboardingAction::class, 'status']);
         $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/csas/onboarding', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'status']);
         $app->post   ('/api/settings/bank-connections/{currencyId:[0-9]+}/csas/onboarding', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'start']);
         $app->get    ('/api/settings/bank-connections/csas/oauth/callback', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'callback']);

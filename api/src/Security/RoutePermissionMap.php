@@ -48,6 +48,9 @@ final class RoutePermissionMap
         '/api/auth/session/lock-preference',
         // Výchozí firma je volba vlastního účtu; přístup k firmě ověřuje akce.
         '/api/auth/default-supplier',
+        // Návrat z OAuth přihlášení ke službě: firma i oprávnění v ní plynou z rozpracovaného
+        // přihlášení, ne z aktuálně zvolené firmy. Ověřuje je handler domény (OAuthCallbackDispatcher).
+        '/api/oauth/callback',
         '/api/auth/domain-login/authorize',
         '/api/mcp/settings', '/api/mcp/grants',
         '/api/auth/session/unlock/options', '/api/auth/session/unlock/verify',

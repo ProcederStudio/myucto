@@ -369,6 +369,7 @@ final class GlobalSeedTables
         'mcp_oauth_codes',
         'manufacturers',
         'mfa_step_up_proofs',
+        'oauth_sessions',
         'migration_batch_items', 'migration_parallel_checks',
         'money_s3_import_map', 'money_s3_imports',
         'monthly_report_sends',

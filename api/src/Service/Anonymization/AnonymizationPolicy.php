@@ -66,6 +66,7 @@ final class AnonymizationPolicy
         'mcp_oauth_grants' => 'obnovovací tokeny externích MCP klientů',
         'mfa_recovery_codes' => 'záchranné kódy 2FA',
         'mfa_step_up_proofs' => 'doklady o ověření relace',
+        'oauth_sessions' => 'rozpracovaná OAuth přihlášení k externím službám',
         'password_resets' => 'tokeny pro obnovu hesla',
         'payroll_document_access_codes' => 'přístupové kódy zaměstnanců k dokumentům',
         'payroll_personnel_notes' => 'poznámky personálního spisu, šifrované klíčem osoby',
