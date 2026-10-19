@@ -6,25 +6,44 @@ namespace MyInvoice\Service\Bank\Connector;
 
 use MyInvoice\Repository\CsasOAuthRepository;
 use MyInvoice\Service\Auth\SecretEncryption;
+use MyInvoice\Service\OAuth\OAuthClientFlow;
+use MyInvoice\Service\OAuth\OAuthException;
 
 final class CsasCredentialVault
 {
     public function __construct(private readonly CsasApiClient $api, private readonly CsasOAuthRepository $repository,
-        private readonly SecretEncryption $secrets) {}
+        private readonly SecretEncryption $secrets, private readonly OAuthClientFlow $flow) {}
 
+    /**
+     * Platný přístup. Propadlý access token obnoví přes společnou vrstvu ({@see OAuthClientFlow::rotate()}):
+     * pod zámkem napojení načte uložený přístup znovu (souběžný požadavek ho mohl obnovit)
+     * a obnovený refresh token uloží dřív, než se použije.
+     */
     public function access(#[\SensitiveParameter] string $serialized): array
     {
         $data = $this->decode($serialized);
-        if ($data['access_expires_at'] > time() + 30) return $data;
-        $tokens = $this->api->refresh($data);
-        $data['access_token'] = $tokens['access_token'];
-        $data['access_expires_at'] = time() + $tokens['expires_in'];
-        $data['refresh_token'] = $tokens['refresh_token'] ?? $data['refresh_token'];
-        $ciphertext = $this->secrets->encryptFor($this->encode($data), self::context($data['supplier_id'], $data['connection_id']));
-        if (!str_starts_with($ciphertext, 'enc:v2:') || !$this->repository->rotate($data['supplier_id'], $data['connection_id'], $ciphertext)) {
+        if (self::fresh($data)) return $data;
+        $supplierId = $data['supplier_id'];
+        $connectionId = $data['connection_id'];
+        try {
+            return $this->flow->rotate('bank-token', $supplierId . ':' . $connectionId,
+                fn (): array => $this->stored($supplierId, $connectionId),
+                static fn (array $current): bool => self::fresh($current),
+                function (array $current): array {
+                    $tokens = $this->api->refresh($current);
+                    $current['access_token'] = $tokens['access_token'];
+                    $current['access_expires_at'] = time() + $tokens['expires_in'];
+                    $current['refresh_token'] = $tokens['refresh_token'] ?? $current['refresh_token'];
+                    return $current;
+                },
+                function (array $current) use ($supplierId, $connectionId): bool {
+                    $ciphertext = $this->secrets->encryptFor($this->encode($current), self::context($supplierId, $connectionId));
+                    return str_starts_with($ciphertext, 'enc:v2:') && $this->repository->rotate($supplierId, $connectionId, $ciphertext);
+                },
+                static fn (): BankConnectorOperationException => new BankConnectorOperationException('bank_connection_busy'));
+        } catch (OAuthException) {
             throw new BankConnectorException('credential_rotation_failed', 'Obnovený přístup nelze bezpečně uložit.');
         }
-        return $data;
     }
 
     public function decode(#[\SensitiveParameter] string $serialized): array
@@ -65,5 +84,29 @@ final class CsasCredentialVault
     public static function context(int $supplierId, int $connectionId): string
     {
         return sprintf('bank-connection:supplier:%d:connection:%d:type:token', $supplierId, $connectionId);
+    }
+
+    private static function fresh(array $data): bool
+    {
+        return $data['access_expires_at'] > time() + 30;
+    }
+
+    /** Přístup tak, jak je teď uložený u napojení; bez přístupu (odpojeno) ho obnovit nejde. */
+    private function stored(int $supplierId, int $connectionId): array
+    {
+        $ciphertext = $this->repository->credential($supplierId, $connectionId);
+        if ($ciphertext === null) {
+            throw new BankConnectorException('credential_rotation_failed', 'Obnovený přístup nelze bezpečně uložit.');
+        }
+        try {
+            $serialized = $this->secrets->decryptFor($ciphertext, self::context($supplierId, $connectionId));
+        } catch (\Throwable) {
+            throw new BankConnectorException(BankConnectorException::INVALID_TOKEN, 'Neplatný přístup České spořitelny.');
+        }
+        $data = $this->decode($serialized);
+        if ($data['supplier_id'] !== $supplierId || $data['connection_id'] !== $connectionId) {
+            throw new BankConnectorException(BankConnectorException::INVALID_TOKEN, 'Neplatný přístup České spořitelny.');
+        }
+        return $data;
     }
 }

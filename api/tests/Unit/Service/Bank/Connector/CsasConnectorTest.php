@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 final class CsasConnectorTest extends TestCase
 {
+    use \MyInvoice\Tests\Support\InlineOAuthRotation;
+
     private function credentials(): array
     {
         return ['version' => 1, 'supplier_id' => 7, 'connection_id' => 9, 'api_key' => 'synthetic-key',
@@ -25,9 +27,11 @@ final class CsasConnectorTest extends TestCase
         $api = $this->createMock(CsasApiClient::class);
         $repo = $this->createMock(CsasOAuthRepository::class);
         $secret = $this->createMock(SecretEncryption::class);
-        $vault = new CsasCredentialVault($api, $repo, $secret);
+        $vault = new CsasCredentialVault($api, $repo, $secret, $this->inlineRotationFlow());
         $data = $this->credentials();
         $data['access_expires_at'] = time() - 1;
+        $repo->expects(self::once())->method('credential')->with(7, 9)->willReturn('enc:v2:stored');
+        $secret->method('decryptFor')->willReturn($vault->encode($data));
         $api->expects(self::once())->method('refresh')->willReturn(['access_token' => 'rotated-synthetic', 'refresh_token' => 'rotated-refresh', 'expires_in' => 300]);
         $secret->expects(self::once())->method('encryptFor')->with(self::callback(static fn (string $raw): bool => str_contains($raw, 'rotated-refresh')),
             CsasCredentialVault::context(7, 9))->willReturn('enc:v2:synthetic');

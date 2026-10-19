@@ -73,6 +73,16 @@ final class CsasOAuthRepository
             ->execute([$success ? 'completed' : 'failed', $hash]);
     }
 
+    /** Aktuálně uložený přístup napojení (ciphertext); null, když napojení přístup nemá. */
+    public function credential(int $supplierId, int $connectionId): ?string
+    {
+        $stmt = $this->db->pdo()->prepare("SELECT token_ciphertext FROM bank_connections
+            WHERE supplier_id = ? AND id = ? AND provider = 'csas' AND token_ciphertext IS NOT NULL");
+        $stmt->execute([$supplierId, $connectionId]);
+        $value = $stmt->fetchColumn();
+        return $value === false ? null : (string) $value;
+    }
+
     public function rotate(int $supplierId, int $connectionId, string $ciphertext): bool
     {
         $stmt = $this->db->pdo()->prepare("UPDATE bank_connections SET token_ciphertext = ?
