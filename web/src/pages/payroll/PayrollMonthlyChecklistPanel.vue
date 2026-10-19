@@ -30,6 +30,7 @@ import { formatDate, formatPeriod } from '@/composables/useFormat'
 import { usePayrollLabels } from '@/composables/usePayrollLabels'
 import { useProductionSendConfirm } from '@/composables/useProductionSendConfirm'
 import { useReceiptFollowUp } from '@/composables/useReceiptFollowUp'
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { payrollWorkingPeriod } from './payrollComponentsUi'
 
 /*
@@ -581,6 +582,8 @@ async function load(silent = false) {
 
 watch([environmentModel, period], () => { void load() })
 onMounted(() => { void load() })
+// Podání odeslané nebo doručenka stažená v jiném okně mění stav položek měsíce.
+useWindowRefresh('*', () => load(true), () => !loading.value && !flowBusy.value && preparing.value === '' && receiptsBusy.value === '')
 </script>
 
 <template>

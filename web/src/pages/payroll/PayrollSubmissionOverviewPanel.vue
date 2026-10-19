@@ -45,6 +45,7 @@ import { useTablePrefs, type ColumnDef } from '@/composables/useTablePrefs'
 import { usePayrollLabels } from '@/composables/usePayrollLabels'
 import ProductionSendConfirmDialog from '@/components/payroll/ProductionSendConfirmDialog.vue'
 import { useProductionSendConfirm } from '@/composables/useProductionSendConfirm'
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { healthPaymentStatus, localToday } from './healthPaymentStatus'
 
 /*
@@ -757,6 +758,10 @@ watch([environment, period, () => props.mode], () => {
   void load()
 })
 onMounted(load)
+// Po odeslání v jiném okně (datová schránka, fronta) se obsah jen zašedne
+// a přepíše; rozbalený detail ani rozdělaná akce se nezavírají.
+useWindowRefresh('*', load, () => !loading.value && expandedId.value === null && settlingId.value === null
+  && sendingHealthKey.value === null && !healthBatchBusy.value && externalFilingItem.value === null)
 </script>
 
 <template>
