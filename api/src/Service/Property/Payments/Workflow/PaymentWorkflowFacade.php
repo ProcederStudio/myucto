@@ -75,6 +75,9 @@ final class PaymentWorkflowFacade
                 }
                 $partRequest['source'] = ['kind' => $kind, 'id' => $nativeId, 'expected_version' => $source['version']];
                 $current = $this->payments->preview($supplier, $partRequest);
+                if (isset($part['source_projection_hash'])) {
+                    $expectedPart = PaymentWorkflowRealization::projectedSource($expectedPart, $current['snapshot']);
+                }
                 foreach (['allocations', 'credit', 'reservation'] as $field) {
                     if (PropertyInput::hash($current['snapshot'][$field] ?? []) !== PropertyInput::hash($expectedPart[$field] ?? [])) PaymentException::reject('workflow_plan_changed');
                 }

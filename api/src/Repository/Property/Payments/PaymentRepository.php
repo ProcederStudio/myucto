@@ -24,7 +24,7 @@ final class PaymentRepository
         return $this->transaction($supplier,fn()=> $this->plan($supplier,$request));
     }
 
-    public function previewClearing(int $supplier,array $request,\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview $source):array
+    public function previewClearing(int $supplier,array $request,\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview|\MyInvoice\Service\Property\Payments\Workflow\PaymentSourceProjection $source):array
     {
         return $this->transaction($supplier,fn()=> $this->plan($supplier,$request,$source));
     }
@@ -45,12 +45,13 @@ final class PaymentRepository
             $snapshot=$plan['snapshot'];$source=$snapshot['source'];$receipt=$source['receipt'];$pdo=$this->db->pdo();
             $sourceId=$source['id'];
             if($sourceId===null) {
-                $this->execute('INSERT INTO unit_payment_sources (supplier_id,bank_transaction_id,cash_document_id,journal_entry_id,direction,amount_cents,receipt_json,receipt_hash) VALUES (?,?,?,?,?,?,?,?)',
-                    [$supplier,$receipt['kind']==='bank'?$receipt['id']:null,$receipt['kind']==='cash'?$receipt['id']:null,$receipt['ledger']['entry']['id'],$receipt['direction'],$receipt['amount_cents'],self::json($receipt),PropertyInput::hash($receipt)]);
+                $native=$receipt['native']??null;
+                $this->execute('INSERT INTO unit_payment_sources (supplier_id,bank_transaction_id,cash_document_id,journal_entry_id,direction,amount_cents,currency_code,native_amount_minor,consumed_native_minor,fx_rate,receipt_json,receipt_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                    [$supplier,$receipt['kind']==='bank'?$receipt['id']:null,$receipt['kind']==='cash'?$receipt['id']:null,$receipt['ledger']['entry']['id'],$receipt['direction'],$receipt['amount_cents'],$receipt['currency'],$native['amount_minor']??null,$native===null?null:'0',$native['fx_rate']??null,self::json($receipt),PropertyInput::hash($receipt)]);
                 $sourceId=(int)$pdo->lastInsertId();
             }
-            $this->execute('INSERT INTO unit_payment_operations (supplier_id,source_id,kind,amount_cents,accounting_date,request_json,snapshot_json,request_hash,snapshot_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',
-                [$supplier,$sourceId,$request['kind'],$request['amount_cents'],$request['accounting_date'],self::json($request),self::json($snapshot),$hash,$previewHash,$token,$actor]);
+            $this->execute('INSERT INTO unit_payment_operations (supplier_id,source_id,kind,amount_cents,source_amount_cents,source_native_minor,accounting_date,request_json,snapshot_json,request_hash,snapshot_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',
+                [$supplier,$sourceId,$request['kind'],$request['amount_cents'],$snapshot['source_amount_cents'],$snapshot['source_native_minor'],$request['accounting_date'],self::json($request),self::json($snapshot),$hash,$previewHash,$token,$actor]);
             $id=(int)$pdo->lastInsertId();
             if (($receipt['version'] ?? 1) === 2 || isset($source['revision_id']) || $snapshot['allocations'] !== [] || $request['kind'] === 'refund') {
                 $intent = \MyInvoice\Service\Property\Payments\Workflow\PaymentSettlementIntent::fromPending($this->db, $this, $supplier, $id);
@@ -77,8 +78,9 @@ final class PaymentRepository
                 $this->cas('UPDATE unit_credit_lots SET row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[$supplier,$creditId,$snapshot['credit']['row_version']]);
             }
             $newVersion=$source['id']===null?1:$source['version'];
-            $this->cas('UPDATE unit_payment_sources SET consumed_cents=?,row_version=? WHERE supplier_id=? AND id=? AND row_version=?',
-                [bcadd($source['consumed_cents'],$request['amount_cents'],0),$source['version']+1,$supplier,$sourceId,$newVersion]);
+            $consumedNative=$snapshot['source_native_minor']===null?null:bcadd($source['consumed_native_minor'],$snapshot['source_native_minor'],0);
+            $this->cas('UPDATE unit_payment_sources SET consumed_cents=?,consumed_native_minor=?,row_version=? WHERE supplier_id=? AND id=? AND row_version=?',
+                [bcadd($source['consumed_cents'],$snapshot['source_amount_cents'],0),$consumedNative,$source['version']+1,$supplier,$sourceId,$newVersion]);
             $this->cas("UPDATE unit_payment_operations SET status='posted',journal_entry_id=?,row_version=2 WHERE supplier_id=? AND id=? AND status='pending'",[$entry,$supplier,$id]);
             $this->audit($supplier,'operation',$id,'posted',['snapshot_hash'=>$previewHash,'journal_entry_id'=>$entry,'credit_id'=>$creditId],$actor);
             return $this->operationLocked($supplier,$id);
@@ -95,7 +97,7 @@ final class PaymentRepository
         return $journal;
     }
 
-    public function currentCarrierSnapshot(Connection $connection, int $supplier, array $request, ?\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview $prospective = null, ?int $operationId = null): array
+    public function currentCarrierSnapshot(Connection $connection, int $supplier, array $request, \MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview|\MyInvoice\Service\Property\Payments\Workflow\PaymentSourceProjection|null $prospective = null, ?int $operationId = null): array
     {
         if ($connection->pdo() !== $this->db->pdo() || !$connection->pdo()->inTransaction()) throw new \LogicException('Carrier proof requires the owner transaction.');
         (new PaymentLocks($this->db))->acquire($supplier);
@@ -225,7 +227,8 @@ final class PaymentRepository
         else {
             $receipt=$original['snapshot']['source']['receipt'];
             $source=(new PaymentSourceProof($this->db))->current($supplier,$receipt['kind'],$receipt['id']);
-            if(bccomp($source['consumed_cents'],$original['amount_cents'],0)<0)PaymentException::reject('source_capacity_corrupt');
+            if(bccomp($source['consumed_cents'],$original['source_amount_cents'],0)<0
+                ||($original['source_native_minor']!==null&&bccomp($source['consumed_native_minor'],$original['source_native_minor'],0)<0))PaymentException::reject('source_capacity_corrupt');
         }
         if(in_array($original['kind'],['allocation','correction'],true)&&$original['credit_id']!==null) {
             $credit=$this->creditLocked($supplier,$original['credit_id']);
@@ -250,7 +253,8 @@ final class PaymentRepository
             ||PropertyInput::hash(PaymentJournalProof::canonicalLines($actual['lines']))!==PropertyInput::hash(PaymentJournalProof::canonicalLines($pending['snapshot']['lines'])))PaymentException::reject('reversal_intent');
         $this->cas("UPDATE unit_payment_operations SET status='reversed',reversal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=? AND status='posted' AND snapshot_hash=?",[$entry,$supplier,$original['id'],$original['row_version'],$original['snapshot_hash']]);
         $this->cas("UPDATE unit_payment_operations SET status='posted',journal_entry_id=?,row_version=2 WHERE supplier_id=? AND id=? AND status='pending' AND row_version=1 AND request_hash=? AND snapshot_hash=?",[$entry,$supplier,$pending['id'],$pending['request_hash'],$pending['snapshot_hash']]);
-        if($source!==null)$this->cas('UPDATE unit_payment_sources SET consumed_cents=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[bcsub($source['consumed_cents'],$original['amount_cents'],0),$supplier,$source['id'],$source['version']]);
+        if($source!==null)$this->cas('UPDATE unit_payment_sources SET consumed_cents=?,consumed_native_minor=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[
+            bcsub($source['consumed_cents'],$original['source_amount_cents'],0),$original['source_native_minor']===null?null:bcsub($source['consumed_native_minor'],$original['source_native_minor'],0),$supplier,$source['id'],$source['version']]);
         if($reservation!==null){$paid=bcsub($reservation['paid_cents'],$original['amount_cents'],0);$status=$context['reservationAfterStatus'];$this->cas('UPDATE unit_credit_reservations SET paid_cents=?,status=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[$paid,$status,$supplier,$reservation['id'],$reservation['row_version']]);}
         if($credit!==null)$this->cas('UPDATE unit_credit_lots SET row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[$supplier,$credit['id'],$credit['row_version']]);
         if($context['correction']!==null) {
@@ -265,7 +269,7 @@ final class PaymentRepository
     public function credit(int $supplier,int $id): array {return $this->transaction($supplier,fn()=> $this->creditLocked($supplier,$id));}
     public function operation(int $supplier,int $id): array {return $this->transaction($supplier,fn()=> $this->operationLocked($supplier,$id));}
 
-    private function plan(int $supplier,array $request,?\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview $prospective=null): array
+    private function plan(int $supplier,array $request,\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview|\MyInvoice\Service\Property\Payments\Workflow\PaymentSourceProjection|null $prospective=null): array
     {
         $kind=$request['kind']??null;if(!in_array($kind,['allocation','refund'],true))PropertyInput::invalid('kind');
         PropertyInput::fields($request,$kind==='allocation'?['kind','source','amount_cents','accounting_date','reason','debts','credit_entitlement','payment','clearing_selection']:['kind','source','amount_cents','accounting_date','reason','reservation_id','expected_reservation_version','cash_receipt','clearing_selection']);
@@ -280,8 +284,9 @@ final class PaymentRepository
         if($date<$source['receipt']['date'])PaymentException::reject('backdated_payment');
         if($source['receipt']['direction']!==($kind==='allocation'?'in':'out'))PaymentException::reject('source_direction');
         $clearing=\MyInvoice\Service\Property\Payments\Workflow\PaymentSourcePreview::clearingLines($source,$amount,$request['clearing_selection']??null);
-        $snapshot=['request'=>$request,'source'=>$source,'allocations'=>[]];
-        if(isset($source['receipt']['clearing_cells'])||isset($source['revision_id']))$snapshot['clearing_selection']=$clearing['selection'];
+        $sourceNative=self::selectedNative($source,$clearing['selection']);
+        $snapshot=['request'=>$request,'source'=>$source,'source_amount_cents'=>$amount,'source_native_minor'=>$sourceNative,'allocations'=>[]];
+        if(isset($source['receipt']['clearing_cells'])||isset($source['receipt']['native'])||isset($source['revision_id']))$snapshot['clearing_selection']=$clearing['selection'];
         if($kind==='allocation') {
             $creditAmount=$amount;$snapshot['lines']=$clearing['lines'];
             if(($request['debts']??null)!==[]) {
@@ -291,6 +296,7 @@ final class PaymentRepository
             }
             $snapshot['credit']=null;
             if($creditAmount!=='0') {
+            if(($source['receipt']['currency']??'CZK')!=='CZK')PaymentException::reject('fx_review_required',['incomplete'=>true]);
             $ent=$request['credit_entitlement']??null;if(!is_array($ent))PropertyInput::invalid('credit_entitlement');
             PropertyInput::fields($ent,['unit_id','party_ids','evidence','due_date']);PropertyInput::text($ent['evidence']??null,'credit_entitlement.evidence',4000);
             $unitId=PropertyInput::id($ent['unit_id']??null,'unit_id');$reader=new PropertyReadRepository($this->db);
@@ -306,6 +312,7 @@ final class PaymentRepository
             $snapshot['lines'][]=$line;
             }
         } else {
+            if(($source['receipt']['currency']??'CZK')!=='CZK')PaymentException::reject('fx_review_required',['incomplete'=>true]);
             $reservation=$this->reservationLocked($supplier,PropertyInput::id($request['reservation_id']??null,'reservation_id'));
             if($reservation['row_version']!==($request['expected_reservation_version']??null))PaymentException::reject('reservation_version_conflict');
             if(!in_array($reservation['status'],['reserved','submitted'],true)||bccomp($amount,bcsub($reservation['amount_cents'],$reservation['paid_cents'],0),0)>0)PaymentException::reject('reservation_capacity');
@@ -334,6 +341,9 @@ final class PaymentRepository
         self::hash($row['request_hash'],['request'=>$request,'token'=>$row['idempotency_key'],'actor'=>(int)$row['created_by']]);self::hash($row['snapshot_hash'],$snapshot);
         foreach(['kind','amount_cents','accounting_date'] as $field)if($row[$field]!==$request[$field])PaymentException::reject('history_corrupt');
         if(PropertyInput::hash($request)!==PropertyInput::hash($snapshot['request']))PaymentException::reject('history_corrupt');
+        if(in_array($row['kind'],['allocation','refund'],true)){
+            if($row['source_amount_cents']!==($snapshot['source_amount_cents']??$request['amount_cents'])||$row['source_native_minor']!==($snapshot['source_native_minor']??null))PaymentException::reject('history_corrupt');
+        }elseif($row['source_amount_cents']!==null||$row['source_native_minor']!==null)PaymentException::reject('history_corrupt');
         if(in_array($row['status'],['posted','reversed'],true)) {
             $actual=(new PaymentJournalProof($this->db))->current($supplier,(int)$row['journal_entry_id']);
             if($actual['entry']['source_type']!=='unit_payment'||$actual['entry']['source_id']!==($row['kind']==='reversal'?null:$id)||$actual['entry']['reversed_by']!==($row['status']==='reversed'?(int)$row['reversal_entry_id']:null)||$actual['entry']['entry_date']!==$row['accounting_date']||PropertyInput::hash(PaymentJournalProof::canonicalLines($actual['lines']))!==PropertyInput::hash(PaymentJournalProof::canonicalLines($snapshot['lines'])))PaymentException::reject('ledger_mismatch');
@@ -390,6 +400,17 @@ final class PaymentRepository
     private function one(string $sql,array $params): ?array{return $this->execute($sql,$params)->fetch(PDO::FETCH_ASSOC)?:null;}
     private function cas(string $sql,array $params): void{if($this->execute($sql,$params)->rowCount()!==1)PaymentException::reject('version_conflict');}
     private function audit(int $supplier,string $object,int $id,string $action,array $payload,int $actor):void{$this->execute('INSERT INTO unit_payment_audit (supplier_id,object_kind,object_id,action,payload_json,payload_hash,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',[$supplier,$object,$id,$action,self::json($payload),PropertyInput::hash($payload),$actor]);}
+    private static function selectedNative(array $source,array $selection):?string
+    {
+        $foreign=($source['receipt']['currency']??'CZK')!=='CZK';$sum='0';
+        foreach($selection as $part){
+            if($foreign){if(!isset($part['native_minor'])||!is_string($part['native_minor']))PaymentException::reject('source_capacity_corrupt');$sum=bcadd($sum,$part['native_minor'],0);}
+            elseif(isset($part['native_minor']))PaymentException::reject('source_capacity_corrupt');
+        }
+        if(!$foreign)return null;
+        if(bccomp($sum,'0',0)<=0||bccomp($sum,$source['available_native_minor'],0)>0)PaymentException::reject('source_capacity');
+        return $sum;
+    }
     private function positive(mixed $amount):string{try{$amount=StatutoryAllocationPolicy::cents($amount);}catch(\InvalidArgumentException){PropertyInput::invalid('amount_cents');}if($amount==='0')PropertyInput::invalid('amount_cents');return $amount;}
     private static function date(mixed $value):string{if(!is_string($value)||!($d=\DateTimeImmutable::createFromFormat('!Y-m-d',$value))||$d->format('Y-m-d')!==$value)PropertyInput::invalid('date');return $value;}
     private static function bankAccount(mixed $value):string{if(!is_string($value)||!preg_match('#^([0-9]{1,6}-)?[0-9]{1,10}/[0-9]{4}$#D',$value))PropertyInput::invalid('recipient_account');[$account,$bank]=explode('/',$value);return AccountNumberNormalizer::canonical($account).'/'.$bank;}

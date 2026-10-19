@@ -64,6 +64,25 @@ describe('property payment workflow', () => {
     expect(wrapper.get<HTMLInputElement>('[data-field=cell-amount]').element.readOnly).toBe(true)
     wrapper.unmount()
   })
+  it('loads the posted EUR receipt before showing CZK cells and never treats EUR as CZK', async () => {
+    calls.context.mockResolvedValue({ ...context, candidates: [{ ...context.candidates[0]!, currency: 'EUR', amount: '100.00', available_cents: '0' }] })
+    let release!: (value: unknown) => void
+    calls.source.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    const wrapper = mount(PropertyPaymentsView, { attachTo: document.body, global: { plugins: plugins(), stubs: { ...viewStubs, PaymentSourceRevisionEditor: { template: '<div data-source-revision />' } } } })
+    await flushPromises(); await selectSource(wrapper)
+    expect(calls.source).toHaveBeenCalledWith(1, 'bank', 7)
+    expect(wrapper.find('[data-field=cell-amount]').exists()).toBe(false)
+    expect(calls.preview).not.toHaveBeenCalled()
+    release({ source_id: null, source_version: 0, revision_id: null, kind: 'bank', id: 7, date: '2026-02-01', amount_cents: '250000', consumed_cents: '0', available_cents: '250000',
+      native: { currency: 'EUR', amount: '100.00', amount_minor: '10000', minor_unit_decimals: 2, fx_rate: '25.000000' },
+      cells: [{ key: 'original', amount_cents: '250000', available_cents: '250000', dimensions: {}, dimension_splits: {} }] })
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('[data-field=cell-amount]').element.value).toBe('2500.00')
+    expect(wrapper.get<HTMLInputElement>('[data-field=cell-amount]').element.readOnly).toBe(true)
+    expect(wrapper.find('[data-source-revision]').exists()).toBe(false)
+    expect(wrapper.find('[data-test=fx-source-help]').exists()).toBe(true)
+    wrapper.unmount()
+  })
   it('ignores an owned-source response that arrives after switching to new cash', async () => {
     const owned = { ...context.candidates[0]!, existing_owner: true }
     const details = { source_id: 9, source_version: 2, revision_id: null, kind: 'bank' as const, id: 7, date: '2026-02-01', amount_cents: '99000', consumed_cents: '0', available_cents: '99000', cells: [{ key: 'late', amount_cents: '99000', available_cents: '99000', dimensions: {}, dimension_splits: {} }] }

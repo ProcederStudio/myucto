@@ -101,12 +101,12 @@ watch([candidate, mode], ([value, sourceMode]) => {
     return
   }
   date.value = value?.date ?? ''
-  cells.value = value && !value.existing_owner ? [{ key: 'unresolved', amount: value.amount.replace(/^-/, ''), dimensions: {} }] : []
-  if (value?.existing_owner) void loadSource()
+  cells.value = value && !value.existing_owner && value.currency === 'CZK' ? [{ key: 'unresolved', amount: value.amount.replace(/^-/, ''), dimensions: {} }] : []
+  if (value && (value.existing_owner || value.currency === 'EUR')) void loadSource()
 }, { flush: 'sync' })
 async function loadSource() {
   const chosen = candidate.value; const id = supplier.value; const ticket = epoch; const sourceTicket = ++sourceEpoch
-  if (mode.value !== 'existing' || !chosen?.existing_owner || !id) return
+  if (mode.value !== 'existing' || !chosen || (!chosen.existing_owner && chosen.currency !== 'EUR') || !id) return
   sourceLoading.value = true; sourceDetails.value = null; invalidate()
   try {
     const detail = await propertyPaymentsApi.source(id, chosen.kind, chosen.id)
@@ -199,6 +199,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
     <OpsTabBar v-if="context" v-model="tab" :tabs="tabs" :disabled="anyBusy" />
     <p v-if="context && tab === 'receive' && !context.capabilities.manage" role="status" class="text-sm text-muted" data-flag="read-only">{{ t('propertyPayments.readOnly') }}</p>
     <form v-if="context && tab === 'receive' && context.capabilities.manage" ref="form" class="space-y-4" @submit.prevent="showPreview">
+      <p v-if="candidate?.currency === 'EUR'" class="rounded border border-neutral-200 p-3 text-sm" data-test="fx-source-help">{{ t('propertyPayments.fxSourceHelp') }}</p>
       <fieldset :disabled="busy || revisionBusy || moreLoading || sourceLoading || !context.capabilities.manage || done" class="space-y-4">
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
           <h2 class="font-semibold">{{ t('propertyPayments.source') }}</h2>
@@ -249,7 +250,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
       <section v-if="preview" class="rounded-lg border border-success-300 p-4 space-y-2" aria-live="polite"><h2 class="font-semibold">{{ t('propertyPayments.previewTitle') }}</h2><p>{{ t('propertyPayments.settled') }}: {{ paymentDecimal(preview.snapshot.settled_cents) }} CZK</p><p>{{ t('propertyPayments.remaining') }}: {{ paymentDecimal(preview.snapshot.available_cents) }} CZK</p><p class="text-sm">{{ t('propertyPayments.remainingHelp') }}</p><SnapshotView :snapshot="preview.snapshot as unknown as Record<string, unknown>" /></section>
       <ActionBar :actions="actions" />
     </form>
-    <PaymentSourceRevisionEditor v-if="tab === 'receive' && sourceDetails && supplier && context && !busy && context.capabilities.manage" :key="`${supplier}:${sourceDetails.source_id}`" :supplier="supplier" :source="sourceDetails" :dimensions="context.dimensions" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" @busy="revisionBusy = $event" @changed="loadSource" />
+    <PaymentSourceRevisionEditor v-if="tab === 'receive' && sourceDetails?.source_id && !sourceDetails.native && supplier && context && !busy && context.capabilities.manage" :key="`${supplier}:${sourceDetails.source_id}`" :supplier="supplier" :source="sourceDetails" :dimensions="context.dimensions" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" @busy="revisionBusy = $event" @changed="loadSource" />
     <DebtsCreditsTab v-if="context && supplier && tab === 'debts'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" />
     <CorrectionsHistoryTab v-else-if="context && supplier && tab === 'corrections'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" :can-reverse="context.capabilities.reverse" />
     <SaldoPanel v-else-if="context && supplier && tab === 'saldo'" :supplier="supplier" :as-of="asOf" :units="context.units" />

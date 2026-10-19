@@ -48,12 +48,28 @@ final class PaymentWorkflowJournalPlan
             $line['line_no'] = $index + 1;
             $line['amount'] = JournalLineAmount::decimal($line['amount']);
             if (bccomp($line['amount'], '0', 2) <= 0 || !in_array($line['side'], ['debit', 'credit'], true)
-                || !empty($line['is_red_storno']) || ($line['currency_code'] ?? null) !== null
-                || ($line['amount_foreign'] ?? null) !== null || ($line['fx_rate'] ?? null) !== null) PaymentException::reject('workflow_ledger_invalid');
+                || !empty($line['is_red_storno']) || !self::normalizeFx($line)) PaymentException::reject('workflow_ledger_invalid');
         }
         unset($line);
         PostingService::assertBalanced($lines);
         $header = ['supplier_id' => $supplier, 'period_id' => $period, 'entry_date' => $date, 'document_date' => $date, 'source_type' => $sourceType];
         return ['header' => $header, 'lines' => $lines];
+    }
+
+    private static function normalizeFx(array &$line): bool
+    {
+        $currency = $line['currency_code'] ?? null;
+        $foreign = $line['amount_foreign'] ?? null;
+        $rate = $line['fx_rate'] ?? null;
+        if ($currency === null && $foreign === null && $rate === null) return true;
+        if ($line['account_code'] !== '379.900' || $currency !== 'EUR'
+            || preg_match('/^[A-Z]{3}$/D', $currency) !== 1 || !is_string($foreign) || !is_string($rate)
+            || preg_match('/^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$/D', $rate) !== 1) return false;
+        $line['amount_foreign'] = JournalLineAmount::decimal($foreign);
+        $line['fx_rate'] = bcround($rate, 6);
+        if (bccomp($line['amount_foreign'], '0', 2) <= 0 || bccomp($line['fx_rate'], '0', 6) <= 0) return false;
+        // Účetní hodnotu i měnové jednotky dílčího čerpání dokládá ClearingCells a živý PaymentHistoricalCarrierProof.
+        // Převzatý kurz neprovádí nový přepočet již zaokrouhleného podílu měnových jednotek.
+        return true;
     }
 }

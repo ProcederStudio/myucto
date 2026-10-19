@@ -28990,6 +28990,7 @@
     "cells": "Společné analytické zařazení zdroje",
     "choose": "Vyberte",
     "chooseSource": "Platba",
+    "fxSourceHelp": "EUR platba musí být již zaúčtovaná v bance nebo pokladně. Pro úhradu doloženého korunového dluhu se použije její původní účetní hodnota a přesný podíl eurocentů. Cizoměnové přeplatky a vratky vyžadují samostatné doložené posouzení.",
     "component": {
       "default_interest": "Úrok z prodlení",
       "determined_cost": "Určené náklady",

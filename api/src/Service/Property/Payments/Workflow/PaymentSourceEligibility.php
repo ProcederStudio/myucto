@@ -70,7 +70,6 @@ final class PaymentSourceEligibility
             $register = $this->one('SELECT * FROM cash_registers WHERE supplier_id=? AND id=? FOR UPDATE', [$supplier, $draft['register_id']]);
             if ($register === null) PaymentException::reject('cash_register_not_found');
             $currency = ($raw['status'] ?? 'draft') === 'posted' ? $raw['currency_code'] : $register['currency_code'];
-            if (($draft['currency_code'] ?? 'CZK') !== 'CZK' || bccomp((string) ($draft['fx_rate'] ?? '1'), '1', 6) !== 0) PaymentException::reject('fx_review_required', ['incomplete' => true]);
             $amount = JournalLineAmount::decimal($draft['total_amount']);
             $date = $draft['issue_date'];
             $direction = $draft['doc_type'];
@@ -78,7 +77,6 @@ final class PaymentSourceEligibility
         } else {
             PaymentException::reject('invalid_source');
         }
-        if ($currency !== 'CZK') PaymentException::reject('fx_review_required', ['incomplete' => true]);
         if (!in_array($direction, ['in', 'out'], true)) PaymentException::reject('source_direction');
         $cents = bcmul(ltrim($amount, '-'), '100', 0);
         if (bccomp($cents, '0', 0) <= 0) PaymentException::reject('source_amount');
@@ -91,7 +89,10 @@ final class PaymentSourceEligibility
             $moneyLines = array_values(array_filter($existing['receipt']['ledger']['lines'], static fn (array $line): bool => str_starts_with($line['account_code'], $kind === 'bank' ? '221' : '211')));
             if (count($moneyLines) !== 1) PaymentException::reject('source_clearing_mismatch');
             $moneyAccount = $moneyLines[0]['account_code'];
+            $cents = $existing['receipt']['amount_cents'];
+            $currency = $existing['receipt']['currency'];
         } else {
+            if ($currency !== 'CZK') PaymentException::reject('fx_review_required', ['incomplete' => true]);
             if ($kind === 'cash' && ($raw['status'] ?? 'draft') !== 'draft') PaymentException::reject('source_owned_elsewhere');
             (new PaymentPostingDate($this->db))->assertOpen($supplier, $date);
             if ($kind === 'cash') {
@@ -108,7 +109,7 @@ final class PaymentSourceEligibility
         if ($account === null || ($existing === null && empty($account['is_active']))) PaymentException::reject('source_account_setup_required', ['account_code' => $moneyAccount]);
         if ($account['account_type'] !== 'asset' || !str_starts_with($moneyAccount, $kind === 'bank' ? '221' : '211')) PaymentException::reject('unsupported_source', ['account_code' => $moneyAccount]);
         $facts = ['supplier_id' => $supplier, 'kind' => $kind, 'id' => $id, 'direction' => $direction, 'date' => $date,
-            'amount_cents' => $cents, 'currency' => 'CZK', 'money_account' => $moneyAccount,
+            'amount_cents' => $cents, 'currency' => $currency, 'native' => $existing['receipt']['native'] ?? null, 'money_account' => $moneyAccount,
             'native_draft' => $draft, 'register' => $register, 'raw' => $raw, 'existing' => $existing, 'money_account_receipt' => $account];
         return $facts + ['source_etag' => self::etag($facts)];
     }

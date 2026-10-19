@@ -62,7 +62,7 @@ Detail uchovává původní podklady a další doložené události, například
 
 ## Platby jednotek
 
-V nabídce **Platby jednotek** zpracujete úhrady předpisů, samostatné kredity a jejich vracení. Zvolte firmu a rozhodný okamžik registru, poté načtěte podklady. Přehledy mají filtry jednotky a tlačítko **Načíst další**. Čtení, správa plateb, jejich zaúčtování a storna vyžadují příslušná oprávnění; pořízení nebo zaúčtování bankovního či pokladního zdroje vyžaduje také oprávnění dané agendy. Tento postup používá Kč.
+V nabídce **Platby jednotek** zpracujete úhrady předpisů, samostatné kredity a jejich vracení. Zvolte firmu a rozhodný okamžik registru, poté načtěte podklady. Přehledy mají filtry jednotky a tlačítko **Načíst další**. Čtení, správa plateb, jejich zaúčtování a storna vyžadují příslušná oprávnění; pořízení nebo zaúčtování bankovního či pokladního zdroje vyžaduje také oprávnění dané agendy. Dluhy a kredity se vedou v Kč.
 
 ### Dluhy a příslušenství
 
@@ -73,6 +73,19 @@ V detailu dluhu lze navázat již zaúčtovanou samostatnou pohledávku jako př
 ### Přijetí, výplata a rozpis platby
 
 Na záložce **Přijmout / vyplatit** vyberte bankovní nebo pokladní platbu, případně pořiďte nový pokladní doklad. Rozpis může obsahovat úhrady vybraných dluhů, doložené kredity a vratky rezervovaných kreditů.
+
+EUR platbu lze použít na doložený korunový dluh, pokud je již zaúčtovaná
+v bance nebo pokladně proti účtu 379.900 a měna EUR má nastavená dvě
+desetinná místa. Aplikace načte původní korunovou účetní hodnotu, kurz a
+počet eurocentů z konkrétního účetního dokladu. Dílčí úhrady čerpají obě
+hodnoty současně; poslední čerpání přesně dobere zbývající měnové jednotky.
+Pozdější kurzový lístek původní hodnoty nemění. Storno úhrady obnoví obě
+kapacity. Samotná měna příchozí platby nemění korunový dluh na eurový.
+
+Cizoměnový zbytek se automaticky nepřevádí na korunový kredit. Cizoměnové
+vratky, dluhy v cizí měně a jiné měny vyžadují samostatný doložený postup;
+aplikace je v tomto toku odmítne. Jejich rozdíl se automaticky neúčtuje
+jako kurzový zisk nebo ztráta.
 
 U úhrady určete skutečného plátce, dlužníka, okamžik přijetí a hrazené dluhy. Okamžik zahrnuje čas i časový posun a jeho místní datum musí odpovídat zdroji platby. Platí-li třetí osoba, doložte její právní důvod. Volbu dluhů dlužníkem, porovnání zajištění, doručené upomínky nebo zvláštní rozpis složek zadávejte podle podkladů; aplikace je neodhaduje z variabilního symbolu či jména plátce.
 

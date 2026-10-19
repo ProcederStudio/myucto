@@ -28990,6 +28990,7 @@
     "cells": "Joint source dimensions",
     "choose": "Choose",
     "chooseSource": "Payment",
+    "fxSourceHelp": "The EUR payment must already be posted in the bank or cash register. A documented CZK debt uses the original carrying value and an exact allocation of euro cents. Foreign-currency credits and refunds require separate documented assessment.",
     "component": {
       "default_interest": "Default interest",
       "determined_cost": "Determined costs",

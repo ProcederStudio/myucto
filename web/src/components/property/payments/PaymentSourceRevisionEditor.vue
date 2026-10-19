@@ -27,6 +27,7 @@ watch(() => [props.supplier, props.source], () => { epoch++; open.value = false;
 function add() { moves.value.push({ from: '', amount: '', key: `revision.${crypto.randomUUID()}`, dimensions: {} }) }
 function begin() { if (busy.value || !props.canManage) return; open.value = true; if (!moves.value.length) add() }
 function request(): ClearingRevisionRequest {
+  if (props.source.source_id === null || props.source.native) throw new Error(t('propertyPayments.failed'))
   if (!date.value || !at.value || !reason.value.trim() || !evidence.value.trim() || !moves.value.length) throw new Error('required')
   const used = new Map<string, bigint>()
   const normalized = moves.value.map(move => {

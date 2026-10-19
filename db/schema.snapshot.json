@@ -1044,7 +1044,8 @@
         "2060_accounting_framework_conversion.sql",
         "2061_nonprofit_dppo_profiles_savings.sql",
         "2062_nonprofit_tax_saving_cost_bindings.sql",
-        "2063_property_funds_role_defaults.sql"
+        "2063_property_funds_role_defaults.sql",
+        "2064_property_payment_fx_sources.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -25959,7 +25960,9 @@
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "snapshot_json": "longtext NOT NULL",
+                "source_amount_cents": "decimal(30,0) NULL DEFAULT NULL",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_native_minor": "decimal(30,0) NULL DEFAULT NULL",
                 "status": "varchar(16) NOT NULL DEFAULT 'pending'",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
@@ -25968,7 +25971,7 @@
                 "fk_unit_payment_operation_actor": "BTREE (created_by)",
                 "fk_unit_payment_operation_original": "BTREE (supplier_id, original_operation_id)",
                 "fk_unit_payment_operation_reverse": "BTREE (supplier_id, reversal_entry_id)",
-                "fk_unit_payment_operation_source": "BTREE (supplier_id, source_id)",
+                "idx_unit_payment_operations_source_order": "BTREE (supplier_id, source_id, status, id, kind)",
                 "ix_unit_payment_read_source": "BTREE (supplier_id, read_source_entry_id, id)",
                 "uq_unit_payment_operation_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
                 "uq_unit_payment_operation_tenant": "UNIQUE BTREE (supplier_id, id)",
@@ -25984,6 +25987,7 @@
             },
             "checks": {
                 "chk_unit_payment_operation": "`amount_cents` > 0 and `kind` in ('allocation','refund','setoff','reversal','correction') and `status` in ('pending','posted','reversed')",
+                "chk_unit_payment_source_values": "`kind` in ('allocation','refund') and `source_id` is not null and `source_amount_cents` > 0 or `kind` not in ('allocation','refund') and `source_amount_cents` is null and `source_native_minor` is null",
                 "request_json": "json_valid(`request_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
@@ -26086,9 +26090,13 @@
                 "bank_transaction_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "cash_document_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "consumed_cents": "decimal(30,0) NOT NULL DEFAULT 0",
+                "consumed_native_minor": "decimal(30,0) NULL DEFAULT NULL",
+                "currency_code": "char(3) NOT NULL DEFAULT 'CZK' COLLATE ascii_bin",
                 "direction": "varchar(3) NOT NULL",
+                "fx_rate": "decimal(18,6) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "native_amount_minor": "decimal(30,0) NULL DEFAULT NULL",
                 "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "receipt_json": "longtext NOT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
@@ -26109,7 +26117,7 @@
             },
             "checks": {
                 "chk_unit_payment_one_source": "`bank_transaction_id` is null <> (`cash_document_id` is null)",
-                "chk_unit_payment_source_amount": "`amount_cents` > 0 and `consumed_cents` >= 0 and `consumed_cents` <= `amount_cents` and `direction` in ('in','out')",
+                "chk_unit_payment_source_amount": "`amount_cents` > 0 and `consumed_cents` >= 0 and `consumed_cents` <= `amount_cents` and `direction` in ('in','out') and (`currency_code` = 'CZK' and `native_amount_minor` is null and `consumed_native_minor` is null and `fx_rate` is null or `currency_code` <> 'CZK' and `native_amount_minor` > 0 and `consumed_native_minor` >= 0 and `consumed_native_minor` <= `native_amount_minor` and `fx_rate` > 0)",
                 "receipt_json": "json_valid(`receipt_json`)"
             }
         },
@@ -27360,7 +27368,7 @@
         "unit_payment_exports_immutable_delete": "BEFORE DELETE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
         "unit_payment_exports_immutable_update": "BEFORE UPDATE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
         "unit_payment_operations_immutable_delete": "BEFORE DELETE ON unit_payment_operations #c504061195b9df06cb80f0f5716c48353216dfdf",
-        "unit_payment_operations_immutable_update": "BEFORE UPDATE ON unit_payment_operations #90d841c78ba0fc5d0ea438310f6e1bb83d8da803",
+        "unit_payment_operations_immutable_update": "BEFORE UPDATE ON unit_payment_operations #90054ed46e5251e733811d584dedb81ef9714c5e",
         "unit_payment_reliefs_immutable_delete": "BEFORE DELETE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_payment_reliefs_immutable_update": "BEFORE UPDATE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_payment_source_heads_guard_delete": "BEFORE DELETE ON unit_payment_source_heads #e1539b73fcf8ec2d0a2fcab779a035542c328594",
@@ -27368,7 +27376,7 @@
         "unit_payment_source_revisions_guard_delete": "BEFORE DELETE ON unit_payment_source_revisions #0692169b5fa108ec1d7bb46be3c62cf505ea1ef3",
         "unit_payment_source_revisions_guard_update": "BEFORE UPDATE ON unit_payment_source_revisions #22d0b00f8ecd17d9a631688f8c5fb791f5f5e265",
         "unit_payment_sources_immutable_delete": "BEFORE DELETE ON unit_payment_sources #c504061195b9df06cb80f0f5716c48353216dfdf",
-        "unit_payment_sources_immutable_update": "BEFORE UPDATE ON unit_payment_sources #e579841023ab595cd4e561a547dab0dafd74d13f",
+        "unit_payment_sources_immutable_update": "BEFORE UPDATE ON unit_payment_sources #50278289ec0eedac02f7baaa710fe8f59724c924",
         "unit_payment_workflow_operations_guard_delete": "BEFORE DELETE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
         "unit_payment_workflow_operations_guard_update": "BEFORE UPDATE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
         "unit_payment_workflows_guard_delete": "BEFORE DELETE ON unit_payment_workflows #52d265ff331451863ce1d367c1f20806577c415a",
