@@ -150,6 +150,59 @@ Praktické důsledky:
   test, který bez opravy padá. Feature PR na takové opravě může stavět, ale nesmí ji nést
   v sobě: maintainer ji musí posoudit a případně vrátit nezávisle na feature.
 
+## Opakované připomínky z review
+
+Body, které se v PR připomínkovaly nebo dodělávaly při integraci opakovaně. Zkontroluj je
+před odesláním PR.
+
+### Oprávnění a role
+- Rozhodnutí o roli patří do `RequestAuthorization` (např. `canChangeFiledVatPeriod()`),
+  akce nevolá `isCompanyAdmin()` přímo. Hlídá to `RbacSourceGuardsTest`.
+- Když nové právo rozšiřuje na delegovanou roli něco, co dřív směl jen správce, projdi
+  všechny pojistky, které správce chránily jen tím, že akce byla jeho. Typicky podané
+  období DPH (`FiledVatPeriodLookup`), uzavřené účetní období a zaúčtovaný doklad.
+- UI ukazuje akci jen s tím právem, které server na danou route vyžaduje (např. Smazat
+  podle `logbook.delete`). Nová kontrola zápisového práva na GET nesmí odříznout role,
+  které data potřebují jen ke čtení ve výběru jinde.
+- Změna oprávnění se promítne i do OpenAPI: nové 403/409 odpovědi, `?force=1` a hranice
+  API tokenu (`token_write_forbidden`).
+
+### Vstupy a chyby
+- Neplatný vstup je validační chyba (4xx s hláškou), nikdy chyba databáze nebo 500.
+  Datum parsuj sdíleným `IsoDate` (neexistující 31. 2. odmítne), délky textů z cizích
+  zdrojů ořízni na šířku sloupce, nulový odkaz na číselník odmítni.
+- Generované sloupce a hodnoty, které odvozuje server (např. `effective_tax_date`),
+  z těla požadavku zahoď. Jinak jde podvrženou hodnotou obejít zámek období.
+
+### Transakce
+- Široký `catch` uvnitř otevřené transakce nesmí spolknout ani přemaskovat odvolanou
+  transakci (deadlock, lock wait). Ptej se `TransactionFailure::`, opakování řeší vlastník
+  transakce. Hlídá to `AbortedTransactionGuardTest`, výjimky se udělují metodě s důvodem.
+- Vedlejší přepočty (statistiky, cache klientů, PDF) spouštěj až po commitu a jejich
+  chyba nesmí změnit odpověď už provedené akce.
+
+### Frontend
+- Stavěj na existujících composables a nepiš vedle nich vlastní synchronizaci stavu
+  s URL. Období výkazů DPH řeší `useVatReportPeriod`; proklik z výkazu, který nemá změnit
+  zapamatované období, nese `remember=0`.
+- Komponenty v `<KeepAlive>` musí po `onActivated` znovu načíst data, která se mohla změnit
+  v jiné záložce.
+- Komponenta zapojená globálně (`App.vue`, běží v hlavním okně i v každém panelu) nesmí
+  stránky bez dané funkce zatěžovat. Žádné široké `MutationObserver` (`characterData`,
+  `class`/`style` přes celé `body`), `ResizeObserver` na řetězci předků ani přeměřování při
+  každém scrollu. Režii dolož měřením z DevTools Performance před a po.
+- V jednom seznamu drž jednotný vzhled ikon (velikost, tloušťka) a akce v seznamech
+  dělej jako tlačítka s ikonou a sémantickou barvou, stejně jako v sousedních seznamech.
+
+### Kód a PR
+- Komentáře a docblocky piš česky jako okolní kód.
+- Napojení na externí službu konkrétního výrobce (automobilka, banka) navrhni přes sdílené
+  rozhraní, do kterého půjdou připojit další poskytovatelé. Větší návrh nejdřív jako issue.
+- PR, které sahají na stejné soubory, posílej postupně nebo nad sebou, ne paralelně.
+  Před odesláním a po každém rebase ověř, že číslo migrace je pořád nejbližší volné nad
+  aktuálním `master`, a přegeneruj `db/schema.snapshot.json`.
+- Odpověď na review piš po bodech připomínek a u každé opravy uveď test, který bez ní padá.
+
 ## Manuál
 
 - Zdroj v `manual/*.md` (česky). Při změně funkcionality viditelné uživatelem aktualizuj příslušnou kapitolu.
