@@ -8,6 +8,7 @@ import PropertyPartyPicker from '@/components/property/PropertyPartyPicker.vue'
 import PropertyInstantInput from '@/components/property/PropertyInstantInput.vue'
 import IssueNoticeEditor from './IssueNoticeEditor.vue'
 import { emptyLiability } from './issuanceModel'
+import { propertyControl as control, propertyInput as input, propertyTextarea as textarea } from '@/components/property/propertyFormStyles'
 const props = defineProps<{ unit: IssueUnit; context: IssueContext; supplierId: number; at: string; readonly?: boolean }>()
 const { t } = useI18n()
 const selected = reactive<Record<string, number | null>>({})
@@ -26,17 +27,17 @@ function addMember(group: LiabilityGroup, party: { id: number; name: string }) {
     <fieldset :disabled="readonly" class="space-y-3">
       <div v-for="(group, index) in unit.liability_groups" :key="group.group_key" class="rounded border border-neutral-200 p-3 space-y-3" data-testid="liability-group">
         <div class="flex flex-wrap items-end gap-3">
-          <label>{{ t('propertyIssuance.liabilityRole') }}<select v-model="group.role" class="input h-9 block"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="role in ['debtor', 'guarantor']" :key="role" :value="role">{{ t(`propertyIssuance.roles.${role}`) }}</option></select></label>
-          <label>{{ t('propertyIssuance.liabilityMode') }}<select v-model="group.mode" class="input h-9 block"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="mode in ['individual', 'solidary']" :key="mode" :value="mode">{{ t(`propertyIssuance.modes.${mode}`) }}</option></select></label>
-          <label>{{ t('propertyIssuance.liabilityBasis') }}<select v-model="group.basis" class="input h-9 block"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="basis in ['individual_title', 'sjm_713', 'joint_act_1127', 'documented_title']" :key="basis" :value="basis">{{ t(`propertyIssuance.bases.${basis}`) }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.liabilityRole') }}<select v-model="group.role" :class="input"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="role in ['debtor', 'guarantor']" :key="role" :value="role">{{ t(`propertyIssuance.roles.${role}`) }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.liabilityMode') }}<select v-model="group.mode" :class="input"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="mode in ['individual', 'solidary']" :key="mode" :value="mode">{{ t(`propertyIssuance.modes.${mode}`) }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.liabilityBasis') }}<select v-model="group.basis" :class="input"><option value="">{{ t('propertyIssuance.choose') }}</option><option v-for="basis in ['individual_title', 'sjm_713', 'joint_act_1127', 'documented_title']" :key="basis" :value="basis">{{ t(`propertyIssuance.bases.${basis}`) }}</option></select></label>
           <PropertyButton icon="trash" variant="danger" @click="unit.liability_groups.splice(index, 1)">{{ t('propertyIssuance.remove') }}</PropertyButton>
         </div>
         <div class="flex flex-wrap items-center gap-2"><span v-for="(id, member) in group.members" :key="id" class="inline-flex gap-2 items-center rounded bg-neutral-100 px-2 py-1">{{ person(id) }}<PropertyButton icon="trash" variant="danger" @click="group.members.splice(member, 1)">{{ t('propertyIssuance.remove') }}</PropertyButton></span></div>
         <PropertyPartyPicker v-model="selected[group.group_key]" :supplier-id="supplierId" @selected="addMember(group, $event)" />
-        <fieldset><legend>{{ t('propertyIssuance.extent') }}</legend><div class="flex flex-wrap items-center gap-2"><input v-model="group.extent.num" inputmode="numeric" maxlength="30" class="input h-9 w-28" :aria-label="t('propertyRegistry.numerator')"><span>/</span><input v-model="group.extent.den" inputmode="numeric" maxlength="30" class="input h-9 w-28" :aria-label="t('propertyRegistry.denominator')"></div></fieldset>
+        <fieldset><legend>{{ t('propertyIssuance.extent') }}</legend><div class="flex flex-wrap items-center gap-2"><input v-model="group.extent.num" inputmode="numeric" maxlength="30" :class="[control, 'w-28']" :aria-label="t('propertyRegistry.numerator')"><span>/</span><input v-model="group.extent.den" inputmode="numeric" maxlength="30" :class="[control, 'w-28']" :aria-label="t('propertyRegistry.denominator')"></div></fieldset>
         <div class="grid gap-3 md:grid-cols-2"><PropertyInstantInput v-model="group.valid_from" :label="t('propertyIssuance.liabilityFrom')" /><PropertyInstantInput :model-value="group.valid_to ?? ''" :label="t('propertyIssuance.liabilityTo')" @update:model-value="group.valid_to = $event || null" /></div>
-        <label class="block">{{ t('propertyIssuance.evidence') }}<input v-model="group.evidence_ref" class="input h-9 w-full"></label>
-        <label class="block">{{ t('propertyIssuance.legalReason') }}<textarea v-model="group.legal_reason" class="input w-full" /></label>
+        <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.evidence') }}<input v-model="group.evidence_ref" :class="input"></label>
+        <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.legalReason') }}<textarea v-model="group.legal_reason" :class="textarea" /></label>
       </div>
       <div class="flex flex-wrap gap-2"><PropertyButton icon="plus" @click="unit.liability_groups.push(emptyLiability(at))">{{ t('propertyIssuance.addLiability') }}</PropertyButton></div>
     </fieldset>

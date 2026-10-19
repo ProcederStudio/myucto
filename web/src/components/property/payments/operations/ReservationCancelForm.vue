@@ -33,8 +33,8 @@ const actions = () => [{ key: 'cancel-submit', label: t(props.mode === 'cancel' 
   <form ref="form" :class="subBoxClass" :data-section="mode === 'cancel' ? 'reservation-cancel' : 'submission-cancel'" @submit.prevent="flow.submit">
     <fieldset :disabled="flow.busy.value || !canManage" class="space-y-2">
       <p class="text-sm">{{ help() }}</p>
-      <label class="block">{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="cancel-reason"></label>
-      <label v-if="mode === 'submission'" class="block">{{ t('propertyPayments.reservation.submissionEvidence') }}<input v-model="evidence" required :class="inputClass" data-field="cancel-evidence"></label>
+      <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="cancel-reason"></label>
+      <label v-if="mode === 'submission'" class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.submissionEvidence') }}<input v-model="evidence" required :class="inputClass" data-field="cancel-evidence"></label>
     </fieldset>
     <p v-if="flow.error.value" role="alert" class="text-danger-600">{{ flow.error.value }}</p>
     <ActionBar :actions="actions()" />

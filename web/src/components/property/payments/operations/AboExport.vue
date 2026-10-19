@@ -82,23 +82,23 @@ const actions = () => {
 <template>
   <section :class="boxClass" data-section="abo-export">
     <h3 class="font-semibold">{{ t('propertyPayments.abo.title') }}</h3>
-    <p class="text-sm text-muted">{{ t('propertyPayments.abo.help') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.abo.help') }}</p>
     <p v-if="!selected.length" class="text-sm">{{ t('propertyPayments.abo.selectFirst') }}</p>
     <form ref="form" class="space-y-3" @submit.prevent="flow.showPreview">
       <fieldset :disabled="flow.busy.value || downloading || !canManage" class="space-y-3">
         <div class="grid gap-3 sm:grid-cols-2">
-          <label>{{ t('propertyPayments.abo.account') }}<select v-model="state.bank_account_id" required :class="inputClass" data-field="abo-account"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="a in accounts" :key="a.id" :value="a.id">{{ accountText(a) }}</option></select></label>
-          <label>{{ t('propertyPayments.abo.dueDate') }}<DateInput v-model="state.due_date" required class="h-9" data-field="abo-due" /></label>
-          <label class="sm:col-span-2">{{ t('propertyPayments.reason') }}<input v-model="state.reason" required :class="inputClass" data-field="abo-reason"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.account') }}<select v-model="state.bank_account_id" required :class="inputClass" data-field="abo-account"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="a in accounts" :key="a.id" :value="a.id">{{ accountText(a) }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.dueDate') }}<DateInput v-model="state.due_date" required :class="inputClass" data-field="abo-due" /></label>
+          <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="state.reason" required :class="inputClass" data-field="abo-reason"></label>
         </div>
         <p v-if="accountsLoaded && !accounts.length" class="text-sm text-warning-600" data-flag="no-accounts">{{ t('propertyPayments.abo.noAccounts') }}</p>
         <div v-for="id in selected" :key="id" :class="subBoxClass" data-row="abo-symbols">
           <p class="text-sm font-medium">{{ rowFor(id) ? `${rowFor(id)!.unit_label} · ${partyNames(rowFor(id)!.parties)} · ${moneyText(rowFor(id)!.remaining_cents, t('propertyPayments.unknown'))}` : t('propertyPayments.unknown') }}</p>
           <div v-if="state.symbols[id]" class="grid gap-3 sm:grid-cols-3">
-            <label>{{ t('propertyPayments.abo.variableSymbol') }}<input v-model="state.symbols[id]!.variable" :required="!state.symbols[id]!.withoutVariable" :disabled="state.symbols[id]!.withoutVariable" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-vs"></label>
-            <label>{{ t('propertyPayments.abo.constantSymbol') }}<input v-model="state.symbols[id]!.constant" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-ks"></label>
-            <label>{{ t('propertyPayments.abo.specificSymbol') }}<input v-model="state.symbols[id]!.specific" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-ss"></label>
-            <label class="sm:col-span-3">{{ t('propertyPayments.abo.message') }}<input v-model="state.symbols[id]!.message" :class="inputClass" data-field="abo-message"></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.variableSymbol') }}<input v-model="state.symbols[id]!.variable" :required="!state.symbols[id]!.withoutVariable" :disabled="state.symbols[id]!.withoutVariable" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-vs"></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.constantSymbol') }}<input v-model="state.symbols[id]!.constant" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-ks"></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.specificSymbol') }}<input v-model="state.symbols[id]!.specific" inputmode="numeric" maxlength="10" :class="inputClass" data-field="abo-ss"></label>
+            <label class="sm:col-span-3 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.abo.message') }}<input v-model="state.symbols[id]!.message" :class="inputClass" data-field="abo-message"></label>
             <label class="sm:col-span-3 flex flex-wrap items-center gap-2"><input v-model="state.symbols[id]!.withoutVariable" type="checkbox" data-field="abo-no-vs" @change="state.symbols[id]!.variable = ''">{{ t('propertyPayments.abo.withoutVariable') }}</label>
           </div>
         </div>
@@ -108,7 +108,7 @@ const actions = () => {
       <p v-if="flow.error.value" role="alert" class="text-danger-600">{{ flow.error.value }}</p>
       <section v-if="confirmed" class="space-y-1 rounded border border-neutral-200 p-3 text-sm" data-section="abo-result">
         <p v-if="!allCancelled" role="status" class="text-success-600">{{ t('propertyPayments.abo.done', { filename: confirmed.filename }) }}</p>
-        <p class="text-xs text-muted">{{ t('propertyPayments.abo.notSent') }}</p>
+        <p class="text-xs text-neutral-500">{{ t('propertyPayments.abo.notSent') }}</p>
         <p v-for="id in confirmed.reservation_ids" :key="id" data-row="abo-status" :data-status="confirmed.reservation_statuses?.[id]">{{ rowFor(id)?.unit_label ?? t('propertyPayments.abo.reservation') }} · {{ statusText(id) }}</p>
         <p v-if="cancelledIds(confirmed).length" role="alert" class="text-warning-600" data-flag="abo-cancelled">{{ t('propertyPayments.abo.cancelledWarning') }}</p>
       </section>

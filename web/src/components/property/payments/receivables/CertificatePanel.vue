@@ -29,7 +29,7 @@ const actions = computed<ActionItem[]>(() => [{ key: 'certificate-preview', labe
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <CertificateView v-if="issued" :snapshot="issued.snapshot" :hash="issued.snapshot_hash" :id="issued.id" :recorded-at="issued.recorded_at" />
     <form v-if="context.capabilities.certificates" ref="form" class="space-y-3" @submit.prevent="flow.showPreview">
-      <fieldset :disabled="flow.busy.value" class="space-y-3"><label class="block">{{ t('propertySaldo.requester') }}<PropertyPartyPicker :supplier-id="supplier" v-model="requester" /></label><label v-for="key in (['authority_evidence', 'purpose', 'coverage_acknowledgement'] as const)" :key="key" class="block">{{ t(`propertySaldo.certificateFields.${key}`) }}<input v-model="facts[key]" required maxlength="4000" :class="inputClass" :data-field="key" /></label></fieldset>
+      <fieldset :disabled="flow.busy.value" class="space-y-3"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertySaldo.requester') }}<PropertyPartyPicker :supplier-id="supplier" v-model="requester" /></label><label v-for="key in (['authority_evidence', 'purpose', 'coverage_acknowledgement'] as const)" :key="key" class="flex min-w-0 flex-col gap-1 text-sm">{{ t(`propertySaldo.certificateFields.${key}`) }}<input v-model="facts[key]" required maxlength="4000" :class="inputClass" :data-field="key" /></label></fieldset>
       <p v-if="flow.error.value" role="alert" class="text-danger-600">{{ flow.error.value }}</p>
       <CertificateView v-if="flow.preview.value" :snapshot="flow.preview.value.snapshot" :hash="flow.preview.value.preview_hash" />
       <ActionBar :actions="actions" />

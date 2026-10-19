@@ -7,6 +7,7 @@ import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import PropertyInstantInput from '@/components/property/PropertyInstantInput.vue'
 import PropertyButton from '@/components/property/PropertyButton.vue'
 import { paymentCents, paymentDecimal } from './paymentWorkflowForm'
+import { propertyDateInput as dateInput, propertyInput as inputClass } from '@/components/property/propertyFormStyles'
 const props = defineProps<{ supplier: number; source: PaymentSourceDetails; dimensions: PaymentWorkflowContext['dimensions']; canManage: boolean; canPost: boolean }>()
 const emit = defineEmits<{ changed: []; busy: [value: boolean] }>()
 const { t } = useI18n()
@@ -17,7 +18,6 @@ const preview = ref<ClearingRevisionPreview | null>(null)
 const form = ref<HTMLFormElement | null>(null)
 const axes = computed(() => [...new Map(props.dimensions.map(v => [v.type_id, { id: v.type_id, name: v.type_name }])).values()])
 const available = computed(() => props.source.cells.filter(c => BigInt(c.available_cents) > 0n))
-const inputClass = 'h-9 w-full min-w-0 rounded-md border border-neutral-300 bg-surface px-2 text-sm'
 let epoch = 0, token = crypto.randomUUID()
 let submitted: ClearingRevisionRequest | null = null
 onBeforeUnmount(() => { epoch++; emit('busy', false) })
@@ -66,21 +66,21 @@ function labels(dimensions: Record<number, number>) { return Object.values(dimen
 <template>
   <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
     <h2 class="font-semibold">{{ t('propertyPayments.revisionTitle') }}</h2>
-    <p class="text-sm text-muted">{{ t('propertyPayments.revisionHelp') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.revisionHelp') }}</p>
     <PropertyButton v-if="!open && available.length" icon="edit" variant="warning" :disabled="!canManage" data-action="revision-open" @click="begin">{{ t('propertyPayments.revisionOpen') }}</PropertyButton>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <form v-if="open" ref="form" class="space-y-3" @submit.prevent="showPreview">
       <fieldset :disabled="busy || !canManage" class="space-y-3">
         <div class="grid gap-3 sm:grid-cols-2">
-          <label>{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required class="h-9" data-field="revision-date" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required :class="dateInput" data-field="revision-date" /></label>
           <PropertyInstantInput v-model="at" :label="t('propertyPayments.revisionEffective')" required />
-          <label>{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="revision-reason" /></label>
-          <label>{{ t('propertyPayments.evidence') }}<input v-model="evidence" required :class="inputClass" data-field="revision-evidence" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="revision-reason" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.evidence') }}<input v-model="evidence" required :class="inputClass" data-field="revision-evidence" /></label>
         </div>
         <div v-for="(move, index) in moves" :key="move.key" class="flex flex-wrap items-end gap-3 rounded border border-neutral-200 p-3">
-          <label class="min-w-60 flex-1">{{ t('propertyPayments.revisionFrom') }}<select v-model="move.from" required :class="inputClass" data-field="revision-from"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="(cell, cellIndex) in available" :key="cell.key" :value="cell.key">{{ t('propertyPayments.revisionCell', { number: cellIndex + 1, amount: paymentDecimal(cell.available_cents) }) }} · {{ labels(cell.dimensions) }}</option></select></label>
-          <label class="w-40">{{ t('propertyPayments.amount') }}<input v-model="move.amount" required inputmode="decimal" :class="inputClass" data-field="revision-amount" /></label>
-          <label v-for="axis in axes" :key="axis.id" class="min-w-40 flex-1">{{ axis.name }}<select v-model="move.dimensions[axis.id]" :class="inputClass"><option :value="0">{{ t('propertyPayments.unassigned') }}</option><option v-for="v in dimensions.filter(v => v.type_id === axis.id)" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
+          <label class="min-w-60 flex-1 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.revisionFrom') }}<select v-model="move.from" required :class="inputClass" data-field="revision-from"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="(cell, cellIndex) in available" :key="cell.key" :value="cell.key">{{ t('propertyPayments.revisionCell', { number: cellIndex + 1, amount: paymentDecimal(cell.available_cents) }) }} · {{ labels(cell.dimensions) }}</option></select></label>
+          <label class="w-full sm:w-40 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.amount') }}<input v-model="move.amount" required inputmode="decimal" :class="inputClass" data-field="revision-amount" /></label>
+          <label v-for="axis in axes" :key="axis.id" class="min-w-40 flex-1 flex min-w-0 flex-col gap-1 text-sm">{{ axis.name }}<select v-model="move.dimensions[axis.id]" :class="inputClass"><option :value="0">{{ t('propertyPayments.unassigned') }}</option><option v-for="v in dimensions.filter(v => v.type_id === axis.id)" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
           <PropertyButton icon="trash" variant="danger" :disabled="moves.length === 1" @click="moves.splice(index, 1)">{{ t('propertyPayments.remove') }}</PropertyButton>
         </div>
         <PropertyButton icon="plus" @click="add">{{ t('propertyPayments.revisionAdd') }}</PropertyButton>

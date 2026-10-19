@@ -42,7 +42,7 @@ const unknown = () => t('propertyPayments.unknown')
   <section class="space-y-3" data-section="corrections-history">
     <div class="flex flex-wrap items-end gap-3">
       <OpsTabBar v-model="tab" :tabs="tabs()" :disabled="busy" />
-      <label class="min-w-48">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :disabled="busy" :class="inputClass" data-field="ops-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
+      <label class="min-w-48 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :disabled="busy" :class="inputClass" data-field="ops-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
     </div>
     <p v-if="notice" role="status" class="text-success-600">{{ t('propertyPayments.actionDone') }}</p>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
@@ -56,7 +56,7 @@ const unknown = () => t('propertyPayments.unknown')
             <PropertyButton icon="eye" data-action="operation-open" @click="open('operations', item.id)">{{ t('propertyPayments.detail') }}</PropertyButton>
             <PropertyButton v-if="canReverse && (item as Operation).kind !== 'correction'" icon="uturn" variant="warning" data-action="operation-reverse" @click="reversing = { kind: 'operations', id: item.id }">{{ t('propertyPayments.reverse.open') }}</PropertyButton>
           </div>
-          <p class="text-xs text-muted">{{ (item as Operation).reason }}<template v-if="(item as Operation).source_label"> · {{ (item as Operation).source_label }}</template></p>
+          <p class="text-xs text-neutral-500">{{ (item as Operation).reason }}<template v-if="(item as Operation).source_label"> · {{ (item as Operation).source_label }}</template></p>
           <ul v-if="detail?.kind === 'operations' && detail.id === item.id" class="list-disc pl-5" data-section="operation-detail"><li v-for="a in (detail.value as OperationDetail).allocations" :key="a.id">{{ a.label }}: {{ moneyText(a.amount_cents, unknown()) }}</li></ul>
           <ReverseForm v-if="reversing?.kind === 'operations' && reversing.id === item.id" kind="operation" :supplier="supplier" :row="item as Operation" :can-reverse="canReverse" @changed="changed" @close="reversing = null" />
         </article>

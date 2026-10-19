@@ -26,7 +26,7 @@ const tabs = () => ['debts', ...(props.canManage ? ['register'] : []), 'credits'
   <section class="space-y-3" data-section="debts-credits">
     <div class="flex flex-wrap items-end gap-3">
       <OpsTabBar v-model="tab" :tabs="tabs()" :disabled="busy" />
-      <label class="min-w-48">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :disabled="busy" :class="inputClass" data-field="ops-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
+      <label class="min-w-48 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :disabled="busy" :class="inputClass" data-field="ops-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
     </div>
     <p v-if="notice" role="status" class="text-success-600">{{ t('propertyPayments.actionDone') }}</p>
     <DebtsPanel v-if="tab === 'debts'" :supplier="supplier" :unit-id="unitId" :reload-key="reloadKey" :can-manage="canManage" />

@@ -1,4 +1,5 @@
 import type { SettlementEntitlement, SettlementClaimTitle } from '@/api/propertySettlements'
+import { propertyBox, propertyInput } from '../propertyFormStyles'
 import { chargeMoney } from '../charges/chargeMoney'
 export const settlementMoney = chargeMoney
 export function settlementCents(value: string): string {
@@ -10,5 +11,5 @@ export function settlementCents(value: string): string {
 export function settlementDecimal(value: string): string { const cents = BigInt(value); return `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}` }
 export const emptyEntitlement = (): SettlementEntitlement => ({ party_ids: [], evidence: '', due_date: '', account_code: '' })
 export const emptyClaimTitle = (): SettlementClaimTitle => ({ effective_at: '', title_ref: '', liability_groups: [], legal: { basis: 'legal_act', legal_act_date: '', evidence: '', regime: 'general' }, security: { kind: 'unsecured', evidence: '' } })
-export const settlementInput = 'h-9 w-full min-w-0 rounded-md border border-neutral-300 bg-surface px-2 text-sm'
-export const settlementBox = 'space-y-3 rounded-lg border border-neutral-200 bg-surface p-4'
+export const settlementInput = propertyInput
+export const settlementBox = propertyBox

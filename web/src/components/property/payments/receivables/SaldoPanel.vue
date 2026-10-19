@@ -33,7 +33,7 @@ const actions = computed<ActionItem[]>(() => [{ key: 'saldo-load', label: t('pro
 <template>
   <section class="space-y-4" data-section="saldo">
     <h2 class="font-semibold">{{ t('propertySaldo.title') }}</h2><p class="text-warning-700" data-coverage>{{ t('propertySaldo.partial') }}</p><p class="text-sm">{{ t('propertySaldo.pagesHelp') }}</p>
-    <form ref="form" class="space-y-3" @submit.prevent="load()"><fieldset :disabled="loading" class="flex flex-wrap items-end gap-3"><PropertyInstantInput v-model="knownAt" :label="t('propertyPayments.card.knownAt')" required /><label>{{ t('propertySaldo.pageSize') }}<select v-model="limit" :class="inputClass" data-field="saldo-limit"><option v-for="n in [25, 50, 100]" :key="n" :value="n">{{ n }}</option></select></label></fieldset><ActionBar :actions="actions" /></form>
+    <form ref="form" class="space-y-3" @submit.prevent="load()"><fieldset :disabled="loading" class="flex flex-wrap items-end gap-3"><PropertyInstantInput v-model="knownAt" :label="t('propertyPayments.card.knownAt')" required /><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertySaldo.pageSize') }}<select v-model="limit" :class="inputClass" data-field="saldo-limit"><option v-for="n in [25, 50, 100]" :key="n" :value="n">{{ n }}</option></select></label></fieldset><ActionBar :actions="actions" /></form>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p><p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <template v-if="page">
       <p data-page>{{ t('propertySaldo.page', { number: position + 1, count: page.items.length }) }}</p>
@@ -43,12 +43,12 @@ const actions = computed<ActionItem[]>(() => [{ key: 'saldo-load', label: t('pro
         <p v-if="!u.coverage.financial_complete || u.liability_review_count || u.uncertain_event_count" class="text-warning-700" data-review>{{ t('propertySaldo.review') }} {{ t('propertySaldo.reviewCounts', { uncertain: u.uncertain_event_count, legal: u.liability_review_count, negative: u.coverage.unresolved_negative_charge_line_count }) }}</p>
         <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-2"><template v-for="key in totalKeys" :key="key"><dt>{{ key === 'principal_receivable_cents' || key === 'accessory_receivable_cents' ? t(`propertySaldo.totals.${key}`) : t(`propertyPayments.card.totals.${key}`) }}</dt><dd :data-total="key" :data-unknown="u.totals[key] === null">{{ moneyText(u.totals[key], t('propertyPayments.unknown')) }}</dd></template></dl>
         <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-2"><template v-for="key in agingKeys" :key="key"><dt>{{ t(`propertySaldo.aging.${key}`) }}</dt><dd :data-aging="key">{{ moneyText(u.aging[key], t('propertyPayments.unknown')) }}</dd></template></dl>
-        <p class="text-xs text-muted">{{ t('propertyPayments.card.noNetting') }}</p>
+        <p class="text-xs text-neutral-500">{{ t('propertyPayments.card.noNetting') }}</p>
         <div class="flex flex-wrap gap-2"><PropertyButton icon="search" :disabled="loading || scope.busy.value" :data-detail="u.unit_id" @click="open(u.unit_id, 'card')">{{ t('propertySaldo.detail') }}</PropertyButton><PropertyButton icon="search" :disabled="loading || scope.busy.value" :data-legal="u.unit_id" @click="open(u.unit_id, 'legal')">{{ t('propertySaldo.legalHistory') }}</PropertyButton></div>
       </article>
       <p v-if="!page.items.length">{{ t('propertySaldo.empty') }}</p>
       <div class="flex flex-wrap gap-2"><PropertyButton icon="chevron" :disabled="position === 0 || loading || scope.busy.value" data-action="saldo-previous" @click="load(position - 1)">{{ t('propertySaldo.previous') }}</PropertyButton><PropertyButton icon="chevron" :disabled="!page.next_cursor || loading || scope.busy.value" data-action="saldo-next" @click="load(position + 1)">{{ t('propertySaldo.next') }}</PropertyButton></div>
-      <details class="text-xs text-muted"><summary>{{ t('propertySaldo.readProof') }}</summary><p>{{ t('propertySaldo.readProofHelp') }}</p><p class="break-all">{{ page.read_scope_digest }}</p></details>
+      <details class="text-xs text-neutral-500"><summary>{{ t('propertySaldo.readProof') }}</summary><p>{{ t('propertySaldo.readProofHelp') }}</p><p class="break-all">{{ page.read_scope_digest }}</p></details>
       <CardPanel v-if="selected && detail === 'card'" :key="`card-${selected}`" :supplier="supplier" :as-of="page.as_of" :units="units" :initial-unit-id="selected" :initial-known-at="page.known_at" />
       <LegalHistoryPanel v-if="selected && detail === 'legal'" :key="`legal-${selected}`" :supplier="supplier" :unit-id="selected" :as-of="page.as_of" :known-at="page.known_at" />
     </template>

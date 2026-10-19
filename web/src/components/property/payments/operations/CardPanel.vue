@@ -47,11 +47,11 @@ const actions = () => [{ key: 'card-load', label: t('propertyPayments.card.load'
 <template>
   <section :class="boxClass" data-section="card">
     <h3 class="font-semibold">{{ t('propertyPayments.card.title') }}</h3>
-    <p class="text-sm text-muted">{{ t('propertyPayments.card.help') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.card.help') }}</p>
     <form ref="form" class="space-y-3" @submit.prevent="load">
       <fieldset :disabled="loading" class="flex flex-wrap items-end gap-3">
         <div data-field="card-known-at"><PropertyInstantInput v-model="knownAt" :label="t('propertyPayments.card.knownAt')" required /></div>
-        <label class="min-w-48">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :class="inputClass" data-field="card-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-if="unitId && !units.some(u => u.id === unitId)" :value="unitId">{{ t('propertyPayments.unitNumber', { number: unitId }) }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
+        <label class="min-w-48 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :class="inputClass" data-field="card-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-if="unitId && !units.some(u => u.id === unitId)" :value="unitId">{{ t('propertyPayments.unitNumber', { number: unitId }) }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
         <div class="min-w-60" data-field="card-client"><span class="text-sm font-medium">{{ t('propertyPayments.card.person') }}</span><PropertyPartyPicker :supplier-id="supplier" :model-value="clientId" @update:model-value="clientId = $event" /></div>
       </fieldset>
       <ActionBar :actions="actions()" />
@@ -64,7 +64,7 @@ const actions = () => [{ key: 'card-load', label: t('propertyPayments.card.load'
       <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" data-section="card-totals">
         <template v-for="[key, value] in totals" :key="key"><dt>{{ t(`propertyPayments.card.totals.${key}`) }}</dt><dd :data-total="key" :data-unknown="value === null">{{ money(value) }}</dd></template>
       </dl>
-      <p class="text-xs text-muted">{{ t('propertyPayments.card.noNetting') }}</p>
+      <p class="text-xs text-neutral-500">{{ t('propertyPayments.card.noNetting') }}</p>
       <div class="space-y-1">
         <h4 class="font-medium">{{ t('propertyPayments.card.claims') }}</h4>
         <article v-for="claim in card.claims" :key="claim.claim_key" class="space-y-1 border-t border-neutral-200 py-2 text-sm" data-row="card-claim">
@@ -78,7 +78,7 @@ const actions = () => [{ key: 'card-load', label: t('propertyPayments.card.load'
         <h4 class="font-medium">{{ t('propertyPayments.card.credits') }}</h4>
         <article v-for="credit in card.credits" :key="credit.id" class="space-y-1 border-t border-neutral-200 py-2 text-sm" data-row="card-credit">
           <div class="flex flex-wrap items-center gap-3"><span class="min-w-0 flex-1">{{ credit.unit_label }} · {{ partyNames(credit.parties) }}</span><span data-credit-gross>{{ t('propertyPayments.card.totals.gross_credit_cents') }}: {{ money(credit.gross_credit_cents) }}</span><span>{{ t('propertyPayments.card.totals.reserved_credit_cents') }}: {{ money(credit.reserved_credit_cents) }}</span><span>{{ t('propertyPayments.card.totals.available_credit_cents') }}: {{ money(credit.available_credit_cents) }}</span></div>
-          <p class="text-xs text-muted">{{ t('propertyPayments.card.creditStays') }}</p>
+          <p class="text-xs text-neutral-500">{{ t('propertyPayments.card.creditStays') }}</p>
           <p v-if="credit.precision === 'day'" class="text-xs text-warning-600">{{ t('propertyPayments.card.dayPrecisionRow') }}</p>
           <p v-if="!credit.complete" class="text-xs text-warning-600">{{ t('propertyPayments.card.incompleteRow') }}</p>
         </article>

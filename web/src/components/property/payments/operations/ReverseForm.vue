@@ -33,13 +33,13 @@ const actions = () => [{ key: 'reverse-submit', label: t('propertyPayments.rever
 <template>
   <form ref="form" :class="subBoxClass" :data-section="`reverse-${kind}`" @submit.prevent="flow.submit">
     <fieldset :disabled="flow.busy.value || !canReverse" class="space-y-2">
-      <p class="text-xs text-muted">{{ t(kind === 'operation' ? 'propertyPayments.reverse.operationHelp' : 'propertyPayments.reverse.correctionHelp') }}</p>
+      <p class="text-xs text-neutral-500">{{ t(kind === 'operation' ? 'propertyPayments.reverse.operationHelp' : 'propertyPayments.reverse.correctionHelp') }}</p>
       <div class="grid gap-3 sm:grid-cols-2">
-        <label>{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required class="h-9" data-field="reverse-date" /></label>
-        <label>{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="reverse-reason"></label>
+        <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required :class="inputClass" data-field="reverse-date" /></label>
+        <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="reason" required :class="inputClass" data-field="reverse-reason"></label>
         <template v-if="kind === 'correction'">
           <div data-field="reverse-effective"><PropertyInstantInput v-model="effectiveAt" :label="t('propertyPayments.reverse.effectiveAt')" required /></div>
-          <label>{{ t('propertyPayments.evidence') }}<input v-model="evidence" required :class="inputClass" data-field="reverse-evidence"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.evidence') }}<input v-model="evidence" required :class="inputClass" data-field="reverse-evidence"></label>
         </template>
       </div>
     </fieldset>

@@ -53,10 +53,10 @@ const actions = () => [{ key: 'accessory-bind', label: t('propertyPayments.acces
 <template>
   <section :class="boxClass" data-section="accessory-binding">
     <h4 class="font-semibold">{{ t('propertyPayments.accessory.title') }}</h4>
-    <p class="text-sm text-muted">{{ t('propertyPayments.accessory.help') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.accessory.help') }}</p>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <p v-if="loading && !candidates.length">{{ t('propertyPayments.loading') }}</p>
-    <p v-else-if="loaded && !candidates.length" class="text-sm text-muted" data-flag="no-accessories">{{ t('propertyPayments.accessory.none') }}</p>
+    <p v-else-if="loaded && !candidates.length" class="text-sm text-neutral-500" data-flag="no-accessories">{{ t('propertyPayments.accessory.none') }}</p>
     <form ref="form" class="space-y-3" @submit.prevent="flow.submit">
       <fieldset :disabled="flow.busy.value || !canManage" class="space-y-3">
         <label v-for="c in candidates" :key="c.id" class="flex flex-wrap items-center gap-2 border-t border-neutral-200 py-1 text-sm" data-row="accessory-candidate">
@@ -64,12 +64,12 @@ const actions = () => [{ key: 'accessory-bind', label: t('propertyPayments.acces
           <span class="min-w-0 flex-1">{{ label(c) }}</span><span>{{ moneyText(c.amount_cents, t('propertyPayments.unknown')) }}</span>
         </label>
         <PropertyButton v-if="next !== null" icon="chevron" data-action="accessory-more" :disabled="loading || flow.busy.value" @click="load(true)">{{ t('propertyPayments.loadMore') }}</PropertyButton>
-        <p class="text-xs text-muted">{{ t('propertyPayments.accessory.discoveryNote') }}</p>
+        <p class="text-xs text-neutral-500">{{ t('propertyPayments.accessory.discoveryNote') }}</p>
         <div v-if="state.candidate" class="grid gap-3 sm:grid-cols-2">
-          <label>{{ t('propertyPayments.accessory.component') }}<select v-model="state.component" required :class="inputClass" data-field="accessory-component"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="c in components" :key="c" :value="c">{{ t(`propertyPayments.component.${c}`) }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accessory.component') }}<select v-model="state.component" required :class="inputClass" data-field="accessory-component"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="c in components" :key="c" :value="c">{{ t(`propertyPayments.component.${c}`) }}</option></select></label>
           <label v-if="oldEffectOffered && state.component === 'interest'" class="flex flex-wrap items-center gap-2 self-end"><input v-model="state.oldEffect" type="checkbox" data-field="accessory-old-effect">{{ t('propertyPayments.accessory.oldEffect') }}</label>
-          <label class="sm:col-span-2">{{ t('propertyPayments.accessory.evidence') }}<input v-model="state.evidence" required :class="inputClass" data-field="accessory-evidence"></label>
-          <label class="sm:col-span-2">{{ t('propertyPayments.accessory.liabilityEvidence') }}<input v-model="state.liability" required :class="inputClass" data-field="accessory-liability"></label>
+          <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accessory.evidence') }}<input v-model="state.evidence" required :class="inputClass" data-field="accessory-evidence"></label>
+          <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accessory.liabilityEvidence') }}<input v-model="state.liability" required :class="inputClass" data-field="accessory-liability"></label>
         </div>
       </fieldset>
       <p v-if="flow.error.value" role="alert" class="text-danger-600">{{ flow.error.value }}</p>

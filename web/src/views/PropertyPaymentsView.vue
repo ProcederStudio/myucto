@@ -21,6 +21,7 @@ import SnapshotView from '@/components/property/payments/operations/SnapshotView
 import { provideBusyScope } from '@/components/property/payments/operations/busy'
 import { failureMessage, formErrorKey } from '@/components/property/payments/operations/format'
 import { buildAllocationPart, buildRefundPart, emptyAllocation, emptyRefund, type AllocationPartState, type RefundPartState } from '@/components/property/payments/operations/partForms'
+import { propertyDateInput as dateInput, propertyInput as inputClass } from '@/components/property/propertyFormStyles'
 const { t } = useI18n()
 const supplierStore = useSupplierStore()
 const supplier = computed(() => supplierStore.currentSupplierId)
@@ -49,7 +50,6 @@ let token = crypto.randomUUID()
 let epoch = 0
 let sourceEpoch = 0
 onBeforeUnmount(() => epoch++)
-const inputClass = 'h-9 w-full min-w-0 rounded-md border border-neutral-300 bg-surface px-2 text-sm'
 const cells = ref<Array<{ key: string; amount: string; dimensions: Record<number, number> }>>([])
 const credits = ref([{ key: `part.${crypto.randomUUID()}`, amount: '', unit_id: 0, parties: [null] as Array<number | null>, evidence: '', due_date: '', reason: '', selection: {} as Record<string, string> }])
 const extraCandidates = ref<PaymentCandidate[]>([])
@@ -191,58 +191,58 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
 <template>
   <main class="space-y-4">
     <h1 class="text-xl font-semibold">{{ t('propertyPayments.title') }}</h1>
-    <p class="text-sm text-muted">{{ t('propertyPayments.czkOnly') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.czkOnly') }}</p>
     <div class="flex flex-wrap items-end gap-3"><fieldset :disabled="anyBusy" class="min-w-0"><PropertyInstantInput :model-value="asOf" @update:model-value="changeAsOf" :label="t('propertyPayments.asOf')" required /></fieldset><PropertyButton icon="cycle" :disabled="anyBusy || loading" @click="load">{{ t('propertyPayments.refresh') }}</PropertyButton></div>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <p v-if="done" role="status" class="text-success-600">{{ t('propertyPayments.done') }}</p>
     <p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <OpsTabBar v-if="context" v-model="tab" :tabs="tabs" :disabled="anyBusy" />
-    <p v-if="context && tab === 'receive' && !context.capabilities.manage" role="status" class="text-sm text-muted" data-flag="read-only">{{ t('propertyPayments.readOnly') }}</p>
+    <p v-if="context && tab === 'receive' && !context.capabilities.manage" role="status" class="text-sm text-neutral-500" data-flag="read-only">{{ t('propertyPayments.readOnly') }}</p>
     <form v-if="context && tab === 'receive' && context.capabilities.manage" ref="form" class="space-y-4" @submit.prevent="showPreview">
       <p v-if="candidate?.currency === 'EUR'" class="rounded border border-neutral-200 p-3 text-sm" data-test="fx-source-help">{{ t('propertyPayments.fxSourceHelp') }}</p>
       <fieldset :disabled="busy || revisionBusy || moreLoading || sourceLoading || !context.capabilities.manage || done" class="space-y-4">
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
           <h2 class="font-semibold">{{ t('propertyPayments.source') }}</h2>
-          <label class="block">{{ t('propertyPayments.sourceMode') }}<select v-model="mode" :class="inputClass" data-field="source-mode"><option value="existing">{{ t('propertyPayments.existing') }}</option><option v-if="context.capabilities.cash" value="new_cash">{{ t('propertyPayments.newCash') }}</option></select></label>
-          <template v-if="mode === 'existing'"><label class="block">{{ t('propertyPayments.chooseSource') }}<select v-model="selected" required :class="inputClass" data-field="source"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="c in candidates" :key="`${c.kind}:${c.id}`" :value="`${c.kind}:${c.id}`" :disabled="c.support === 'fx_incomplete' || (!c.existing_owner && !(c.kind === 'bank' ? context.capabilities.bank : context.capabilities.cash))">{{ sourceLabel(c) }}</option></select></label><div v-if="moreKinds.length" class="space-y-2" data-section="source-more"><p class="text-sm">{{ t('propertyPayments.truncated') }}</p><div class="flex flex-wrap gap-2"><PropertyButton v-for="kind in moreKinds" :key="kind" icon="chevron" :data-action="`source-more-${kind}`" :disabled="anyBusy" @click="loadMore(kind)">{{ t(`propertyPayments.loadMoreSources.${kind}`) }}</PropertyButton></div></div></template>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.sourceMode') }}<select v-model="mode" :class="inputClass" data-field="source-mode"><option value="existing">{{ t('propertyPayments.existing') }}</option><option v-if="context.capabilities.cash" value="new_cash">{{ t('propertyPayments.newCash') }}</option></select></label>
+          <template v-if="mode === 'existing'"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.chooseSource') }}<select v-model="selected" required :class="inputClass" data-field="source"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="c in candidates" :key="`${c.kind}:${c.id}`" :value="`${c.kind}:${c.id}`" :disabled="c.support === 'fx_incomplete' || (!c.existing_owner && !(c.kind === 'bank' ? context.capabilities.bank : context.capabilities.cash))">{{ sourceLabel(c) }}</option></select></label><div v-if="moreKinds.length" class="space-y-2" data-section="source-more"><p class="text-sm">{{ t('propertyPayments.truncated') }}</p><div class="flex flex-wrap gap-2"><PropertyButton v-for="kind in moreKinds" :key="kind" icon="chevron" :data-action="`source-more-${kind}`" :disabled="anyBusy" @click="loadMore(kind)">{{ t(`propertyPayments.loadMoreSources.${kind}`) }}</PropertyButton></div></div></template>
           <div v-else class="grid gap-3 sm:grid-cols-2">
-            <label>{{ t('propertyPayments.direction') }}<select v-model="cash.doc_type" :class="inputClass" data-field="cash-direction"><option value="in">{{ t('propertyPayments.directionIn') }}</option><option value="out">{{ t('propertyPayments.directionOut') }}</option></select></label>
-            <label>{{ t('propertyPayments.register') }}<select v-model="cash.register_id" required :class="inputClass" data-field="cash-register"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="r in context.registers" :key="r.id" :value="r.id" :disabled="r.currency_code !== 'CZK'">{{ r.name }} ({{ r.currency_code }})</option></select></label>
-            <label>{{ t('propertyPayments.sourceDate') }}<DateInput v-model="cash.issue_date" required class="h-9" data-field="cash-date" /></label>
-            <label>{{ t('propertyPayments.payer') }}<input v-model="cash.partner_name" required :class="inputClass" data-field="cash-payer" /></label>
-            <label>{{ t('propertyPayments.amount') }}<input v-model="cash.total_amount" required inputmode="decimal" :class="inputClass" data-field="cash-amount" /></label>
-            <label class="sm:col-span-2">{{ t('propertyPayments.description') }}<input v-model="cash.description" required :class="inputClass" data-field="cash-description" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.direction') }}<select v-model="cash.doc_type" :class="inputClass" data-field="cash-direction"><option value="in">{{ t('propertyPayments.directionIn') }}</option><option value="out">{{ t('propertyPayments.directionOut') }}</option></select></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.register') }}<select v-model="cash.register_id" required :class="inputClass" data-field="cash-register"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="r in context.registers" :key="r.id" :value="r.id" :disabled="r.currency_code !== 'CZK'">{{ r.name }} ({{ r.currency_code }})</option></select></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.sourceDate') }}<DateInput v-model="cash.issue_date" required :class="dateInput" data-field="cash-date" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.payer') }}<input v-model="cash.partner_name" required :class="inputClass" data-field="cash-payer" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.amount') }}<input v-model="cash.total_amount" required inputmode="decimal" :class="inputClass" data-field="cash-amount" /></label>
+            <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.description') }}<input v-model="cash.description" required :class="inputClass" data-field="cash-description" /></label>
           </div>
-          <label class="block">{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required class="h-9" data-field="accounting-date" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.accountingDate') }}<DateInput v-model="date" required :class="dateInput" data-field="accounting-date" /></label>
         </section>
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
-          <h2 class="font-semibold">{{ t('propertyPayments.cells') }}</h2><p class="text-sm text-muted">{{ t('propertyPayments.cellHelp') }}</p>
+          <h2 class="font-semibold">{{ t('propertyPayments.cells') }}</h2><p class="text-sm text-neutral-500">{{ t('propertyPayments.cellHelp') }}</p>
           <div v-for="(cell, index) in cells" :key="cell.key" class="flex flex-wrap items-end gap-3 rounded border border-neutral-200 p-3">
-            <label class="w-40">{{ t('propertyPayments.cellAmount', { number: index + 1 }) }}<input v-model="cell.amount" required inputmode="decimal" :readonly="!!sourceDetails" data-field="cell-amount" :class="inputClass" /></label>
-            <label v-for="axis in dimensionTypes" :key="axis.id" class="min-w-40 flex-1">{{ axis.name }}<select v-model="cell.dimensions[axis.id]" :disabled="!!sourceDetails" :class="inputClass"><option :value="0">{{ t('propertyPayments.unassigned') }}</option><option v-for="v in context.dimensions.filter(v => v.type_id === axis.id)" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
+            <label class="w-full sm:w-40 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.cellAmount', { number: index + 1 }) }}<input v-model="cell.amount" required inputmode="decimal" :readonly="!!sourceDetails" data-field="cell-amount" :class="inputClass" /></label>
+            <label v-for="axis in dimensionTypes" :key="axis.id" class="min-w-40 flex-1 flex min-w-0 flex-col gap-1 text-sm">{{ axis.name }}<select v-model="cell.dimensions[axis.id]" :disabled="!!sourceDetails" :class="inputClass"><option :value="0">{{ t('propertyPayments.unassigned') }}</option><option v-for="v in context.dimensions.filter(v => v.type_id === axis.id)" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
             <PropertyButton v-if="!sourceDetails" icon="trash" variant="danger" @click="cells.splice(index, 1)">{{ t('propertyPayments.remove') }}</PropertyButton>
           </div><PropertyButton v-if="!sourceDetails" icon="plus" @click="addCell">{{ t('propertyPayments.addCell') }}</PropertyButton>
         </section>
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
-          <h2 class="font-semibold">{{ t('propertyPayments.credits') }}</h2><p class="text-sm text-muted">{{ t('propertyPayments.entitlementHelp') }}</p>
+          <h2 class="font-semibold">{{ t('propertyPayments.credits') }}</h2><p class="text-sm text-neutral-500">{{ t('propertyPayments.entitlementHelp') }}</p>
           <div v-for="(credit, index) in credits" :key="credit.key" class="grid gap-3 rounded border border-neutral-200 p-3 sm:grid-cols-2">
-            <label>{{ t('propertyPayments.amount') }}<input v-model="credit.amount" required inputmode="decimal" :class="inputClass" data-field="credit-amount" /></label>
-            <label>{{ t('propertyPayments.unit') }}<select v-model="credit.unit_id" required :class="inputClass" data-field="unit"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="u in context.units" :key="u.id" :value="u.id">{{ unitLabel(u) }}</option></select></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.amount') }}<input v-model="credit.amount" required inputmode="decimal" :class="inputClass" data-field="credit-amount" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.unit') }}<select v-model="credit.unit_id" required :class="inputClass" data-field="unit"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="u in context.units" :key="u.id" :value="u.id">{{ unitLabel(u) }}</option></select></label>
             <div class="sm:col-span-2 space-y-2"><label>{{ t('propertyPayments.entitledPersons') }}</label><div v-for="(_, personIndex) in credit.parties" :key="personIndex" class="flex flex-wrap items-center gap-2"><div class="min-w-60 flex-1"><PropertyPartyPicker v-if="supplier" :supplier-id="supplier" :model-value="credit.parties[personIndex] ?? null" @update:model-value="credit.parties[personIndex] = $event" /></div><PropertyButton icon="trash" variant="danger" :disabled="credit.parties.length === 1" @click="credit.parties.splice(personIndex, 1)">{{ t('propertyPayments.remove') }}</PropertyButton></div><PropertyButton icon="plus" @click="credit.parties.push(null)">{{ t('propertyPayments.addPerson') }}</PropertyButton></div>
-            <label>{{ t('propertyPayments.evidence') }}<input v-model="credit.evidence" required :class="inputClass" data-field="entitlement-evidence" /></label>
-            <label>{{ t('propertyPayments.dueDate') }}<DateInput v-model="credit.due_date" required class="h-9" data-field="due-date" /></label>
-            <label class="sm:col-span-2">{{ t('propertyPayments.reason') }}<input v-model="credit.reason" required :class="inputClass" data-field="reason" /></label>
-            <div v-if="cells.length > 1" class="sm:col-span-2 flex flex-wrap gap-3"><label v-for="(cell, cellIndex) in cells" :key="cell.key" class="w-40">{{ t('propertyPayments.consumeCell', { number: cellIndex + 1 }) }}<input v-model="credit.selection[cell.key]" inputmode="decimal" :class="inputClass" /></label></div>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.evidence') }}<input v-model="credit.evidence" required :class="inputClass" data-field="entitlement-evidence" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.dueDate') }}<DateInput v-model="credit.due_date" required :class="dateInput" data-field="due-date" /></label>
+            <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="credit.reason" required :class="inputClass" data-field="reason" /></label>
+            <div v-if="cells.length > 1" class="sm:col-span-2 flex flex-wrap gap-3"><label v-for="(cell, cellIndex) in cells" :key="cell.key" class="w-full sm:w-40 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.consumeCell', { number: cellIndex + 1 }) }}<input v-model="credit.selection[cell.key]" inputmode="decimal" :class="inputClass" /></label></div>
             <PropertyButton icon="trash" variant="danger" :disabled="partCount === 1" @click="credits.splice(index, 1)">{{ t('propertyPayments.removePart') }}</PropertyButton>
           </div><PropertyButton icon="plus" @click="addCredit">{{ t('propertyPayments.addCredit') }}</PropertyButton>
         </section>
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3" data-section="allocations">
-          <h2 class="font-semibold">{{ t('propertyPayments.alloc.title') }}</h2><p class="text-sm text-muted">{{ t('propertyPayments.alloc.help') }}</p>
+          <h2 class="font-semibold">{{ t('propertyPayments.alloc.title') }}</h2><p class="text-sm text-neutral-500">{{ t('propertyPayments.alloc.help') }}</p>
           <div v-for="(part, index) in allocations" :key="part.key"><AllocationPartForm v-if="supplier" :supplier="supplier" :part="part" :units="context.units" :cells="cells" :source-date="sourceDate" @remove="allocations.splice(index, 1)" /></div>
           <PropertyButton icon="plus" variant="primary" data-action="add-allocation" @click="addAllocation">{{ t('propertyPayments.alloc.add') }}</PropertyButton>
         </section>
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3" data-section="refunds">
-          <h2 class="font-semibold">{{ t('propertyPayments.refund.title') }}</h2><p class="text-sm text-muted">{{ t('propertyPayments.refund.sectionHelp') }}</p>
+          <h2 class="font-semibold">{{ t('propertyPayments.refund.title') }}</h2><p class="text-sm text-neutral-500">{{ t('propertyPayments.refund.sectionHelp') }}</p>
           <div v-for="(part, index) in refunds" :key="part.key"><RefundPartForm v-if="supplier" :supplier="supplier" :part="part" :cells="cells" @remove="refunds.splice(index, 1)" /></div>
           <PropertyButton icon="plus" variant="warning" data-action="add-refund" @click="addRefund">{{ t('propertyPayments.refund.add') }}</PropertyButton>
         </section>

@@ -34,7 +34,7 @@ function toggle(id: number, on: boolean) { selected.value = on ? [...selected.va
             <span>{{ t('propertyPayments.reservation.paid') }}: {{ moneyText((item as Reservation).paid_cents, unknown()) }}</span>
             <span>{{ t('propertyPayments.reservation.remaining') }}: {{ moneyText((item as Reservation).remaining_cents, unknown()) }}</span>
           </div>
-          <p class="text-xs text-muted">{{ (item as Reservation).request.disposition }}<template v-if="(item as Reservation).request.recipient_account"> · {{ (item as Reservation).request.recipient_account }}</template></p>
+          <p class="text-xs text-neutral-500">{{ (item as Reservation).request.disposition }}<template v-if="(item as Reservation).request.recipient_account"> · {{ (item as Reservation).request.recipient_account }}</template></p>
           <div class="flex flex-wrap gap-2">
             <PropertyButton v-if="canManage && (item as Reservation).status === 'reserved'" icon="x" variant="danger" data-action="reservation-cancel" @click="cancelling = { id: item.id, mode: 'cancel' }">{{ (item as Reservation).paid_cents !== '0' ? t('propertyPayments.reservation.releaseRemainder') : t('propertyPayments.reservation.cancel') }}</PropertyButton>
             <PropertyButton v-if="canManage && (item as Reservation).status === 'submitted'" icon="uturn" variant="warning" data-action="submission-cancel" @click="cancelling = { id: item.id, mode: 'submission' }">{{ t('propertyPayments.reservation.cancelSubmission') }}</PropertyButton>

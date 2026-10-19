@@ -39,7 +39,7 @@ const actions = () => [{ key: 'register', label: t('propertyPayments.debtRegistr
 <template>
   <section :class="boxClass" data-section="debt-registration">
     <h3 class="font-semibold">{{ t('propertyPayments.debtRegistration.title') }}</h3>
-    <p class="text-sm text-muted">{{ t('propertyPayments.debtRegistration.help') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('propertyPayments.debtRegistration.help') }}</p>
     <PagedCollection :supplier="supplier" collection="charges" :unit-id="unitId" :reload-key="reloadKey">
       <template #row="{ item }">
         <label class="flex flex-wrap items-center gap-2 border-t border-neutral-200 py-1 text-sm">
@@ -52,17 +52,17 @@ const actions = () => [{ key: 'register', label: t('propertyPayments.debtRegistr
     <form v-if="state.charge" ref="form" class="space-y-3" @submit.prevent="flow.submit">
       <fieldset :disabled="flow.busy.value || !canManage" class="space-y-3">
         <p class="text-sm">{{ t('propertyPayments.debtRegistration.parties') }}: {{ partyNames(state.charge.parties) }}</p>
-        <div class="space-y-1"><p class="text-sm font-medium">{{ t('propertyPayments.debtRegistration.lines') }}</p><p class="text-xs text-muted">{{ t('propertyPayments.debtRegistration.linesHelp') }}</p>
+        <div class="space-y-1"><p class="text-sm font-medium">{{ t('propertyPayments.debtRegistration.lines') }}</p><p class="text-xs text-neutral-500">{{ t('propertyPayments.debtRegistration.linesHelp') }}</p>
           <label v-for="line in state.charge.lines" :key="line.id" class="flex flex-wrap items-center gap-2 text-sm"><input v-model="state.lines" type="checkbox" :value="line.id" :disabled="!registrable(line)" data-field="principal-line"><span>{{ line.label }}</span><span class="ml-auto">{{ moneyText(line.amount_cents, t('propertyPayments.unknown')) }}</span></label></div>
         <div class="grid gap-3 sm:grid-cols-2">
-          <label>{{ t('propertyPayments.debtRegistration.titleRef') }}<input v-model="state.title_ref" required :class="inputClass" data-field="title-ref"></label>
-          <label>{{ t('propertyPayments.dueDate') }}<DateInput v-model="state.due_date" required class="h-9" data-field="debt-due" /></label>
-          <label>{{ t('propertyPayments.debt.basisLabel') }}<select v-model="state.basis" :class="inputClass" data-field="legal-basis"><option value="statutory">{{ t('propertyPayments.debt.basis.statutory') }}</option><option value="legal_act">{{ t('propertyPayments.debt.basis.legal_act') }}</option></select></label>
-          <label v-if="state.basis === 'legal_act'">{{ t('propertyPayments.debtRegistration.legalActDate') }}<DateInput v-model="state.legal_act_date" required class="h-9" data-field="legal-act-date" /></label>
-          <label>{{ t('propertyPayments.debt.regimeLabel') }}<select v-model="state.regime" :class="inputClass" data-field="legal-regime"><option value="general">{{ t('propertyPayments.debt.regime.general') }}</option><option value="consumer_in_default">{{ t('propertyPayments.debt.regime.consumer_in_default') }}</option></select></label>
-          <label class="sm:col-span-2">{{ t('propertyPayments.debtRegistration.legalEvidence') }}<input v-model="state.legal_evidence" required :class="inputClass" data-field="legal-evidence"></label>
-          <label>{{ t('propertyPayments.debt.security') }}<select v-model="state.security_kind" required :class="inputClass" data-field="security-kind"><option value="">{{ t('propertyPayments.choose') }}</option><option value="secured">{{ t('propertyPayments.security.secured') }}</option><option value="unsecured">{{ t('propertyPayments.security.unsecured') }}</option></select></label>
-          <label>{{ t('propertyPayments.debtRegistration.securityEvidence') }}<input v-model="state.security_evidence" required :class="inputClass" data-field="security-evidence"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.titleRef') }}<input v-model="state.title_ref" required :class="inputClass" data-field="title-ref"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.dueDate') }}<DateInput v-model="state.due_date" required :class="inputClass" data-field="debt-due" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debt.basisLabel') }}<select v-model="state.basis" :class="inputClass" data-field="legal-basis"><option value="statutory">{{ t('propertyPayments.debt.basis.statutory') }}</option><option value="legal_act">{{ t('propertyPayments.debt.basis.legal_act') }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm" v-if="state.basis === 'legal_act'">{{ t('propertyPayments.debtRegistration.legalActDate') }}<DateInput v-model="state.legal_act_date" required :class="inputClass" data-field="legal-act-date" /></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debt.regimeLabel') }}<select v-model="state.regime" :class="inputClass" data-field="legal-regime"><option value="general">{{ t('propertyPayments.debt.regime.general') }}</option><option value="consumer_in_default">{{ t('propertyPayments.debt.regime.consumer_in_default') }}</option></select></label>
+          <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.legalEvidence') }}<input v-model="state.legal_evidence" required :class="inputClass" data-field="legal-evidence"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debt.security') }}<select v-model="state.security_kind" required :class="inputClass" data-field="security-kind"><option value="">{{ t('propertyPayments.choose') }}</option><option value="secured">{{ t('propertyPayments.security.secured') }}</option><option value="unsecured">{{ t('propertyPayments.security.unsecured') }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.securityEvidence') }}<input v-model="state.security_evidence" required :class="inputClass" data-field="security-evidence"></label>
         </div>
         <div class="space-y-2 rounded border border-neutral-200 p-3" data-section="damages">
           <label class="flex flex-wrap items-center gap-2"><input type="checkbox" :checked="state.damages_for !== null" data-field="damages-on" @change="state.damages_for = ($event.target as HTMLInputElement).checked ? 0 : null">{{ t('propertyPayments.debtRegistration.damagesOn') }}</label>
@@ -73,14 +73,14 @@ const actions = () => [{ key: 'register', label: t('propertyPayments.debtRegistr
         <div class="space-y-2 rounded border border-neutral-200 p-3" data-section="disposition">
           <label class="flex flex-wrap items-center gap-2"><input v-model="state.disposition_on" type="checkbox" data-field="disposition-on">{{ t('propertyPayments.debtRegistration.dispositionOn') }}</label>
           <template v-if="state.disposition_on">
-            <p class="text-xs text-muted">{{ t('propertyPayments.debtRegistration.dispositionHelp') }}</p>
-            <div class="flex flex-wrap gap-3"><label v-for="c in COMPONENTS" :key="c" class="w-44">{{ t(`propertyPayments.component.${c}`) }}<input v-model="state.order[c]" required inputmode="numeric" :class="inputClass" data-field="component-order"></label></div>
-            <label class="block">{{ t('propertyPayments.debtRegistration.debtorEvidence') }}<input v-model="state.debtor_evidence" required :class="inputClass" data-field="debtor-evidence"></label>
-            <label class="block">{{ t('propertyPayments.debtRegistration.creditorConsent') }}<input v-model="state.creditor_consent" :class="inputClass" data-field="creditor-consent"></label>
+            <p class="text-xs text-neutral-500">{{ t('propertyPayments.debtRegistration.dispositionHelp') }}</p>
+            <div class="flex flex-wrap gap-3"><label v-for="c in COMPONENTS" :key="c" class="w-44 flex min-w-0 flex-col gap-1 text-sm">{{ t(`propertyPayments.component.${c}`) }}<input v-model="state.order[c]" required inputmode="numeric" :class="inputClass" data-field="component-order"></label></div>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.debtorEvidence') }}<input v-model="state.debtor_evidence" required :class="inputClass" data-field="debtor-evidence"></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.creditorConsent') }}<input v-model="state.creditor_consent" :class="inputClass" data-field="creditor-consent"></label>
             <label class="flex flex-wrap items-center gap-2"><input v-model="state.old_on" type="checkbox">{{ t('propertyPayments.debtRegistration.oldInterestOn') }}</label>
             <template v-if="state.old_on">
-              <label class="block">{{ t('propertyPayments.debtRegistration.oldInterestResolution') }}<select v-model="state.old_resolution" :class="inputClass"><option value="none_documented">{{ t('propertyPayments.debtRegistration.oldNone') }}</option><option value="separately_evidenced">{{ t('propertyPayments.debtRegistration.oldSeparate') }}</option></select></label>
-              <label class="block">{{ t('propertyPayments.evidence') }}<input v-model="state.old_evidence" required :class="inputClass"></label>
+              <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.debtRegistration.oldInterestResolution') }}<select v-model="state.old_resolution" :class="inputClass"><option value="none_documented">{{ t('propertyPayments.debtRegistration.oldNone') }}</option><option value="separately_evidenced">{{ t('propertyPayments.debtRegistration.oldSeparate') }}</option></select></label>
+              <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.evidence') }}<input v-model="state.old_evidence" required :class="inputClass"></label>
             </template>
           </template>
         </div>

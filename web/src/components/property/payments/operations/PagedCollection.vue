@@ -36,10 +36,10 @@ defineExpose({ reload: () => load(false), items })
 
 <template>
   <div class="space-y-2" :data-collection="collection">
-    <p class="text-xs text-muted">{{ t('propertyPayments.coverageIncomplete') }}</p>
+    <p class="text-xs text-neutral-500">{{ t('propertyPayments.coverageIncomplete') }}</p>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <p v-if="loading && !items.length">{{ t('propertyPayments.loading') }}</p>
-    <p v-else-if="loadedOnce && !items.length" class="text-sm text-muted">{{ t('propertyPayments.noRows') }}</p>
+    <p v-else-if="loadedOnce && !items.length" class="text-sm text-neutral-500">{{ t('propertyPayments.noRows') }}</p>
     <template v-for="item in (filter ? items.filter(filter) : items)" :key="item.id"><slot name="row" :item="item" /></template>
     <PropertyButton v-if="next !== null" icon="chevron" data-action="load-more" :disabled="loading" @click="load(true)">{{ t('propertyPayments.loadMore') }}</PropertyButton>
   </div>

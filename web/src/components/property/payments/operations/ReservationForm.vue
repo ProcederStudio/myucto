@@ -27,18 +27,18 @@ const actions = () => [{ key: 'reserve', label: t('propertyPayments.reservation.
   <section :class="boxClass" data-section="reservation-form">
     <h3 class="font-semibold">{{ t('propertyPayments.reservation.title') }}</h3>
     <p class="text-sm">{{ credit.unit_label }} · {{ partyNames(credit.parties) }} · {{ t('propertyPayments.credit.available') }}: {{ moneyText(credit.available_cents, t('propertyPayments.unknown')) }}</p>
-    <p class="text-xs text-muted">{{ t('propertyPayments.reservation.help') }}</p>
+    <p class="text-xs text-neutral-500">{{ t('propertyPayments.reservation.help') }}</p>
     <form ref="form" class="space-y-3" @submit.prevent="flow.submit">
       <fieldset :disabled="flow.busy.value || !canManage" class="space-y-3">
         <div class="grid gap-3 sm:grid-cols-2">
-          <label>{{ t('propertyPayments.amount') }}<input v-model="state.amount" required inputmode="decimal" :class="inputClass" data-field="reserve-amount"></label>
-          <label>{{ t('propertyPayments.reservation.disposition') }}<input v-model="state.disposition" required :class="inputClass" data-field="reserve-disposition"></label>
-          <label>{{ t('propertyPayments.reservation.delivery') }}<select v-model="state.delivery" :class="inputClass" data-field="reserve-delivery"><option value="bank">{{ t('propertyPayments.deliveryMethod.bank') }}</option><option value="cash">{{ t('propertyPayments.deliveryMethod.cash') }}</option></select></label>
-          <label v-if="state.delivery === 'bank'">{{ t('propertyPayments.reservation.account') }}<input v-model="state.account" required :class="inputClass" data-field="reserve-account"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.amount') }}<input v-model="state.amount" required inputmode="decimal" :class="inputClass" data-field="reserve-amount"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.disposition') }}<input v-model="state.disposition" required :class="inputClass" data-field="reserve-disposition"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.delivery') }}<select v-model="state.delivery" :class="inputClass" data-field="reserve-delivery"><option value="bank">{{ t('propertyPayments.deliveryMethod.bank') }}</option><option value="cash">{{ t('propertyPayments.deliveryMethod.cash') }}</option></select></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm" v-if="state.delivery === 'bank'">{{ t('propertyPayments.reservation.account') }}<input v-model="state.account" required :class="inputClass" data-field="reserve-account"></label>
         </div>
         <template v-if="state.delivery === 'cash'">
           <div class="space-y-1" data-field="reserve-recipient"><span class="text-sm font-medium">{{ t('propertyPayments.reservation.recipient') }}</span><PropertyPartyPicker :supplier-id="supplier" :model-value="state.recipient_id" @update:model-value="state.recipient_id = $event" /></div>
-          <label class="block">{{ t('propertyPayments.reservation.recipientEvidence') }}<input v-model="state.recipient_evidence" required :class="inputClass" data-field="reserve-recipient-evidence"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.recipientEvidence') }}<input v-model="state.recipient_evidence" required :class="inputClass" data-field="reserve-recipient-evidence"></label>
         </template>
       </fieldset>
       <p v-if="flow.error.value" role="alert" class="text-danger-600">{{ flow.error.value }}</p>

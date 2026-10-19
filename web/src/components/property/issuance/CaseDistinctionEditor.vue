@@ -6,6 +6,7 @@ import type { UnitState } from '@/api/propertyRegistry'
 import PropertyButton from '@/components/property/PropertyButton.vue'
 import CaseCandidateList from './CaseCandidateList.vue'
 import { distinctionComplete } from './issuanceModel'
+import { propertyTextarea as textarea } from '@/components/property/propertyFormStyles'
 const props = defineProps<{ unit: IssueUnit; context: IssueContext; candidates?: CaseCandidate[]; readonly?: boolean }>()
 const { t } = useI18n()
 const name = computed(() => (props.context.units.find(u => u.id === props.unit.unit_id)?.revision?.state as UnitState | undefined)?.unit_no || String(props.unit.unit_id))
@@ -27,8 +28,8 @@ function toggle(key: string, on: boolean) {
       <div v-if="candidates?.length" class="flex flex-wrap gap-3">
         <label v-for="candidate in candidates" :key="candidate.source_key" class="inline-flex items-center gap-2"><input type="checkbox" data-against :checked="unit.case_distinction.against_source_keys.includes(candidate.source_key)" @change="toggle(candidate.source_key, ($event.target as HTMLInputElement).checked)">{{ candidate.case_identity?.case_ref || t('propertyIssuance.case.legacyFamily') }}</label>
       </div>
-      <label class="block">{{ t('propertyIssuance.case.legalReason') }}<textarea v-model="unit.case_distinction.legal_reason" data-distinction="legal_reason" maxlength="4000" class="input w-full" /></label>
-      <label class="block">{{ t('propertyIssuance.case.fields.evidence_ref') }}<textarea v-model="unit.case_distinction.evidence_ref" data-distinction="evidence_ref" maxlength="4000" class="input w-full" /></label>
+      <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.case.legalReason') }}<textarea v-model="unit.case_distinction.legal_reason" data-distinction="legal_reason" maxlength="4000" :class="textarea" /></label>
+      <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.case.fields.evidence_ref') }}<textarea v-model="unit.case_distinction.evidence_ref" data-distinction="evidence_ref" maxlength="4000" :class="textarea" /></label>
       <p v-if="!complete && !readonly" class="text-sm text-warning-700" data-testid="distinction-incomplete">{{ t('propertyIssuance.case.distinctionIncomplete') }}</p>
       <div v-if="!readonly && !candidates?.length" class="flex flex-wrap gap-2"><PropertyButton icon="x" @click="delete unit.case_distinction">{{ t('propertyIssuance.case.removeDistinction') }}</PropertyButton></div>
     </fieldset>

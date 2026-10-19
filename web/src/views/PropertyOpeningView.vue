@@ -8,6 +8,7 @@ import DateInput from '@/components/ui/DateInput.vue'
 import PropertyInstantInput from '@/components/property/PropertyInstantInput.vue'
 import PropertyButton from '@/components/property/PropertyButton.vue'
 import { propertyError } from '@/components/property/propertyError'
+import { propertyDateInput as dateInput, propertyInput as input } from '@/components/property/propertyFormStyles'
 const { t } = useI18n()
 const supplier = computed(() => useSupplierStore().currentSupplierId)
 const empty = (): OpeningRequest => ({ mode: 'post_new', accounting_date: '', effective_at: '', expected_revision: 0, evidence_ref: '', reason: '', items: [], other_balances: [] })
@@ -17,7 +18,6 @@ const preview = ref<OpeningPreview | null>(null)
 const capabilities = reactive({ manage: false, post: false, revise: false })
 const busy = ref(false), error = ref(''), notice = ref('')
 let epoch = 0, token = crypto.randomUUID(), submitted: OpeningRequest | null = null
-const input = 'h-9 w-full min-w-0 rounded-md border border-neutral-300 bg-surface px-2 text-sm'
 function invalidate() { epoch++; preview.value = null; submitted = null; token = crypto.randomUUID(); notice.value = '' }
 watch(form, invalidate, { deep: true, flush: 'sync' })
 onBeforeUnmount(() => epoch++)
@@ -62,18 +62,18 @@ const actions = computed<ActionItem[]>(() => [preview.value ? { key: 'confirm', 
 <template>
  <div class="space-y-5">
   <h1 class="text-xl font-semibold">{{ t('propertyOpening.title') }}</h1>
-  <p class="text-sm text-muted">{{ t('propertyOpening.help') }}</p>
+  <p class="text-sm text-neutral-500">{{ t('propertyOpening.help') }}</p>
   <p v-if="error" role="alert" class="rounded border border-danger-300 bg-danger-50 p-3 text-danger-700">{{ error }}</p>
   <p v-if="notice" role="status" class="rounded border p-3">{{ notice }}</p>
   <section class="space-y-4 rounded-lg border bg-surface p-4">
-   <label class="block text-sm">{{ t('propertyOpening.file') }}<input type="file" accept=".json,application/json" :disabled="busy || !capabilities.manage" class="mt-1 block w-full" @change="importFile" /></label>
+   <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.file') }}<input type="file" accept=".json,application/json" :disabled="busy || !capabilities.manage" class="mt-1 block w-full" @change="importFile" /></label>
    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-    <label>{{ t('propertyOpening.mode') }}<select v-model="form.mode" :class="input" :disabled="busy"><option v-for="mode in ['post_new', 'bind_existing', 'revision', 'reversal']" :key="mode" :value="mode">{{ t(`propertyOpening.modes.${mode}`) }}</option></select></label>
-    <label>{{ t('propertyOpening.accountingDate') }}<DateInput v-model="form.accounting_date" :disabled="busy" /></label>
+    <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.mode') }}<select v-model="form.mode" :class="input" :disabled="busy"><option v-for="mode in ['post_new', 'bind_existing', 'revision', 'reversal']" :key="mode" :value="mode">{{ t(`propertyOpening.modes.${mode}`) }}</option></select></label>
+    <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.accountingDate') }}<DateInput :class="dateInput" v-model="form.accounting_date" :disabled="busy" /></label>
     <label>{{ t('propertyOpening.effectiveAt') }}<PropertyInstantInput v-model="form.effective_at" :label="t('propertyOpening.effectiveAt')" :disabled="busy" /></label>
-    <label>{{ t('propertyOpening.revision') }}<input v-model.number="form.expected_revision" type="number" min="0" :class="input" :disabled="busy" /></label>
-    <template v-if="form.mode === 'bind_existing'"><label>{{ t('propertyOpening.journal') }}<input v-model.number="form.journal_entry_id" type="number" min="1" :class="input" :disabled="busy" /></label><label>{{ t('propertyOpening.journalVersion') }}<input v-model.number="form.journal_version" type="number" min="1" :class="input" :disabled="busy" /></label></template>
-    <label>{{ t('propertyOpening.evidence') }}<input v-model="form.evidence_ref" :class="input" :disabled="busy" /></label><label>{{ t('propertyOpening.reason') }}<input v-model="form.reason" :class="input" :disabled="busy" /></label>
+    <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.revision') }}<input v-model.number="form.expected_revision" type="number" min="0" :class="input" :disabled="busy" /></label>
+    <template v-if="form.mode === 'bind_existing'"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.journal') }}<input v-model.number="form.journal_entry_id" type="number" min="1" :class="input" :disabled="busy" /></label><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.journalVersion') }}<input v-model.number="form.journal_version" type="number" min="1" :class="input" :disabled="busy" /></label></template>
+    <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.evidence') }}<input v-model="form.evidence_ref" :class="input" :disabled="busy" /></label><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.reason') }}<input v-model="form.reason" :class="input" :disabled="busy" /></label>
    </div>
    <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr><th>{{ t('propertyOpening.case') }}</th><th>{{ t('propertyOpening.kind') }}</th><th>{{ t('propertyOpening.unit') }}</th><th>{{ t('propertyOpening.service') }}</th><th>{{ t('propertyOpening.roles') }}</th></tr></thead><tbody><tr v-for="(item, index) in form.items" :key="index" class="border-t"><td class="p-2">{{ item.case_ref }} / {{ item.occurrence_ref }}</td><td>{{ t(`propertyOpening.kinds.${item.kind}`) }}</td><td>{{ item.unit_id }}</td><td>{{ item.service_id }}</td><td><div v-for="part in item.components" :key="part.key">{{ part.account_code }} · {{ t(`propertyOpening.rolesList.${part.role}`) }} · {{ part.amount_cents }} {{ t('propertyOpening.cents') }}</div></td></tr></tbody></table></div>
    <ActionBar :actions="actions" />
