@@ -95,6 +95,22 @@ export interface JointMutationResult {
   status: 'applied' | 'cancelled'
   cancellation_entry_id: number | null
 }
+export interface RevenueProposal {
+  basis: 'revenue'
+  date_from: string
+  date_to: string
+  net_revenue_cents: string
+  source_lines: number
+  unclassified_lines: number
+  unclassified_amount_cents: string
+  cells: JointCell[]
+  can_propose: boolean
+  reason_codes: string[]
+  proposal_hash: string
+  verification_scope: 'posted_revenue_aggregates'
+  requires_manual_confirmation: true
+  mutations_performed: false
+}
 const base = '/accounting/joint-allocations'
 const scope = (supplierId: number) => ({ headers: { 'X-Supplier-Id': String(supplierId) } })
 export const jointAllocationsApi = {
@@ -109,6 +125,9 @@ export const jointAllocationsApi = {
   },
   async candidates(supplierId: number, params: { target_date: string; from: string; to: string; search: string; before_id?: number }): Promise<{ items: JointCandidate[]; next_before_id: number | null }> {
     return (await api.get(`${base}/candidates`, { ...scope(supplierId), params })).data
+  },
+  async revenueProposal(supplierId: number, params: { from: string; to: string }): Promise<RevenueProposal> {
+    return (await api.get(`${base}/revenue-proposal`, { ...scope(supplierId), params })).data
   },
   async preview(supplierId: number, input: JointPreviewInput): Promise<JointPreview> {
     return (await api.post(`${base}/preview`, input, scope(supplierId))).data

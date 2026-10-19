@@ -172,7 +172,7 @@ async function moreHistory() {
       <button v-if="canWrite && chosen" :class="btnOutline('warning')" @click="copyKey"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.copy" /></svg>{{ t('jointAllocations.resolveWithKey') }}</button>
     </div>
     <p v-if="busy" role="status" class="text-sm text-neutral-500">{{ t('jointAllocations.loading') }}</p>
-    <JointAllocationKeyEditor v-if="editorOpen && canWrite" ref="editor" :key="supplier.currentSupplierId" :types="catalog?.types ?? []" :values="catalog?.values ?? []" :versions="versions" :busy="busy" @save="saveKey" @close="editorOpen = false" />
+    <JointAllocationKeyEditor v-if="editorOpen && canWrite" ref="editor" :key="supplier.currentSupplierId" :types="catalog?.types ?? []" :values="catalog?.values ?? []" :versions="versions" :busy="busy" :supplier-id="supplier.currentSupplierId" @save="saveKey" @close="editorOpen = false" />
     <section class="rounded-lg border border-neutral-200 bg-surface p-4 space-y-4">
       <h2 class="font-semibold">{{ t('jointAllocations.sources') }}</h2>
       <form ref="sourcesForm" class="flex flex-wrap items-end gap-3" @submit.prevent="findSources()">

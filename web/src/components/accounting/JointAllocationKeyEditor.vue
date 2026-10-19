@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DateInput from '@/components/ui/DateInput.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import type { DimensionType, DimensionValue } from '@/api/dimensions'
-import { jointAxes, type JointCell, type JointVersion, type JointVersionInput } from '@/api/jointAllocations'
+import { jointAllocationsApi, jointAxes, type JointCell, type JointVersion, type JointVersionInput, type RevenueProposal } from '@/api/jointAllocations'
 
-const props = defineProps<{ types: DimensionType[]; values: DimensionValue[]; versions: JointVersion[]; busy: boolean }>()
+const props = defineProps<{ types: DimensionType[]; values: DimensionValue[]; versions: JointVersion[]; busy: boolean; supplierId: number }>()
 const emit = defineEmits<{ save: [input: { keyId: number; code: string; name: string; version: JointVersionInput }]; close: [] }>()
 const { t } = useI18n()
 const form = ref<HTMLFormElement | null>(null)
@@ -36,6 +36,72 @@ function copy(source: JointVersion) {
     allocation_mode: source.allocation_mode, cells: JSON.parse(JSON.stringify(source.cells)) as JointCell[] }
   additional.value = Object.keys(source.cells[0]?.additional_dimensions ?? {}).map(Number)
 }
+const isoDate = /^(\d{4})-(\d{2})-(\d{2})$/
+function validIsoDate(value: string) {
+  const match = isoDate.exec(value)
+  if (!match) return false
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  return date.toISOString().slice(0, 10) === value
+}
+const sourceFrom = ref('')
+const sourceTo = ref('')
+const proposal = ref<RevenueProposal | null>(null)
+const proposalLoading = ref(false)
+const proposalError = ref('')
+let proposalSeq = 0
+const rangeValid = computed(() => validIsoDate(sourceFrom.value) && validIsoDate(sourceTo.value) && sourceFrom.value <= sourceTo.value)
+const canFetchProposal = computed(() => !props.busy && !proposalLoading.value && rangeValid.value)
+const canApplyProposal = computed(() => !props.busy && !proposalLoading.value && proposal.value?.can_propose === true
+  && proposal.value.cells.length > 0 && version.value.allocation_mode === 'weighted' && additional.value.length === 0)
+const applyBlocked = computed(() => {
+  if (!proposal.value?.can_propose) return ''
+  if (version.value.allocation_mode !== 'weighted') return 'applyNeedsWeighted'
+  if (additional.value.length > 0) return 'applyNoAdditionalAxes'
+  return ''
+})
+const knownReasons = ['no_revenue', 'unclassified_revenue', 'split_dimensions', 'negative_cell', 'too_many_cells', 'system_dimensions_missing']
+const reasonKeys = computed(() => (proposal.value?.reason_codes ?? []).map(code => knownReasons.includes(code) ? code : 'unknown'))
+function formatCents(cents: string) {
+  if (!/^-?\d+$/.test(cents)) return cents
+  const value = BigInt(cents)
+  const abs = value < 0n ? -value : value
+  const whole = (abs / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return `${value < 0n ? '-' : ''}${whole},${(abs % 100n).toString().padStart(2, '0')}`
+}
+function valueName(id: number) { return props.values.find(value => value.id === id)?.name ?? t('jointAllocations.missingValue') }
+function resetProposal() {
+  proposalSeq++
+  proposal.value = null
+  proposalError.value = ''
+  proposalLoading.value = false
+}
+watch([sourceFrom, sourceTo, () => props.supplierId], resetProposal)
+onBeforeUnmount(() => { proposalSeq++ })
+async function fetchProposal() {
+  if (!canFetchProposal.value) return
+  const seq = ++proposalSeq
+  const supplierId = props.supplierId
+  const params = { from: sourceFrom.value, to: sourceTo.value }
+  proposal.value = null
+  proposalError.value = ''
+  proposalLoading.value = true
+  try {
+    const result = await jointAllocationsApi.revenueProposal(supplierId, params)
+    if (seq !== proposalSeq || supplierId !== props.supplierId) return
+    if (result.basis !== 'revenue' || result.date_from !== params.from || result.date_to !== params.to) proposalError.value = 'failed'
+    else proposal.value = result
+  } catch (error) {
+    if (seq !== proposalSeq || supplierId !== props.supplierId) return
+    proposalError.value = (error as { response?: { status?: number } })?.response?.status === 422 ? 'rejected' : 'failed'
+  } finally {
+    if (seq === proposalSeq) proposalLoading.value = false
+  }
+}
+function applyProposal() {
+  if (!canApplyProposal.value || !proposal.value) return
+  version.value.cells = proposal.value.cells.map(cell => ({ activity: cell.activity, activity_kind: cell.activity_kind, tax_regime: cell.tax_regime, weight: cell.weight, additional_dimensions: {} }))
+  version.value.basis = 'revenue'
+}
 function validate() { return !props.busy && form.value?.reportValidity() === true }
 function save() {
   if (!validate()) return
@@ -45,6 +111,7 @@ defineExpose({ copy, validate })
 </script>
 
 <template>
+  <div class="space-y-4">
   <form ref="form" class="rounded-lg border border-neutral-200 bg-surface p-4 space-y-4" @submit.prevent="save">
     <h2 class="font-semibold">{{ t('jointAllocations.keyEditor') }}</h2>
     <p class="text-sm text-neutral-500">{{ t('jointAllocations.immutableKey') }}</p>
@@ -102,4 +169,33 @@ defineExpose({ copy, validate })
       <button type="button" :class="btnOutline('neutral')" :disabled="busy" @click="emit('close')"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.x" /></svg>{{ t('jointAllocations.close') }}</button>
     </div>
   </form>
+  <section class="rounded-lg border border-neutral-200 bg-surface p-4 space-y-3" data-test="revenue-proposal">
+    <h2 class="font-semibold">{{ t('jointAllocations.revenueProposal.title') }}</h2>
+    <p class="text-sm text-neutral-500">{{ t('jointAllocations.revenueProposal.help') }}</p>
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="flex flex-col gap-1 text-sm">{{ t('jointAllocations.revenueProposal.from') }}<DateInput v-model="sourceFrom" :disabled="busy" class="h-9 rounded border border-neutral-300 px-2" /></label>
+      <label class="flex flex-col gap-1 text-sm">{{ t('jointAllocations.revenueProposal.to') }}<DateInput v-model="sourceTo" :disabled="busy" class="h-9 rounded border border-neutral-300 px-2" /></label>
+      <button type="button" data-test="fetch-proposal" :class="btnOutline('neutral')" :disabled="!canFetchProposal" @click="fetchProposal"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.chart" /></svg>{{ t('jointAllocations.revenueProposal.fetch') }}</button>
+    </div>
+    <p v-if="(sourceFrom || sourceTo) && !rangeValid" role="alert" class="text-sm text-danger-600">{{ t('jointAllocations.revenueProposal.invalidRange') }}</p>
+    <p v-if="proposalLoading" role="status" class="text-sm text-neutral-500">{{ t('jointAllocations.loading') }}</p>
+    <p v-if="proposalError" role="alert" class="text-sm text-danger-600">{{ t(`jointAllocations.revenueProposal.errors.${proposalError}`) }}</p>
+    <div v-if="proposal" class="space-y-3" data-test="proposal-result">
+      <dl class="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        <div><dt class="text-neutral-500">{{ t('jointAllocations.revenueProposal.netRevenue') }}</dt><dd>{{ t('jointAllocations.revenueProposal.amountCzk', { amount: formatCents(proposal.net_revenue_cents) }) }}</dd></div>
+        <div><dt class="text-neutral-500">{{ t('jointAllocations.revenueProposal.sourceLines') }}</dt><dd>{{ proposal.source_lines }}</dd></div>
+        <div><dt class="text-neutral-500">{{ t('jointAllocations.revenueProposal.unclassifiedLines') }}</dt><dd>{{ proposal.unclassified_lines }}</dd></div>
+        <div><dt class="text-neutral-500">{{ t('jointAllocations.revenueProposal.unclassifiedAmount') }}</dt><dd>{{ t('jointAllocations.revenueProposal.amountCzk', { amount: formatCents(proposal.unclassified_amount_cents) }) }}</dd></div>
+        <div><dt class="text-neutral-500">{{ t('jointAllocations.revenueProposal.cellCount') }}</dt><dd>{{ proposal.cells.length }}</dd></div>
+      </dl>
+      <ul v-if="reasonKeys.length" class="list-disc pl-5 text-sm text-warning-700" data-test="proposal-reasons"><li v-for="reason in reasonKeys" :key="reason">{{ t(`jointAllocations.revenueProposal.reasons.${reason}`) }}</li></ul>
+      <ul v-if="proposal.cells.length" class="text-sm space-y-1" data-test="proposal-cells">
+        <li v-for="(cell, index) in proposal.cells" :key="index">{{ valueName(cell.activity) }} · {{ valueName(cell.activity_kind) }} · {{ valueName(cell.tax_regime) }} · {{ t('jointAllocations.weight') }} {{ cell.weight }}</li>
+      </ul>
+      <p class="text-sm text-neutral-500">{{ t('jointAllocations.revenueProposal.manualReview') }}</p>
+      <p v-if="applyBlocked" role="status" class="text-sm text-warning-700">{{ t(`jointAllocations.revenueProposal.${applyBlocked}`) }}</p>
+      <button type="button" data-test="apply-proposal" :class="btnFilled('primary')" :disabled="!canApplyProposal" @click="applyProposal"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.check" /></svg>{{ t('jointAllocations.revenueProposal.apply') }}</button>
+    </div>
+  </section>
+  </div>
 </template>

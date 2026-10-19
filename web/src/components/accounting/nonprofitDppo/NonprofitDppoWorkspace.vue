@@ -6,7 +6,7 @@ import DateInput from '@/components/ui/DateInput.vue'
 import NonprofitDppoReductionEditor from './NonprofitDppoReductionEditor.vue'
 import { nonprofitDppoApi as api } from '@/api/nonprofitDppo'
 import type { AccountingPeriod } from '@/api/accounting'
-import type { LegalConfirm, LegalKind, LegalOverview, NonprofitDppoState, SavingConfirm, SavingOverview, SavingPlan, SavingReverseConfirm, SavingSource, SavingUseInput } from '@/api/nonprofitDppoTypes'
+import type { LegalConfirm, LegalKind, LegalOverview, NonprofitDppoState, NonprofitOperationKey, SavingConfirm, SavingOverview, SavingPlan, SavingReverseConfirm, SavingSource, SavingUseInput } from '@/api/nonprofitDppoTypes'
 const props = defineProps<{ supplier: number; canManage: boolean; canEditReturn?: boolean }>()
 const { t, locale } = useI18n()
 const periods = ref<AccountingPeriod[]>([]), period = ref(0), legal = ref<LegalOverview | null>(null), savings = ref<SavingOverview | null>(null), native = ref<NonprofitDppoState | null>(null)
@@ -24,6 +24,10 @@ const reversible = computed(() => source.value?.events.filter(e => e.operation =
 const profileWritable = computed(() => props.canManage && legal.value?.capabilities.can_confirm === true)
 const savingsWritable = computed(() => props.canManage && savings.value?.capabilities.can_confirm === true)
 const locked = computed(() => busy.value || uncertain.value)
+type Capabilities = LegalOverview['capabilities']
+const operationKeys: NonprofitOperationKey[] = ['compute', 'finalize', 'export_xml', 'submit']
+function canLoadNative(c: Capabilities) { return c.native_dppo === true && (c.calculation_ready ?? c.filing_ready) === true && c.operations?.compute?.allowed !== false }
+function canFinalize(c: Capabilities) { return c.operations?.finalize ? c.operations.finalize.allowed === true : true }
 function money(cents: string | number) { return new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'CZK' }).format(Number(cents) / 100) }
 function kc(value: number) { return new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'CZK' }).format(value) }
 function cents(value: string): string | null { const m = /^(\d+)(?:[,.](\d{1,2}))?$/.exec(value.trim()); if (!m) return null; const n = BigInt(m[1]!) * 100n + BigInt((m[2] || '').padEnd(2, '0')); return n > 0n ? String(n) : null }
@@ -38,7 +42,7 @@ async function loadProfile() {
  const supplier = props.supplier, selected = period.value, ticket = ++generation; legal.value = null; native.value = null; resetReview(); if (!selected) return
  busy.value = true; error.value = ''
  try { const data = await api.profile(supplier, selected); if (!current(ticket, supplier)) return; legal.value = data; kind.value = data.latest?.profile.kind || ''; entity.value = data.latest?.profile.entity_type || ''; nonbusiness.value = data.latest?.profile.main_activity_nonbusiness || false; legalBasis.value = data.latest?.profile.legal_basis || ''; evidence.value = data.latest?.profile.evidence || ''; reason.value = ''
-  if (data.capabilities.native_dppo && data.capabilities.filing_ready) { const result = await api.native(supplier, data.period.fiscal_year); if (current(ticket, supplier)) native.value = result }
+  if (canLoadNative(data.capabilities)) { const result = await api.native(supplier, data.period.fiscal_year); if (current(ticket, supplier)) native.value = result }
  } catch (e) { if (current(ticket, supplier)) error.value = message(e) } finally { if (current(ticket, supplier)) busy.value = false }
 }
 async function reload() {
@@ -72,7 +76,10 @@ async function confirm() {
 const actions = computed<ActionItem[]>(() => [{ key: 'confirm', label: t(uncertain.value ? 'nonprofitDppo.retry' : 'nonprofitDppo.confirm'), icon: 'check', variant: 'success', tier: 'primary', show: Boolean(pending.value), disabled: busy.value || (!uncertain.value && !acknowledged.value) || !props.canManage, run: confirm }, { key: 'refresh', label: t('nonprofitDppo.refresh'), icon: 'search', variant: 'neutral', tier: 'secondary', disabled: locked.value, run: reload }])
 const profileActions = computed<ActionItem[]>(() => [{ key: 'review-profile', label: t('nonprofitDppo.reviewProfile'), icon: 'eye', variant: 'primary', tier: 'primary', disabled: locked.value || !profileWritable.value, run: profileReview }])
 const savingActions = computed<ActionItem[]>(() => [{ key: 'preview-use', label: t('nonprofitDppo.previewUse'), icon: 'eye', variant: 'primary', tier: 'primary', disabled: locked.value || !savingsWritable.value || !source.value?.eligibility.ready || source.value?.void, run: () => reviewSaving() }, { key: 'preview-reverse', label: t('nonprofitDppo.previewReverse'), icon: 'uturn', variant: 'danger', tier: 'secondary', disabled: locked.value || !savingsWritable.value || !eventId.value, run: () => reviewSaving(true) }])
-const filingReady = computed(() => legal.value?.capabilities.native_dppo === true && legal.value.capabilities.filing_ready === true && Boolean(native.value?.nonprofit_filing_proof_hash && native.value.computed.nonprofit) && native.value?.return.type === 'po' && native.value.return.year === legal.value.period.fiscal_year && native.value.podklady.accounting_decree === '504' && (native.value.podklady.period as { id?: number } | undefined)?.id === legal.value.period.id)
+const nativeProofMatches = computed(() => legal.value?.capabilities.native_dppo === true && Boolean(native.value?.nonprofit_filing_proof_hash && native.value.computed.nonprofit) && native.value?.return.type === 'po' && native.value.return.year === legal.value.period.fiscal_year && native.value.podklady.accounting_decree === '504' && (native.value.podklady.period as { id?: number } | undefined)?.id === legal.value.period.id)
+const filingReady = computed(() => Boolean(legal.value && nativeProofMatches.value && legal.value.capabilities.filing_ready === true && canFinalize(legal.value.capabilities)))
+const operations = computed(() => operationKeys.flatMap(key => { const op = legal.value?.capabilities.operations?.[key]; return op ? [{ key, ...op }] : [] }))
+const formManifest = computed(() => legal.value?.capabilities.form_manifest || null)
 const filingActions = computed<ActionItem[]>(() => [{ key: 'open-filing', label: t('nonprofitDppo.openFiling'), icon: 'doc', variant: 'primary', tier: 'primary', show: filingReady.value, to: { name: 'reports-income-tax', query: { type: 'po', year: String(legal.value?.period.fiscal_year), tab: 'nahled' } } }])
 function sourceLabel(s: SavingSource) { return `${s.source.basis.period.starts_on} - ${s.source.basis.period.ends_on} · ${money(s.remaining_cents)}` }
 </script>
@@ -92,9 +99,16 @@ function sourceLabel(s: SavingSource) { return `${s.source.basis.period.starts_o
     <label>{{ t('nonprofitDppo.legalBasis') }}<textarea v-model="legalBasis" data-field="legal-basis" :class="input" /></label><label>{{ t('nonprofitDppo.evidence') }}<textarea v-model="evidence" data-field="profile-evidence" :class="input" /></label><label class="md:col-span-2">{{ t('nonprofitDppo.reason') }}<textarea v-model="reason" data-field="profile-reason" :class="input" /></label>
    </fieldset><ActionBar :actions="profileActions" />
    <ul v-if="legal.capabilities.preparation_findings?.length" class="list-disc space-y-1 pl-5"><li v-for="finding in legal.capabilities.preparation_findings" :key="finding.code">{{ finding.message }}</li></ul>
+   <section v-if="operations.length || formManifest" class="space-y-2" data-test="operations">
+    <h3 class="font-semibold">{{ t('nonprofitDppo.operations.title') }}</h3>
+    <p v-if="formManifest" class="text-sm text-muted" data-test="form-manifest">{{ t('nonprofitDppo.operations.form', { code: formManifest.form_code, version: formManifest.form_version, date: formManifest.form_date }) }}</p>
+    <ul v-if="operations.length" class="space-y-1 text-sm">
+     <li v-for="op in operations" :key="op.key" :data-operation="op.key" :data-allowed="String(op.allowed)"><span class="font-medium">{{ t(`nonprofitDppo.operations.labels.${op.key}`) }}</span> · <span :class="op.allowed ? 'text-success' : 'text-warning'">{{ t(op.allowed ? 'nonprofitDppo.operations.supported' : 'nonprofitDppo.operations.blocked') }}</span><span v-if="!op.allowed && op.message" data-test="operation-message"> - {{ op.message }}</span></li>
+    </ul>
+   </section>
    <ActionBar :actions="filingActions" /><p v-if="!filingReady" class="text-sm text-muted" data-test="not-ready">{{ t('nonprofitDppo.notReady') }}</p>
    <dl v-if="native?.computed.nonprofit" class="grid gap-3 sm:grid-cols-2"><div><dt>{{ t('nonprofitDppo.filingObligation') }}</dt><dd>{{ t(native.computed.nonprofit.filing_obligation.required ? 'nonprofitDppo.required' : 'nonprofitDppo.notRequired') }} · {{ native.computed.nonprofit.filing_obligation.legal_basis }}</dd></div><div><dt>{{ t('nonprofitDppo.taxSaving') }}</dt><dd>{{ kc(native.computed.nonprofit.saving.saving_kc) }}</dd></div></dl>
-   <NonprofitDppoReductionEditor v-if="native?.computed.nonprofit" :supplier="supplier" :state="native" :can-edit="Boolean(filingReady && canEditReturn && legal.capabilities.can_edit_reduction)" @updated="native = $event" />
+   <NonprofitDppoReductionEditor v-if="native?.computed.nonprofit" :supplier="supplier" :state="native" :can-edit="Boolean(nativeProofMatches && canEditReturn && legal.capabilities.can_edit_reduction)" @updated="native = $event" />
   </article>
   <article v-if="savings" class="space-y-4 rounded-xl border bg-surface p-5">
    <h2 class="text-lg font-semibold">{{ t('nonprofitDppo.savings') }}</h2><p class="text-sm text-muted">{{ t('nonprofitDppo.savingsHelp') }}</p><p v-if="!savings.sources.length">{{ t('nonprofitDppo.noSavings') }}</p>
