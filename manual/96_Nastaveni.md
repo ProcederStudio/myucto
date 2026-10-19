@@ -43,8 +43,10 @@ Nastavení globálních položek smí měnit jen superadministrátor nebo admini
 
 V **Nastavení / Účetní rámec** lze pro testování zvolit **Nevýdělečné organizace (vyhláška 504)**. Zadejte první den existujícího účetního období a použijte **Uložit účetní rámec samostatně**. Změna vyžaduje příslušné oprávnění a v dotčeném intervalu nesmějí být zaúčtované zápisy. Platnost změn je vidět v historii rámce.
 
+U rozpoznané právní formy spolku, nadace, ústavu nebo SVJ se zobrazí doporučení rámce 504. Tlačítko **Zvolit doporučený rámec** pouze připraví výběr. Nic neukládá a nenahrazuje datum účinnosti ani samostatné potvrzení změny. Právní forma sama nepotvrzuje veřejnou prospěšnost ani osvobození příjmů. Existující účetnictví se převádí řízeně na hranici období přes **Převod účetního rámce**.
+
 > [!WARNING]
-> Účetní rámec 504 je v testování a zatím není vhodný pro produkční účetnictví. Některé operace, například přiznání DPPO, zůstávají nepodporované. V této sekci se při výběru nebo používání rámce 504 zobrazuje žluté upozornění.
+> Účetní rámec 504 je v testování a zatím není vhodný pro produkční účetnictví. Dostupnost výpočtu, finalizace a podání DPPO závisí na období, doložených podkladech a podporované verzi formuláře; podrobnosti jsou v [Daň z příjmů](43_Dan_z_prijmu.md). V této sekci se při výběru nebo používání rámce 504 zobrazuje žluté upozornění.
 
 
 Přepnutí rámce nepřevádí existující účtový rozvrh podle vyhlášky 500. Rozvrh podle vyhlášky 504 se inicializuje pouze tehdy, když je rozvrh prázdný. Pro testování proto použijte novou firmu s prázdným rozvrhem a rámec 504 nastavte před prvním zapnutím podvojného účetnictví.

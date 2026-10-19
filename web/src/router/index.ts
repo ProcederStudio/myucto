@@ -167,6 +167,7 @@ const routePermissions: Record<string, [PermissionKey | readonly PermissionKey[]
   'accounting-dimension-profit': ['accounting'], 'company-dimensions': ['accounting'],
   'accounting-joint-allocations': ['accounting'],
   'accounting-nonprofit-tax': ['accounting'], 'accounting-nonprofit-dppo': ['accounting'], 'accounting-nonprofit-funding': ['accounting'], 'accounting-nonprofit-capital': ['accounting'],
+  'accounting-nonprofit-membership': ['accounting'],
   'accounting-statement-mapping': ['accounting'],
   'accounting-document-completeness': ['accounting'],
   'accounting-balance-inventory': ['accounting'],

@@ -107,6 +107,8 @@ nasazuje). Zbytek je psaný pro běžného uživatele — bez programátorského
 111. [Souběh se starým systémem](111_Soubeh_se_starym_systemem.md)
 64. [Mzdová rekapitulace a mzdový list](64_Mzdy.md)
 117. [Granty a účelové dary](117_Granty_a_ucelove_dary.md)
+119. [Investiční zdroje a fondy](119_Investicni_zdroje_a_fondy.md)
+120. [Členové a členské příspěvky](120_Clenove_a_clenske_prispevky.md)
 
 ### Nástroje
 

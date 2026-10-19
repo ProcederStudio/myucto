@@ -256,6 +256,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'accounting/joint-allocations', name: 'accounting-joint-allocations', component: () => import('@/pages/accounting/JointAllocations.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/nonprofit-capital', name: 'accounting-nonprofit-capital', component: () => import('@/views/NonprofitCapitalView.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/nonprofit-funding', name: 'accounting-nonprofit-funding', component: () => import('@/views/NonprofitFundingView.vue'), meta: { requiresDoubleEntry: true } },
+      { path: 'accounting/nonprofit-membership', name: 'accounting-nonprofit-membership', component: () => import('@/views/NonprofitMembershipView.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/periods/:id(\\d+)/nonprofit-tax', name: 'accounting-nonprofit-tax', component: () => import('@/pages/accounting/NonprofitTaxAssessment.vue'), meta: { requiresDoubleEntry: true } },
       // Výjimky mapování účtů do výkazů pro konkrétní firmu (splatnost, spřízněné osoby, analytiky).
       { path: 'accounting/statement-mapping', name: 'accounting-statement-mapping', component: () => import('@/pages/accounting/StatementMapping.vue'), meta: { requiresDoubleEntry: true, requiresSupplier: true } },

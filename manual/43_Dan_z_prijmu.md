@@ -43,7 +43,12 @@ rekonciliace](49_Archiv_podani_a_rekonciliace.md).
 > [!WARNING]
 > Výpočty jsou pomůckou pro poplatníka a účetní. Sazby, minima a limity se každý rok mění. Před podáním hodnoty ověřte a případně konzultujte s daňovým poradcem. Vygenerované XML se ověřuje proti oficiálnímu XSD schématu finanční správy a archivuje.
 
-DPPO pro období vedené podle účetního rámce 504 zatím nelze vypočítat, exportovat ani podat. Přiznání zpracujte externě; potvrzenou daň lze zaúčtovat ručně. Historická období s rámcem 500 zůstávají dostupná i po změně současného rámce firmy. Rozhoduje rámec příslušného období, nikoli ručně uložená vyhláška v nastavení.
+DPPO pro účetní rámec 504 vychází z potvrzeného právního profilu a daňového
+posouzení konkrétního účetního období. Aplikace samostatně ukazuje dostupnost
+výpočtu, finalizace, XML a podání. Období začínající v roce 2026 lze v rozsahu
+ověřených pravidel vypočítat, dostupný formulář DPPDP9 05.01.01 však jeho
+finalizaci a podání neumožňuje. Historická období s rámcem 500 zůstávají
+dostupná i po změně současného rámce firmy. Rozhoduje rámec příslušného období.
 
 ## 43.3 Krok za krokem: sestavení a podání přiznání
 
@@ -791,8 +796,7 @@ ještě před podáním.
 <!-- cols: 34 66 -->
 | Případ | Jak se projeví |
 |---|---|
-| Investiční fond, investiční nebo penzijní společnost, banka, pojišťovna | Přiznání se nevydá. Mají vlastní typ poplatníka a účtují podle vyhlášky 501/502/503, kdežto aplikace umí jen vyhlášku 500. |
-| Veřejně prospěšný poplatník (§ 17a) | Přiznání se nevydá. Jiné dělení činností, jiný základ daně a vyhláška 504. |
+| Investiční fond, investiční nebo penzijní společnost, banka, pojišťovna | Přiznání se nevydá. Zvláštní režimy a vyhlášky 501/502/503 nejsou podporované. |
 | Daňový nerezident, stálá provozovna | Přiznání se nevydá při typu poplatníka 2. Sídlo mimo ČR samo o sobě nerezidenta nedělá (rozhoduje místo vedení podle § 17 odst. 3 ZDP), proto je samotné zahraniční sídlo jen upozorněním. |
 | Likvidace, insolvence, fúze nebo přeměna | Přiznání se nevydá. Mění typ přiznání i zdaňovací období; hláška vám řekne, který typ přiznání úřad čeká. |
 | Investiční pobídky (§ 35a/§ 35b) | Přiznání se nevydá. Podmínky se sledují roky zpětně mimo účetnictví. |
@@ -811,8 +815,25 @@ Právní profil obsahuje výslovně zvolené postavení poplatníka, druh organi
 rozhodné skutečnosti. Oprávněný uživatel jej může potvrdit; předchozí potvrzení zůstávají
 v historii. Změna podkladů vyžaduje nové potvrzení profilu a příslušného daňového posouzení.
 
-Příprava finálního přiznání a elektronické podání DPPO pro rámec 504 jsou v aplikaci
-nedostupné. Obrazovka ukazuje příslušné omezení a podklady pro samostatné zpracování.
+Výpočet vyžaduje podvojné účetnictví a rámec 504 v celém skutečném období,
+potvrzený právní profil a aktuální potvrzené daňové posouzení. Podporovaný
+interval musí celý ležet uvnitř pravidel pro roky 2024 až 2026. Snížení
+základu a související úsporu upravujte podle doloženého právního titulu;
+uložení změny vyžaduje oprávnění k zápisu výkazů.
+
+Obrazovka rozlišuje **Výpočet**, **Finalizaci**, **Export XML** a **Podání**.
+U nedostupné operace ukáže konkrétní důvod a připnutou verzi formuláře.
+Nedostupnost formuláře nebrání samostatně podporovanému výpočtu. Převzetí
+výpočtu neautorizuje podání. Finalizace vytváří neměnný důkaz podkladů,
+daňových ztrát, výkazů a XML. Export a odeslání znovu kontrolují příslušné
+podmínky; před odesláním musí odpovídat také aktuální finální podklady.
+
+Příloha daňových ztrát používá doložená kalendářní období, přesné částky
+v celých Kč a stejný plán uplatnění jako evidence ztrát. Respektuje také
+podporované zpětné uplatnění a jeho limity. Historický záznam ztráty
+bez průkazného období nelze automaticky použít v této příloze. Hospodářský
+rok nebo zkrácené období s přílohou ztrát vyžaduje samostatné zpracování.
+
 Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
 Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { settingsApi, type AccountingFramework, type AccountingFrameworkState } from '@/api/settings'
 import { apiErrorMessage } from '@/api/errors'
@@ -19,6 +19,14 @@ const effectiveFrom = ref('')
 const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
+
+const recommendedProfile = computed(() => {
+  const recommendation = props.supplier.accounting_profile_recommendation
+  if (recommendation?.accounting_framework !== 'cz_504') return null
+  return recommendation.entity_profile === 'nonprofit' || recommendation.entity_profile === 'svj'
+    ? recommendation.entity_profile
+    : null
+})
 
 watch(() => [props.supplier.id, props.supplier.accounting_framework] as const, () => {
   framework.value = props.supplier.accounting_framework ?? 'cz_500'
@@ -60,6 +68,21 @@ async function save() {
     <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">{{ t('settings.accounting_framework.title') }}</h2>
     <p class="text-sm mb-2">{{ t('settings.accounting_framework.current') }}: {{ t(`settings.accounting_framework.${supplier.accounting_framework ?? 'cz_500'}`) }}</p>
     <p class="text-xs text-neutral-500 mb-4">{{ t('settings.accounting_framework.hint') }}</p>
+    <div v-if="recommendedProfile" class="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-4 text-sm text-primary-700" role="note" data-test="framework-recommendation">
+      <p class="font-semibold">{{ t('settings.accounting_framework.recommendation.title') }}</p>
+      <p class="mt-1" :data-test="`framework-recommendation-${recommendedProfile}`">{{ t(`settings.accounting_framework.recommendation.${recommendedProfile}`) }}</p>
+      <p class="mt-2" data-test="framework-recommendation-conversion">{{ t('settings.accounting_framework.recommendation.conversion') }}</p>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button v-if="canChange && framework !== 'cz_504'" type="button" :class="[btnOutline('warning'), 'whitespace-nowrap']" :disabled="saving" data-test="apply-recommended-framework" @click="framework = 'cz_504'">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.checkCircle" /></svg>
+          {{ t('settings.accounting_framework.recommendation.apply') }}
+        </button>
+        <RouterLink v-if="auth.can('accounting')" :to="{ name: 'accounting-framework-conversion' }" :class="[btnOutline('neutral'), 'whitespace-nowrap']" data-test="framework-conversion-link">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.swap" /></svg>
+          {{ t('settings.accounting_framework.recommendation.conversion_link') }}
+        </RouterLink>
+      </div>
+    </div>
     <div v-if="framework === 'cz_504' || supplier.accounting_framework === 'cz_504'" class="mb-4 flex items-start gap-3 rounded-lg border-2 border-warning-500 bg-warning-50 p-4 text-warning-800" role="note" data-test="framework-testing-warning">
       <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 0 0-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" /></svg>
       <div>

@@ -196,8 +196,16 @@ export interface AccountingFrameworkHistoryEntry {
   created_by: number | null
 }
 
+/** Doporučení účetního rámce podle právní formy; rozhoduje výhradně server. */
+export interface AccountingProfileRecommendation {
+  entity_profile: 'nonprofit' | 'svj' | 'unknown'
+  accounting_framework: 'cz_504' | null
+  public_benefit_taxpayer: boolean | null
+}
+
 export interface AccountingFrameworkState {
   id: number
+  readonly accounting_profile_recommendation?: AccountingProfileRecommendation
   accounting_framework?: AccountingFramework
   accounting_framework_history?: AccountingFrameworkHistoryEntry[]
   tax_accounting_decree_effective?: AccountingDecree
@@ -218,6 +226,7 @@ export interface Supplier {
   ic: string | null
   dic: string | null
   legal_form?: string | null
+  readonly accounting_profile_recommendation?: AccountingProfileRecommendation
   is_vat_payer: boolean
   vat_status_effective_from?: string
   vat_status_history?: VatStatusHistoryEntry[]
