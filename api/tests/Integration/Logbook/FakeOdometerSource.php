@@ -38,6 +38,8 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public array $failFor = [];
     /** Neočekávaná chyba při čtení (např. z HTTP klienta). */
     public ?\Throwable $crash = null;
+    /** Zavolá se při každém dotazu na dokončení přihlášení (kontrola zámku). */
+    public ?\Closure $onContinue = null;
 
     public function __construct()
     {
@@ -64,6 +66,7 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public function continueConnect(array $pending, array $input): ConnectStep
     {
         $this->pendingSeen[] = $pending;
+        if ($this->onContinue !== null) ($this->onContinue)();
         if ($this->denied) throw new OdometerSourceException(OdometerSourceException::ACCESS_DENIED);
         if ($this->slowDown) {
             $this->slowDown = false;

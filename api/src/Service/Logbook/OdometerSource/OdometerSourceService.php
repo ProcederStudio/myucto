@@ -89,8 +89,11 @@ final class OdometerSourceService
 
         if ($step->type === ConnectStep::CONNECTED && $step->credentials !== null) {
             // Zdroj bez interaktivního přihlášení (např. API klíč): rovnou aktivovat.
-            return $this->finishConnect($supplierId, $carId, $accountId, $provider, $step->credentials, $userId);
+            $credentials = $step->credentials;
+            return $this->withLock($accountId, fn (): array =>
+                $this->finishConnect($supplierId, $carId, $accountId, $provider, $credentials, $userId));
         }
+        // REDIRECT: callback pro návrat ze služby, který ověří `pending_state_hash`, přijde s issue #218.
         if ($step->pending === null || $step->expiresIn === null || !in_array($step->type, [ConnectStep::DEVICE_CODE, ConnectStep::REDIRECT], true)) {
             $this->accounts->clearPending($supplierId, $accountId);
             throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Zdroj nevrátil postup připojení.');
@@ -107,8 +110,18 @@ final class OdometerSourceService
      */
     public function continueConnect(int $supplierId, int $carId, #[\SensitiveParameter] array $input = [], ?int $userId = null): array
     {
-        $accountId = $this->accounts->findPendingForCar($supplierId, $carId);
-        $row = $accountId !== null ? $this->accounts->findWithSecrets($supplierId, $accountId) : null;
+        $accountId = $this->accounts->findPendingForCar($supplierId, $carId)
+            ?? throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
+        // Pod zámkem účtu: dva souběžné dotazy by jinak oba vyměnily tentýž jednorázový kód za tokeny.
+        return $this->withLock($accountId, fn (): array => $this->continueConnectLocked($supplierId, $carId, $accountId, $input, $userId));
+    }
+
+    /** @param array<string,mixed> $input */
+    private function continueConnectLocked(int $supplierId, int $carId, int $accountId, #[\SensitiveParameter] array $input, ?int $userId): array
+    {
+        // Rozpracované přihlášení znovu pod zámkem — souběžný dotaz ho mohl mezitím dokončit.
+        $row = $this->accounts->findPendingForCar($supplierId, $carId) === $accountId
+            ? $this->accounts->findWithSecrets($supplierId, $accountId) : null;
         if ($row === null || $row['pending_ciphertext'] === null) {
             throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
         }
@@ -247,22 +260,30 @@ final class OdometerSourceService
         });
     }
 
-    /** @param array<string,string|int> $credentials */
+    /**
+     * Aktivuje účet a přiřadí auto; volá se pod zámkem účtu.
+     *
+     * Aktivace a přiřazení záměrně neběží v jedné transakci: přiřazení se ptá služby na auta
+     * účtu a hned načte první stav (HTTP volání, která v transakci nemají co dělat), a nově
+     * vydané přístupy se musí uložit hned, protože služba při výměně kódu nebo rotaci tokenu
+     * ty předchozí zneplatní a návrat zpět by účet odřízl. Účet bez aut je platný stav
+     * (dialog ho nabídne k přiřazení), selhání přiřazení proto aktivaci neruší.
+     *
+     * @param array<string,string|int> $credentials
+     */
     private function finishConnect(int $supplierId, int $carId, int $accountId, OdometerSourceProvider $provider,
         #[\SensitiveParameter] array $credentials, ?int $userId): array
     {
-        return $this->withLock($accountId, function () use ($supplierId, $carId, $accountId, $provider, $credentials, $userId): array {
-            $this->accounts->activate($supplierId, $accountId, $this->vault->sealCredentials($supplierId, $accountId, $provider->code(), $credentials));
-            try {
-                return $this->assignFromAccount($supplierId, $carId, $this->activeAccount($supplierId, $accountId), $userId);
-            } catch (OdometerSourceException $e) {
-                // Druhé přihlášení k už připojenému účtu: auta patří prvnímu napojení, nové bez aut zahodit.
-                if ($e->errorCode === 'vehicle_taken' && $this->assignments->listForAccount($supplierId, $accountId) === []) {
-                    $this->accounts->disconnect($supplierId, $accountId);
-                }
-                throw $e;
+        $this->accounts->activate($supplierId, $accountId, $this->vault->sealCredentials($supplierId, $accountId, $provider->code(), $credentials));
+        try {
+            return $this->assignFromAccount($supplierId, $carId, $this->activeAccount($supplierId, $accountId), $userId);
+        } catch (OdometerSourceException $e) {
+            // Druhé přihlášení k už připojenému účtu: auta patří prvnímu napojení, nové bez aut zahodit.
+            if ($e->errorCode === 'vehicle_taken' && $this->assignments->listForAccount($supplierId, $accountId) === []) {
+                $this->accounts->disconnect($supplierId, $accountId);
             }
-        });
+            throw $e;
+        }
     }
 
     /**

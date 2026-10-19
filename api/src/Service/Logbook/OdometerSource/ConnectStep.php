@@ -42,7 +42,12 @@ final class ConnectStep
             'expires_in' => $expiresIn], $pending, $expiresIn);
     }
 
-    /** @param array<string,string|int> $pending */
+    /**
+     * Callback route pro návrat ze služby (ověří `state` proti `pending_state_hash`) zatím
+     * chybí a přijde s issue #218. Do té doby žádný zdroj tento krok nevrací.
+     *
+     * @param array<string,string|int> $pending
+     */
     public static function redirect(string $url, int $expiresIn, #[\SensitiveParameter] array $pending): self
     {
         return new self(self::REDIRECT, ['url' => $url, 'expires_in' => $expiresIn], $pending, $expiresIn);

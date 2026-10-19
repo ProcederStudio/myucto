@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Logbook;
 
 use MyInvoice\Infrastructure\Config\Config;
+use MyInvoice\Infrastructure\Database\NamedLockName;
 use MyInvoice\Repository\CarRepository;
 use MyInvoice\Repository\OdometerReadingRepository;
 use MyInvoice\Repository\OdometerSourceAccountRepository;
@@ -107,6 +108,23 @@ final class OdometerSourceSyncTest extends TestCase
         $this->service->continueConnect($this->supplierA, $car);
 
         self::assertSame('slow', $this->source->pendingSeen[1]['device']);
+    }
+
+    public function testLoginPollRunsUnderAccountLock(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0030', 1000, '2099-03-01');
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+        $name = NamedLockName::for($this->db, 'odometer-source', (int) $this->accountRow($this->supplierA)['id']);
+        $held = null;
+        $this->source->onContinue = function () use ($name, &$held): void {
+            $stmt = $this->db->pdo()->prepare('SELECT IS_USED_LOCK(?) = CONNECTION_ID()');
+            $stmt->execute([$name]);
+            $held = (int) $stmt->fetchColumn();
+        };
+
+        $this->service->continueConnect($this->supplierA, $car);
+
+        self::assertSame(1, $held, 'Dva souběžné dotazy by jinak vyměnily tentýž kód za tokeny dvakrát.');
     }
 
     public function testAccountWithSeveralCarsAsksWhichOne(): void
@@ -481,7 +499,7 @@ final class OdometerSourceSyncTest extends TestCase
     /** @return array<string,mixed> */
     private function accountRow(int $supplierId): array
     {
-        $stmt = $this->pdo->prepare('SELECT status, credentials_ciphertext, pending_ciphertext, pending_state_hash FROM odometer_source_accounts WHERE supplier_id = ? ORDER BY id DESC LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT id, status, credentials_ciphertext, pending_ciphertext, pending_state_hash FROM odometer_source_accounts WHERE supplier_id = ? ORDER BY id DESC LIMIT 1');
         $stmt->execute([$supplierId]);
         return $stmt->fetch(\PDO::FETCH_ASSOC);
     }
