@@ -242,7 +242,9 @@ final class AdvanceCoveredPaidStatus
     }
 
     /**
-     * Stejný zdroj data pro jednotlivý doklad i rozdělenou bankovní úhradu.
+     * Stejný zdroj data pro jednotlivý doklad i rozdělenou bankovní úhradu. Datum úhrady
+     * kladného dokladu nese jen odchozí platba: příchozí vratka úhradu snižuje, stejně
+     * jako pokladní příjmový doklad, který se tu nepočítá.
      *
      * @param list<int> $ids
      * @return array<int,string>
@@ -257,7 +259,7 @@ final class AdvanceCoveredPaidStatus
                 "SELECT doc_id, MAX(d) AS paid_on FROM (
                     SELECT pm.purchase_invoice_id AS doc_id, DATE(bt.posted_at) AS d
                       FROM payment_matches pm
-                      JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id
+                      JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id AND bt.amount < 0
                      WHERE pm.supplier_id = ? AND pm.purchase_invoice_id IN ($placeholders)
                     UNION ALL
                     SELECT cd.purchase_invoice_id, cd.issue_date FROM cash_documents cd

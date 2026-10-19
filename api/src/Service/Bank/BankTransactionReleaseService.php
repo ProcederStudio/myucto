@@ -12,7 +12,7 @@ use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\RefundDocument;
 use MyInvoice\Service\PurchaseInvoice\AdvanceCoveredPaidStatus;
-use MyInvoice\Support\Sql\PurchaseSettledExpr;
+use MyInvoice\Service\PurchaseInvoice\PurchasePaidStatusRestore;
 use PDO;
 
 /**
@@ -49,6 +49,7 @@ final class BankTransactionReleaseService
         private readonly InvoicePaymentService $payments,
         private readonly BankPostingService $bankPosting,
         private readonly AutoPostingPolicyService $policy,
+        private readonly PurchasePaidStatusRestore $paidStatusRestore,
     ) {}
 
     /**
@@ -219,7 +220,7 @@ final class BankTransactionReleaseService
             ->execute([$txId, $supplierId]);
         $this->restorePurchaseInvoices($pdo, $supplierId, $purchaseInvoiceIds, $postedAt);
         if ((float) ($tx['amount'] ?? 0) > 0) {
-            $this->restorePurchasesCoveredAfterRefund($pdo, $supplierId, $purchaseInvoiceIds);
+            $this->paidStatusRestore->afterRefundRemoved($supplierId, $purchaseInvoiceIds);
         }
         // Konečná faktura krytá zálohou přestává být uhrazená spolu se zálohou.
         (new AdvanceCoveredPaidStatus($this->db))->afterPaymentsChanged($supplierId, $purchaseInvoiceIds);
@@ -295,46 +296,6 @@ final class BankTransactionReleaseService
                   WHERE pi.id = ? AND pi.supplier_id = ? AND pi.status = 'paid' AND pi.paid_at = ?
                     AND NOT EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.purchase_invoice_id = pi.id)"
             )->execute([$restoredStatus, $purchaseInvoiceId, $supplierId, $postedAt]);
-        }
-    }
-
-    /**
-     * Odebrání příchozí vratky úhradu ZVYŠUJE. Jen tento směr smí znovu uzavřít
-     * běžnou kladnou PF; obecný přepočet by přepsal ruční paid nebo koncept/storno.
-     * Částku i zaokrouhlení určuje PurchaseSettledExpr stejně jako seznam dokladů,
-     * datum pochází ze zbývajících úhrad, nikdy z právě odstraněné vratky.
-     *
-     * @param list<int> $purchaseInvoiceIds
-     */
-    private function restorePurchasesCoveredAfterRefund(PDO $pdo, int $supplierId, array $purchaseInvoiceIds): void
-    {
-        $remaining = PurchaseSettledExpr::remainingAmount('pi');
-        foreach (array_chunk(array_values(array_unique($purchaseInvoiceIds)), 200) as $ids) {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $pdo->prepare(
-                "SELECT pi.id FROM purchase_invoices pi
-                  WHERE pi.supplier_id = ? AND pi.id IN ($placeholders)
-                    AND pi.document_kind = 'invoice' AND pi.amount_to_pay > 0.005
-                    AND pi.status IN ('received', 'booked') AND ($remaining) <= 0.005
-                  FOR UPDATE"
-            );
-            $stmt->execute([$supplierId, ...$ids]);
-            $covered = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
-            if ($covered === []) continue;
-            $dates = (new AdvanceCoveredPaidStatus($this->db))->lastPaymentDates($supplierId, $covered);
-            if ($dates === []) continue;
-            $cases = [];
-            $params = [];
-            foreach ($dates as $id => $date) {
-                $cases[] = 'WHEN ? THEN ?';
-                array_push($params, $id, $date);
-            }
-            $placeholders = implode(',', array_fill(0, count($dates), '?'));
-            $pdo->prepare("UPDATE purchase_invoices SET status = 'paid', paid_at = CASE id "
-                . implode(' ', $cases) . " END
-                WHERE supplier_id = ? AND id IN ($placeholders) AND document_kind = 'invoice'
-                  AND status IN ('received', 'booked')")
-                ->execute([...$params, $supplierId, ...array_keys($dates)]);
         }
     }
 

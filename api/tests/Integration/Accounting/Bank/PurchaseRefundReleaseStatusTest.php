@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Accounting\Bank;
 
 use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\BankTransactionReleaseService;
 use MyInvoice\Service\PurchaseInvoice\AdvanceCoveredPaidStatus;
 use MyInvoice\Support\Sql\PurchaseSettledExpr;
@@ -86,6 +87,72 @@ final class PurchaseRefundReleaseStatusTest extends BankPostingTestCase
         self::assertSame('paid', $after['status']);
         self::assertSame($offsetDate, substr($after['paid_at'], 0, 10));
         self::assertEqualsWithDelta(121.0, $after['settled'], 0.001);
+    }
+
+    public static function manualTransitions(): iterable
+    {
+        yield 'ručně neuhrazeno' => [[['paid', 'received']], 'received'];
+        yield 'ručně neuhrazeno a zaúčtováno' => [[['paid', 'received'], ['received', 'booked']], 'received'];
+        yield 'ručně znovu uhrazeno' => [[['paid', 'received'], ['received', 'paid']], 'paid'];
+    }
+
+    /** @param list<array{0:string,1:string}> $transitions */
+    #[DataProvider('manualTransitions')]
+    public function testManuallyUnpaidInvoiceStaysOpen(array $transitions, string $expectedStatus): void
+    {
+        $invoice = $this->purchaseInvoice('SYN-REFUND-MANUAL', $this->client('Synthetic manual vendor'), 121.0);
+        $logger = $this->container->get(ActivityLogger::class);
+        foreach ($transitions as [$from, $to]) {
+            $logger->log('purchase_invoice.transitioned', $this->userId, 'purchase_invoice', $invoice, ['from' => $from, 'to' => $to]);
+        }
+        $refund = $this->refundedPayment($invoice, 121.0, self::YEAR . '-06-12');
+
+        $this->container->get(BankTransactionReleaseService::class)
+            ->release($this->supplierId, $refund, BankTransactionReleaseService::MODE_UNMATCH, $this->userId);
+
+        self::assertSame($expectedStatus, $this->invoiceState($invoice)['status']);
+    }
+
+    public function testTakenOverInvoiceKeepsStatusFromSource(): void
+    {
+        $invoice = $this->purchaseInvoice('SYN-REFUND-TAKEN', $this->client('Synthetic taken over vendor'), 121.0);
+        $this->db->pdo()->prepare("INSERT INTO pohoda_import_map (supplier_id, kind, pohoda_key, target_id)
+            VALUES (?, 'purchase_invoice', ?, ?)")
+            ->execute([$this->supplierId, 'SYN-TAKEN-' . $invoice, $invoice]);
+        $refund = $this->refundedPayment($invoice, 121.0, self::YEAR . '-06-12');
+
+        $this->container->get(BankTransactionReleaseService::class)
+            ->release($this->supplierId, $refund, BankTransactionReleaseService::MODE_UNMATCH, $this->userId);
+
+        self::assertSame(['received', null], [$this->invoiceState($invoice)['status'], $this->invoiceState($invoice)['paid_at']]);
+    }
+
+    /** Datum úhrady je datum odchozí platby, ne vratky, která na faktuře zůstává. */
+    public function testRemainingRefundIsNotPaymentDate(): void
+    {
+        $invoice = $this->purchaseInvoice('SYN-REFUND-DATE', $this->client('Synthetic refund date vendor'), 121.0);
+        $statement = $this->statement();
+        $kept = $this->transaction($statement, 21.0, ['match_status' => 'manual', 'posted_at' => self::YEAR . '-06-15']);
+        $this->paymentMatch($kept, $invoice, 21.0);
+        $released = $this->refundedPayment($invoice, 142.0, self::YEAR . '-06-12', self::YEAR . '-06-20');
+
+        $this->container->get(BankTransactionReleaseService::class)
+            ->release($this->supplierId, $released, BankTransactionReleaseService::MODE_UNMATCH, $this->userId);
+
+        $after = $this->invoiceState($invoice);
+        self::assertSame('paid', $after['status']);
+        self::assertSame(self::YEAR . '-06-12', substr((string) $after['paid_at'], 0, 10));
+    }
+
+    /** Odchozí platba a spárovaná příchozí vratka 21 Kč; faktura je otevřená. Vrací id vratky. */
+    private function refundedPayment(int $invoice, float $payment, string $paymentDate, string $refundDate = ''): int
+    {
+        $statement = $this->statement();
+        $outgoing = $this->transaction($statement, -$payment, ['match_status' => 'manual', 'posted_at' => $paymentDate]);
+        $this->paymentMatch($outgoing, $invoice, $payment);
+        $refund = $this->transaction($statement, 21.0, ['match_status' => 'manual', 'posted_at' => $refundDate !== '' ? $refundDate : self::YEAR . '-06-15']);
+        $this->paymentMatch($refund, $invoice, 21.0);
+        return $refund;
     }
 
     private function invoiceState(int $id): array
