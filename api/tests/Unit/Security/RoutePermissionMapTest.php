@@ -296,6 +296,20 @@ final class RoutePermissionMapTest extends TestCase
         }
     }
 
+    public function testStereoNxJsonAndPdfProtocolsUseReadImportPermission(): void
+    {
+        $map = new RoutePermissionMap();
+        $base = '/api/admin/imports/stereo-nx/uploads/' . str_repeat('a', 32) . '/runs/42';
+        foreach ([$base, $base . '/pdf'] as $path) {
+            $match = $map->match('GET', $path);
+            self::assertSame(RoutePermissionMap::PERMISSION, $match?->kind, $path);
+            self::assertSame('utilities.import', $match?->key, $path);
+            self::assertSame(AccessLevel::READ, $match?->minimum, $path);
+        }
+        self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('POST', $base . '/pdf')?->kind);
+        self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('GET', $base . '/pdf/extra')?->kind);
+    }
+
     /** Klíče z admin výjimek musí existovat v katalogu — jinak by je nešlo v rolích nastavit. */
     public function testAdminImportPermissionKeysExistInCatalog(): void
     {
