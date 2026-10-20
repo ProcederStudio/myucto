@@ -195,6 +195,7 @@ final class PaymentWorkflowRefundTest extends TestCase
                 'evidence' => 'Synthetic entitlement', 'due_date' => '2026-03-01']];
         $credit = $payments->apply($supplier, $request, $payments->preview($supplier, $request)['preview_hash'], 'credit-origin', $actor)['credit_id'];
         $reservations = [];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(), $supplier, $this->f['clients'][1]);
         foreach ($same ? ['700'] : ['300', '400'] as $index => $amount) {
             $reservations[] = $payments->reserve($supplier, $credit, $payments->credit($supplier, $credit)['row_version'], $this->reservationRequest($amount), 'reservation-' . $index, $actor);
         }

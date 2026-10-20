@@ -67,6 +67,7 @@ final class UnitPaymentConcurrencyTest extends TestCase
         $a->pdo()->rollBack();
         $a->pdo()->beginTransaction();$a->pdo()->query('SELECT COUNT(*) FROM unit_credit_reservations')->fetchColumn();
         $reserve=['amount_cents'=>'5000','party_ids'=>[$f['clients'][1]],'disposition'=>'Synthetic disposition','recipient_account'=>'1000000005/0100'];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($b->pdo(),$f['supplier'],$f['clients'][1]);
         $writerB->reserve($f['supplier'],$operation['credit_id'],1,$reserve,'reserved',$f['actor']);
         try{$this->writer($a)->reserve($f['supplier'],$operation['credit_id'],1,$reserve,'stale',$f['actor']);self::fail('Old snapshot hid reservation.');}catch(PaymentException $e){self::assertSame('property_payment_version_conflict',$e->errorCode);}
         $a->pdo()->rollBack();
