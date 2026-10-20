@@ -21,6 +21,7 @@ import DebtsCreditsTab from '@/components/property/payments/operations/DebtsCred
 import CorrectionsHistoryTab from '@/components/property/payments/operations/CorrectionsHistoryTab.vue'
 import CardPanel from '@/components/property/payments/operations/CardPanel.vue'
 import SaldoPanel from '@/components/property/payments/receivables/SaldoPanel.vue'
+import PartySaldoPanel from '@/components/property/payments/receivables/PartySaldoPanel.vue'
 import SnapshotView from '@/components/property/payments/operations/SnapshotView.vue'
 import { provideBusyScope } from '@/components/property/payments/operations/busy'
 import { failureMessage, formErrorKey } from '@/components/property/payments/operations/format'
@@ -34,7 +35,7 @@ const scope = provideBusyScope()
 // Bez routeru (izolované testy komponenty) zůstává stav jen v komponentě.
 const route = useRoute() as ReturnType<typeof useRoute> | undefined
 const router = useRouter() as ReturnType<typeof useRouter> | undefined
-const TABS = ['receive', 'proposals', 'debts', 'corrections', 'card', 'saldo']
+const TABS = ['receive', 'proposals', 'debts', 'corrections', 'card', 'saldo', 'parties']
 const queryText = (name: string) => { const value = route?.query[name]; return typeof value === 'string' ? value : '' }
 const tab = ref(TABS.includes(queryText('tab')) ? queryText('tab') : 'receive')
 watch(tab, value => { if (route && router && route.query.tab !== value) void router.replace({ query: { ...route.query, tab: value } }) })
@@ -332,6 +333,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
     <DebtsCreditsTab v-if="context && supplier && tab === 'debts'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" />
     <CorrectionsHistoryTab v-else-if="context && supplier && tab === 'corrections'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" :can-reverse="context.capabilities.reverse" />
     <SaldoPanel v-else-if="context && supplier && tab === 'saldo'" :supplier="supplier" :as-of="asOf" :units="context.units" />
+    <PartySaldoPanel v-else-if="context && supplier && tab === 'parties'" :supplier="supplier" :units="context.units" />
     <CardPanel v-else-if="context && supplier && tab === 'card'" :supplier="supplier" :as-of="asOf" :units="context.units" />
     <section v-if="tab === 'receive'" class="rounded-lg border border-neutral-200 p-4 space-y-2"><h2 class="font-semibold">{{ t('propertyPayments.history') }}</h2><article v-for="row in history" :key="row.id" class="flex flex-wrap gap-4 border-t border-neutral-200 py-2"><span>{{ row.date }}</span><span>{{ paymentDecimal(row.amount_cents) }} CZK</span><span>{{ t('propertyPayments.settled') }}: {{ paymentDecimal(row.settled_cents) }} CZK</span><span>{{ t('propertyPayments.remainingAtConfirmation') }}: {{ paymentDecimal(row.available_cents) }} CZK</span></article><div v-if="historyNextCursor !== null" class="flex flex-wrap"><PropertyButton icon="chevron" data-action="load-more-history" :disabled="historyLoadingMore" @click="loadMoreHistory">{{ t('propertyPayments.loadMore') }}</PropertyButton></div></section>
   </div>

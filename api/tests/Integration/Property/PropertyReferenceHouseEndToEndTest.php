@@ -177,6 +177,33 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             self::assertTrue($unit['matches'], $code);
             self::assertSame(['receivable' => $receivable, 'credit' => $credit], $unit['subledger_cents'], $code);
         }
+        $this->assertPartySubledger($date, $house['subledger_cents']);
+    }
+
+    /**
+     * Osobní pohled: nárok patří právnímu dlužníkovi k datu, ručitel A se nepočítá, SJM i
+     * spoluvlastníci U02 tvoří jediný řádek a součet řádků se rovná hrubým zůstatkům domu.
+     */
+    private function assertPartySubledger(string $date, array $house): void
+    {
+        $service = new \MyInvoice\Service\Property\Receivables\PropertyPartyReconciliation($this->db);
+        $names = array_flip($this->people);
+        $rows = [];
+        $cursor = null;
+        do {
+            $page = $service->at($this->supplier, $date, 5, $cursor);
+            self::assertSame(['receivable' => $house['receivable'], 'credit' => $house['credit']], $page['totals']);
+            foreach ($page['items'] as $item) {
+                $key = implode('+', array_map(fn (int $id) => $names[$id], $item['party_ids']));
+                self::assertArrayNotHasKey($key, $rows, 'Stránkování vrátilo osobu dvakrát.');
+                $rows[$key] = [$item['receivable_cents'], $item['credit_cents']];
+            }
+            $cursor = $page['next_cursor'];
+        } while ($cursor !== null);
+        ksort($rows);
+        self::assertSame(['A' => ['0', '50000'], 'B' => ['50000', '0'], 'C' => ['500000', '0'], 'P01a+P01b' => ['0', '100000'],
+            'P02a+P02b+P02c' => ['350000', '0'], 'P03' => ['100000', '0'], 'P06' => ['200000', '0'], 'P07' => ['0', '50000'],
+            'P08' => ['200000', '0'], 'P10' => ['50000', '0'], 'P11' => ['0', '50000'], 'Q06' => ['0', '350000']], $rows);
     }
 
     // ---------------------------------------------------------------- vyúčtování vody 2027

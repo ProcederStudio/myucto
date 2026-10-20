@@ -29935,7 +29935,8 @@
       "register": "Debt registration",
       "reservations": "Reservations and refunds",
       "proposals": "Bank proposals",
-      "saldo": "Balance"
+      "saldo": "Balance",
+      "parties": "Party balances"
     },
     "title": "Unit payments",
     "truncated": "Only a limited number of recent payments is shown.",
@@ -37102,6 +37103,21 @@
       "authority_evidence": "Requester authority",
       "purpose": "Certificate purpose",
       "coverage_acknowledgement": "Explicit acknowledgement of incomplete scope"
+    },
+    "parties": {
+      "title": "Balances by party",
+      "help": "Gross receivables and credits at the accounting date by legal debtors and creditors across units. Spouses in community property and co-owners of the same claim form one row; guarantors are not counted.",
+      "date": "Accounting date",
+      "pageSize": "Rows per page",
+      "load": "Load party balances",
+      "totalReceivable": "Total receivables",
+      "totalCredit": "Total credits",
+      "receivable": "Receivables",
+      "credit": "Credits",
+      "units": "Units: {units}",
+      "review": "The claim has no single debtor; personal collection requires a legal review.",
+      "unattributed": "No documented parties",
+      "empty": "No parties on this page."
     }
   },
   "propertyOpening": {

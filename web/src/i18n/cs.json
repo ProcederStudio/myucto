@@ -29935,7 +29935,8 @@
       "register": "Registrace dluhu",
       "reservations": "Rezervace a vratky",
       "proposals": "Návrhy z banky",
-      "saldo": "Saldo"
+      "saldo": "Saldo",
+      "parties": "Saldo osob"
     },
     "title": "Platby jednotek",
     "truncated": "Zobrazen je omezený počet posledních plateb.",
@@ -37102,6 +37103,21 @@
       "authority_evidence": "Oprávnění žadatele",
       "purpose": "Účel potvrzení",
       "coverage_acknowledgement": "Výslovné vymezení neúplného rozsahu"
+    },
+    "parties": {
+      "title": "Saldo po osobách",
+      "help": "Hrubé pohledávky a kredity k účetnímu datu po právních dlužnících a věřitelích napříč jednotkami. Společné jmění manželů i spoluvlastníci téhož nároku tvoří jeden řádek, ručitel se nepočítá.",
+      "date": "Účetní datum",
+      "pageSize": "Řádků na stránce",
+      "load": "Načíst saldo osob",
+      "totalReceivable": "Pohledávky celkem",
+      "totalCredit": "Kredity celkem",
+      "receivable": "Pohledávky",
+      "credit": "Kredity",
+      "units": "Jednotky: {units}",
+      "review": "Nárok nemá jednoznačného dlužníka, osobní vymáhání vyžaduje právní posouzení.",
+      "unattributed": "Bez doložených osob",
+      "empty": "Na této stránce nejsou osoby."
     }
   },
   "propertyOpening": {

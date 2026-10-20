@@ -54,7 +54,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         '#^/api/property/catalog/service-settlements(/[0-9]+(/current)?)?$#',
         '#^/api/property/catalog/service-lifecycles(/(?:[0-9]+|reconciliation))?$#',
         '#^/api/property/catalog/funds/(operations|balances)$#',
-        '#^/api/property/catalog/payments/(card|operations|history|reconciliation|saldo)$#',
+        '#^/api/property/catalog/payments/(card|operations|history|reconciliation(/parties)?|saldo)$#',
         '#^/api/property/catalog/charges/(components|versions(/[0-9]+)?|issues(/[0-9]+)?)$#',
         '#^/api/property/catalog/(profile|summary|houses|units|services)$#',
         // Systémové + dokumentace + connection-test
