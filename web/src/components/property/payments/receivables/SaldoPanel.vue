@@ -11,8 +11,9 @@ import LegalHistoryPanel from './LegalHistoryPanel.vue'
 import { useBusyScope } from '../operations/busy'
 import { failureMessage, moneyText } from '../operations/format'
 import { inputClass } from '../operations/ui'
+import { propertyNow } from '@/components/property/propertyInstant'
 const props = defineProps<{ supplier: number; asOf: string; units: PropertyObject[] }>()
-const { t } = useI18n(); const scope = useBusyScope(); const knownAt = ref(new Date().toISOString()); const limit = ref(25)
+const { t } = useI18n(); const scope = useBusyScope(); const knownAt = ref(propertyNow()); const limit = ref(25)
 const page = ref<SaldoPage | null>(null); const cursors = ref<Array<string | undefined>>([undefined]); const position = ref(0); const selected = ref<number | null>(null); const detail = ref<'card' | 'legal'>('card')
 const loading = ref(false); const error = ref(''); const form = ref<HTMLFormElement | null>(null); let epoch = 0
 const totalKeys = ['gross_receivable_cents', 'principal_receivable_cents', 'accessory_receivable_cents', 'gross_credit_cents', 'reserved_credit_cents', 'available_credit_cents', 'guarantee_exposure_cents'] as const
@@ -48,7 +49,6 @@ const actions = computed<ActionItem[]>(() => [{ key: 'saldo-load', label: t('pro
       </article>
       <p v-if="!page.items.length">{{ t('propertySaldo.empty') }}</p>
       <div class="flex flex-wrap gap-2"><PropertyButton icon="chevron" :disabled="position === 0 || loading || scope.busy.value" data-action="saldo-previous" @click="load(position - 1)">{{ t('propertySaldo.previous') }}</PropertyButton><PropertyButton icon="chevron" :disabled="!page.next_cursor || loading || scope.busy.value" data-action="saldo-next" @click="load(position + 1)">{{ t('propertySaldo.next') }}</PropertyButton></div>
-      <details class="text-xs text-neutral-500"><summary>{{ t('propertySaldo.readProof') }}</summary><p>{{ t('propertySaldo.readProofHelp') }}</p><p class="break-all">{{ page.read_scope_digest }}</p></details>
       <CardPanel v-if="selected && detail === 'card'" :key="`card-${selected}`" :supplier="supplier" :as-of="page.as_of" :units="units" :initial-unit-id="selected" :initial-known-at="page.known_at" />
       <LegalHistoryPanel v-if="selected && detail === 'legal'" :key="`legal-${selected}`" :supplier="supplier" :unit-id="selected" :as-of="page.as_of" :known-at="page.known_at" />
     </template>

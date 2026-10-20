@@ -255,7 +255,7 @@ final class UnitPaymentSourceTest extends TestCase
         $issuance=Bootstrap::buildContainer()->get(\MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository::class);
         $preview=(new \MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService($this->db))->preview($supplier,$this->f['issue_request']);
         $batch=$issuance->issue($supplier,['request'=>$this->f['issue_request'],'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'synthetic-claims'],$actor);
-        $batch=$issuance->post($supplier,$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$actor);
+        $batch=$issuance->post($supplier,$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$actor,\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $charge=null;foreach($batch['charges'] as $candidate)foreach($candidate['snapshot']['liability_groups'] as $group)if($group['basis']==='sjm_713'){$charge=$candidate;break 2;}
         self::assertNotNull($charge);
         $q=$this->db->pdo()->prepare('SELECT id FROM unit_charge_lines WHERE supplier_id=? AND charge_id=? ORDER BY id');$q->execute([$supplier,$charge['id']]);$lineIds=array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN));
@@ -370,7 +370,7 @@ final class UnitPaymentSourceTest extends TestCase
         $f=$this->f;$issuance=$this->paymentFixtureContainer()->get(\MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository::class);$request=$f['issue_request'];
         $preview=(new \MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService($this->db))->preview($f['supplier'],$request);
         $batch=$issuance->issue($f['supplier'],['request'=>$request,'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'foreign-czk-issue'],$f['actor']);
-        $batch=$issuance->post($f['supplier'],$batch['id'],array_map(fn($charge)=>['id'=>$charge['id'],'row_version'=>1],$batch['charges']),$f['actor']);
+        $batch=$issuance->post($f['supplier'],$batch['id'],array_map(fn($charge)=>['id'=>$charge['id'],'row_version'=>1],$batch['charges']),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $claims=[];$debts=new \MyInvoice\Repository\Property\Payments\DebtRepository($this->db);
         foreach($unitCodes as $unitCode){
             $charge=array_values(array_filter($batch['charges'],fn($candidate)=>$candidate['unit_id']===$f['units'][$unitCode]))[0];

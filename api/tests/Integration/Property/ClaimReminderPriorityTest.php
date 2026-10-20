@@ -119,12 +119,13 @@ final class ClaimReminderPriorityTest extends TestCase
             $lines = array_map('intval', $q->fetchAll(\PDO::FETCH_COLUMN));
             $largest[$code] = $lines[0];
             sort($lines, SORT_NUMERIC);
-            $debt = (new DebtRepository($this->db))->register($f['supplier'], ['charge_id' => $charge['id'], 'expected_version' => 2, 'principal_line_ids' => $lines,
-                'title_ref' => 'Synthetic prescription debt ' . $code, 'due_date' => '2026-01-15',
-                'legal' => ['basis' => 'legal_act', 'legal_act_date' => '2025-12-15', 'evidence' => 'Synthetic decision', 'regime' => 'general'],
-                'security' => ['kind' => 'unsecured', 'evidence' => 'Synthetic finding'], 'damages_for' => null], 'debt-' . $code, $f['actor']);
+            // Dluh se všemi kladnými řádky zaregistrovalo zaúčtování dávky.
+            $q = $this->db->pdo()->prepare('SELECT id FROM unit_payment_debts WHERE supplier_id=? AND charge_id=?');
+            $q->execute([$f['supplier'], $charge['id']]);
+            $registered = array_map('intval', $q->fetchAll(\PDO::FETCH_COLUMN));
+            self::assertCount(1, $registered);
             $charges[$code] = $charge['id'];
-            $debts[$code] = $debt['id'];
+            $debts[$code] = $registered[0];
         }
         $debtor = $f['states']['U03']['ownerships'][0]['members'][0];
         self::assertSame($debtor, $f['states']['U04']['ownerships'][0]['members'][0]);

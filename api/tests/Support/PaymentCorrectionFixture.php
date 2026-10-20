@@ -16,7 +16,7 @@ trait PaymentCorrectionFixture
     private function settledPaymentFixture(string $paid,string $extra):array
     {
         $f=$this->f;$issuance=$this->paymentFixtureContainer()->get(IssuanceRepository::class);$request=$f['issue_request'];$preview=(new IssuancePreviewService($this->db))->preview($f['supplier'],$request);
-        $batch=$issuance->issue($f['supplier'],['request'=>$request,'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'initial'],$f['actor']);$batch=$issuance->post($f['supplier'],$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$f['actor']);
+        $batch=$issuance->issue($f['supplier'],['request'=>$request,'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'initial'],$f['actor']);$batch=$issuance->post($f['supplier'],$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $charge=array_values(array_filter($batch['charges'],fn($c)=>$c['unit_id']===$f['units']['G12']))[0];
         $q=$this->db->pdo()->prepare('SELECT id FROM unit_charge_lines WHERE supplier_id=? AND charge_id=? AND component_id=?');$q->execute([$f['supplier'],$charge['id'],$f['components']['ADMIN']]);$line=(int)$q->fetchColumn();
         $debt=(new DebtRepository($this->db))->register($f['supplier'],['charge_id'=>$charge['id'],'expected_version'=>2,'principal_line_ids'=>[$line],'title_ref'=>'Synthetic separate administration debt','due_date'=>'2026-01-15','legal'=>['basis'=>'legal_act','legal_act_date'=>'2025-12-15','evidence'=>'Synthetic decision','regime'=>'general'],'security'=>['kind'=>'unsecured','evidence'=>'Synthetic finding'],'damages_for'=>null],'debt',$f['actor']);

@@ -368,7 +368,7 @@ final class SettlementHttpTest extends TestCase
         foreach ($issue['units'] as &$unit) { $unit['expected_revision'] = 0; $unit['previous_charge_id'] = null; $unit['case_distinction'] = ['against_source_keys' => [$f['issue_request']['source_key']], 'legal_reason' => 'Separate synthetic service obligation under another title', 'evidence_ref' => 'Synthetic separate decision']; } unset($unit);
         $repo = $this->container()->get(IssuanceRepository::class); $p = (new IssuancePreviewService($this->db))->preview($f['supplier'], $issue);
         $batch = $repo->issue($f['supplier'], ['request' => $issue, 'preview_hash' => $p['preview_hash'], 'idempotency_key' => 'catalog-independent-issue'], $f['actor']);
-        $expected = []; foreach ($batch['charges'] as $row) $expected[] = ['id' => $row['id'], 'row_version' => $row['row_version']]; $repo->post($f['supplier'], $batch['id'], $expected, $f['actor']);
+        $expected = []; foreach ($batch['charges'] as $row) $expected[] = ['id' => $row['id'], 'row_version' => $row['row_version']]; $repo->post($f['supplier'], $batch['id'], $expected, $f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $q = $this->db->pdo()->prepare('SELECT l.id,l.charge_id FROM unit_charge_lines l JOIN unit_charges c ON c.id=l.charge_id AND c.supplier_id=l.supplier_id WHERE c.supplier_id=? AND c.batch_id=? AND c.unit_id=? AND l.service_id=?'); $q->execute([$f['supplier'], $batch['id'], $f['units']['U02'], $f['service']['id']]); $valid = $q->fetch(PDO::FETCH_ASSOC); self::assertIsArray($valid);
         (new \MyInvoice\Repository\Property\Payments\DebtRepository($this->db))->register($f['supplier'], ['charge_id' => (int)$valid['charge_id'], 'expected_version' => 2, 'principal_line_ids' => [(int)$valid['id']], 'title_ref' => 'Synthetic independent debt', 'due_date' => '2026-01-15', 'legal' => ['basis' => 'legal_act', 'legal_act_date' => '2025-12-01', 'evidence' => 'Synthetic independent decision', 'regime' => 'general'], 'security' => ['kind' => 'unsecured', 'evidence' => 'Synthetic no security'], 'damages_for' => null], 'catalog-independent-debt', $f['actor']);
         $query = ['unit_id' => $f['units']['U02'], 'service_id' => $f['service']['id'], 'date' => '2026-12-31', 'limit' => 1];
@@ -634,7 +634,7 @@ final class SettlementHttpTest extends TestCase
         foreach ($batch['charges'] as $charge) {
             $expected[] = ['id' => $charge['id'],'row_version' => $charge['row_version']];
         }
-        $repo->post($f['supplier'], $batch['id'], $expected, $f['actor']);
+        $repo->post($f['supplier'], $batch['id'], $expected, $f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $q = $this->db->pdo()->prepare('SELECT l.id FROM unit_charge_lines l JOIN unit_charges c ON c.supplier_id=l.supplier_id AND c.id=l.charge_id WHERE l.supplier_id=? AND c.unit_id=? AND l.service_id=?');
         $q->execute([$f['supplier'],$f['units']['U02'],$f['service']['id']]);
         $id = (int)$q->fetchColumn();

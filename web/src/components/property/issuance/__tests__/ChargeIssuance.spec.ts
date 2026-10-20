@@ -52,6 +52,14 @@ describe('charge issuance', () => {
     expect(calls.preview.mock.lastCall?.[1]).toMatchObject({ issue_mode: 'difference', claim_origin_at: charge.snapshot.claim_origin_at })
     wrapper.unmount()
   })
+  it('explains an empty charge history instead of rendering a bare heading', async () => {
+    calls.list.mockResolvedValue({ items: [], capabilities: { issue: true, post: true, reverse: true } }); calls.houses.mockResolvedValue([])
+    const wrapper = mount(View, { global: globalOptions() }); await flushPromises()
+    expect(wrapper.get('[data-testid=history-empty]').text()).toBe(cs.propertyIssuance.historyEmpty)
+    expect(wrapper.get('[data-testid=houses-empty]').text()).toBe(cs.propertyIssuance.housesEmpty)
+    expect(wrapper.find('[data-testid=history-loading]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('opens the exact journal source even outside the list page', async () => {
     route.query = { charge_id: '91' }; calls.list.mockResolvedValue({ items: [], capabilities: { issue: false, post: false, reverse: false } })
     const wrapper = mount(View, { global: globalOptions() }); await flushPromises()

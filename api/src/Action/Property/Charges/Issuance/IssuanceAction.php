@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository;
+use MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar;
 use MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceContextService;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceException;
@@ -69,8 +70,9 @@ final class IssuanceAction
     public function post(Request $request,Response $response,array $args): Response
     {
         return $this->run($request,$response,'property.charges.post',true,function($supplier) use($request,$args): array {
-            $body=$this->body($request); PropertyInput::fields($body,['expected']);
-            return $this->write->post($supplier,$this->id($args['id']??null),PropertyInput::list($body['expected']??null,'expected',1000),$this->userId($request));
+            $body=$this->body($request); PropertyInput::fields($body,['expected','debt_registration']);
+            return $this->write->post($supplier,$this->id($args['id']??null),PropertyInput::list($body['expected']??null,'expected',1000),$this->userId($request),
+                ChargeDebtRegistrar::mode($body['debt_registration']??null));
         });
     }
     public function reverse(Request $request,Response $response,array $args): Response

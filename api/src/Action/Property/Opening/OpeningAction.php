@@ -14,7 +14,7 @@ final class OpeningAction
     public function __construct(private readonly OpeningRepository $owner){}
     public function list(Request $request,Response $response):Response
     {
-        return $this->run($request,$response,'property',false,fn(int $supplier)=>['items'=>$this->owner->list($supplier),'capabilities'=>['manage'=>RequestAuthorization::allows($request,'property.opening.manage',AccessLevel::WRITE),'post'=>RequestAuthorization::allows($request,'property.opening.post',AccessLevel::WRITE),'revise'=>RequestAuthorization::allows($request,'property.opening.revise',AccessLevel::WRITE)]]);
+        return $this->run($request,$response,'property',false,fn(int $supplier)=>['items'=>$this->owner->list($supplier),'bind_candidates'=>$this->owner->bindCandidates($supplier),'capabilities'=>['manage'=>RequestAuthorization::allows($request,'property.opening.manage',AccessLevel::WRITE),'post'=>RequestAuthorization::allows($request,'property.opening.post',AccessLevel::WRITE),'revise'=>RequestAuthorization::allows($request,'property.opening.revise',AccessLevel::WRITE)]]);
     }
     public function preview(Request $request,Response $response):Response{return $this->run($request,$response,'property.opening.manage',true,fn(int $supplier)=>$this->owner->preview($supplier,$this->body($request)));}
     public function confirm(Request $request,Response $response):Response{return $this->commit($request,$response,false);}

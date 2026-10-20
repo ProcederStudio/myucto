@@ -116,7 +116,7 @@ final class ChargeIssuanceTest extends TestCase
     public function testFullReversalPreservesSnapshotAndRetryNeverCreatesAnotherMirror(): void
     {
         $f=$this->fixture; $batch=$this->issue();
-        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor']);
+        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $charge=$posted['charges'][0];
         $input=['row_version'=>2,'accounting_date'=>'2026-02-01','effective_at'=>'2026-02-01T10:00:00+01:00',
             'reason'=>'Synthetic full correction','evidence_ref'=>'Synthetic correction deed','idempotency_key'=>'synthetic-reverse'];
@@ -154,7 +154,7 @@ final class ChargeIssuanceTest extends TestCase
             'effective_at'=>'2026-01-02T10:00:00+01:00','reason'=>'Synthetic withdrawn unit','evidence_ref'=>'Synthetic title',
             'idempotency_key'=>'cancel-one'],$f['actor']);
         $batch['charges'][0]=$cancelled;
-        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor']);
+        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         self::assertSame('cancelled',$posted['charges'][0]['status']);
         self::assertNull($posted['charges'][0]['journal_entry_id']);
         self::assertCount(11,array_filter($posted['charges'],fn($row)=>$row['status']==='posted'));
@@ -184,7 +184,7 @@ final class ChargeIssuanceTest extends TestCase
     public function testClosedSourceCanBeExactlyReversedIntoOpenYearAfterModuleAndDimensionRetirement(): void
     {
         $f=$this->fixture; $batch=$this->issue();
-        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor']); $charge=$posted['charges'][0];
+        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL); $charge=$posted['charges'][0];
         (new AccountingPeriodRepository($this->db))->create($f['supplier'],2027,'2027-01-01','2027-12-31');
         $this->db->pdo()->prepare("UPDATE accounting_periods SET status='closed' WHERE supplier_id=? AND starts_on='2026-01-01'")->execute([$f['supplier']]);
         (new \MyInvoice\Repository\Property\PropertyProfileRepository($this->db))->save($f['supplier'],[
@@ -207,7 +207,7 @@ final class ChargeIssuanceTest extends TestCase
     public function testDifferenceKeepsLedgerAnchorsAndBlocksHiddenAccountReclassification(): void
     {
         $f=$this->fixture; $batch=$this->issue();
-        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor']);
+        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $charge=array_values(array_filter($posted['charges'],fn($c)=>$c['unit_id']===$f['units']['G12']))[0];
         $request=$this->differenceRequest($charge,'1100');
         (new \MyInvoice\Repository\ChartOfAccountsRepository($this->db))->insert($f['supplier'],[
@@ -221,7 +221,7 @@ final class ChargeIssuanceTest extends TestCase
     public function testNegativeDifferenceReducesOriginalOnceAndCannotReverseAncestorFirst(): void
     {
         $f=$this->fixture; $batch=$this->issue();
-        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor']);
+        $posted=$this->repository()->post($f['supplier'],$batch['id'],$this->expected($batch),$f['actor'],\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $charge=array_values(array_filter($posted['charges'],fn($c)=>$c['unit_id']===$f['units']['G12']))[0];
         $request=$this->differenceRequest($charge,'900');
         $preview=(new IssuancePreviewService($this->db))->preview($f['supplier'],$request);

@@ -116,7 +116,7 @@ final class PropertyReconciliationScopeTest extends TestCase
         $repository=$container->get(IssuanceRepository::class);$request=$this->f['issue_request'];
         $preview=(new IssuancePreviewService($this->db))->preview($supplier,$request);
         $initial=$repository->issue($supplier,['request'=>$request,'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'initial'],$actor);
-        $initial=$repository->post($supplier,$initial['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>$c['row_version']],$initial['charges']),$actor);
+        $initial=$repository->post($supplier,$initial['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>$c['row_version']],$initial['charges']),$actor,\MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
         $original=array_values(array_filter($initial['charges'],fn($c)=>$c['unit_id']===$this->f['units'][$unitCode]))[0];
         $knownBefore=PartyEventRepository::now();
         $version=self::chargeRequest($this->f);$version['expected_revision']=1;

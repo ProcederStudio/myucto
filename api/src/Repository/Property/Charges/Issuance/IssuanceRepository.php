@@ -7,6 +7,7 @@ namespace MyInvoice\Repository\Property\Charges\Issuance;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Property\PropertyProfileRepository;
 use MyInvoice\Repository\Property\Charges\ChargeReadRepository;
+use MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Property\PropertyDimensionPolicy;
@@ -61,10 +62,10 @@ final class IssuanceRepository
         });
     }
 
-    public function post(int $supplier,int $batchId,array $expected,int $actor): array
+    public function post(int $supplier,int $batchId,array $expected,int $actor,string $debtRegistration=ChargeDebtRegistrar::MODE_AUTOMATIC): array
     {
-        PropertyInput::id($actor,'actor'); $expected=self::versions($expected);
-        return (new DimensionPeriodGuard($this->db))->transaction(fn():array=>$this->postLocked($supplier,$batchId,$expected,$actor));
+        PropertyInput::id($actor,'actor'); $expected=self::versions($expected); $debtRegistration=ChargeDebtRegistrar::mode($debtRegistration);
+        return (new DimensionPeriodGuard($this->db))->transaction(fn():array=>$this->postLocked($supplier,$batchId,$expected,$actor,null,$debtRegistration));
     }
 
     public function postPaymentCorrection(\MyInvoice\Service\Property\Payments\PaymentCorrectionIntent $intent):array
@@ -82,7 +83,7 @@ final class IssuanceRepository
         return $this->journal->insertPropertyCorrectionChargeReversal($intent);
     }
 
-    private function postLocked(int $supplier,int $batchId,array $expected,int $actor,?\MyInvoice\Service\Property\Payments\PaymentCorrectionIntent $correction=null):array
+    private function postLocked(int $supplier,int $batchId,array $expected,int $actor,?\MyInvoice\Service\Property\Payments\PaymentCorrectionIntent $correction=null,string $debtRegistration=ChargeDebtRegistrar::MODE_MANUAL):array
     {
         $locks=new IssuanceLocks($this->db); $locks->acquire($supplier);
         $reader=new IssuanceReadRepository($this->db); $batch=$reader->batch($supplier,$batchId,true);
@@ -119,6 +120,7 @@ final class IssuanceRepository
                 'accounting_date'=>$charge['accounting_date'],'lines'=>$document['lines']],$drafts,array_values($postingDocuments)));
             $batchContext=$this->posting->preflightPropertyIssuanceBatch($supplier,array_values($postingDocuments));
         }
+        $posted=[];
         try{foreach($batch['charges'] as $charge) {
             if($charge['status']!=='draft') continue;
             $document=$postingDocuments[$charge['id']];$lines=$document['lines'];
@@ -136,11 +138,13 @@ final class IssuanceRepository
             $proofs[]=['entry_id'=>$entry,'charge'=>$charge,'reversal'=>false];
             $stmt=$this->db->pdo()->prepare("UPDATE unit_charges SET status='posted',journal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND status='draft' AND row_version=?");
             $stmt->execute([$entry,$supplier,$charge['id'],$charge['row_version']]); if($stmt->rowCount()!==1) self::conflict();
+            $posted[]=['status'=>'posted','journal_entry_id'=>$entry,'row_version'=>$charge['row_version']+1]+$charge;
             if($charge['previous_charge_id']!==null) $this->adjustment($supplier,$charge['previous_charge_id'],$charge['id'],$charge['issue_mode'],$entry,
                 $charge['snapshot']['issued_at'],['new_charge_id'=>$charge['id'],'snapshot_hash'=>$charge['snapshot_hash']], 'issue-'.$charge['id'],$actor);
             $this->audit($supplier,$batchId,$charge['id'],'posted',['journal_entry_id'=>$entry,'snapshot_hash'=>$charge['snapshot_hash']],$actor,self::now());
         }}finally{$batchContext?->close();}
         $proof->assertEntries($supplier,$proofs);
+        if($correction===null&&$debtRegistration===ChargeDebtRegistrar::MODE_AUTOMATIC) (new ChargeDebtRegistrar($this->db))->registerPosted($supplier,$posted,$actor);
         return $reader->batch($supplier,$batchId,true);
     }
 
@@ -176,8 +180,7 @@ final class IssuanceRepository
             if($charge['row_version']!==$request['row_version']||!in_array($charge['status'],['draft','posted'],true)) self::conflict();
             try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertChargeCorrectable($supplier,$chargeId);}
             catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
-            foreach($reader->charges($supplier,true) as $next) if($next['unit_id']===$charge['unit_id']&&$next['source_key']===$charge['source_key']
-                &&$next['revision_no']>$charge['revision_no']&&in_array($next['status'],['draft','posted'],true))
+            if($reader->activeSuccessor($supplier,$charge)!==null)
                 throw new IssuanceException('property_charge_issue_successor_active','Nejprve zrušte navazující předpis nebo rozdílovou opravu.',409);
             if($request['effective_at']<$charge['snapshot']['issued_at']||$request['accounting_date']<$charge['accounting_date'])
                 throw new IssuanceException('property_charge_issue_reversal_date','Storno nesmí předcházet původnímu předpisu.');

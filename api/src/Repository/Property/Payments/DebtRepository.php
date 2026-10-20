@@ -47,14 +47,19 @@ final class DebtRepository
                 $lines[]=['id'=>(int)$line['id'],'line'=>$fact];$amount=bcadd($amount,$fact['amount_cents'],0);
             }
             if(count($lines)!==count($ids))PaymentException::reject('foreign_charge_line');
-            $snapshot=['charge_id'=>$charge['id'],'unit_id'=>$charge['unit_id'],'journal_entry_id'=>$charge['journal_entry_id'],'lines'=>$lines,'liability_groups'=>$charge['snapshot']['liability_groups'],
-                'amount_cents'=>$amount,'title_ref'=>$request['title_ref'],'due_date'=>$request['due_date'],'legal'=>$request['legal'],'security'=>$request['security'],'damages_for'=>$request['damages_for']??null];
+            $snapshot=self::chargeSnapshot($charge,$lines,$amount,$request);
             $this->execute('INSERT INTO unit_payment_debts (supplier_id,charge_id,request_json,snapshot_json,request_hash,snapshot_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',[$supplier,$charge['id'],self::json($request),self::json($snapshot),$hash,PropertyInput::hash($snapshot),$token,$actor]);
             $id=(int)$pdo->lastInsertId();foreach($ids as $lineId)$this->execute('INSERT INTO unit_payment_debt_lines (supplier_id,debt_id,charge_line_id) VALUES (?,?,?)',[$supplier,$id,$lineId]);
             $payload=['snapshot_hash'=>PropertyInput::hash($snapshot),'charge_id'=>$charge['id']];
             $this->execute("INSERT INTO unit_payment_audit (supplier_id,object_kind,object_id,action,payload_json,payload_hash,created_by,recorded_at) VALUES (?,'debt',?,'registered',?,?,?,UTC_TIMESTAMP(6))",[$supplier,$id,self::json($payload),PropertyInput::hash($payload),$actor]);
             return $this->current($supplier,$id);
         });
+    }
+    /** Otisk dluhu z předpisu; sdílí ruční registrace i hromadná registrace při zaúčtování dávky. */
+    public static function chargeSnapshot(array $charge,array $lines,string $amount,array $request):array
+    {
+        return ['charge_id'=>$charge['id'],'unit_id'=>$charge['unit_id'],'journal_entry_id'=>$charge['journal_entry_id'],'lines'=>$lines,'liability_groups'=>$charge['snapshot']['liability_groups'],
+            'amount_cents'=>$amount,'title_ref'=>$request['title_ref'],'due_date'=>$request['due_date'],'legal'=>$request['legal'],'security'=>$request['security'],'damages_for'=>$request['damages_for']??null];
     }
     public static function accessoryOwnedEntrySql(bool $currentRead=false):string
     {

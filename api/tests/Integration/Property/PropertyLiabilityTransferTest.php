@@ -37,6 +37,38 @@ final class PropertyLiabilityTransferTest extends TestCase
         $payment->reverse($f['supplier'],$done['id'],2,'2026-02-06','Synthetic later payment withdrawal','later-undo',$f['actor']);
         self::assertSame('reversed',$payment->operation($f['supplier'],$done['id'])['status']);
     }
+    public function testConfirmedTransferRequiresTransferorAsGuarantorInPreviousScope():void
+    {
+        $base=$this->settledPaymentFixture('1000','0');
+        $f=$this->f;
+        $old=$base['charge']['snapshot']['liability_groups'][0]['members'][0];
+        $repo=new PartyEventRepository($this->db);
+
+        $withoutGuarantee=$this->request($base,$f['clients'][2],1,null,'2026-02-02T10:00:00+01:00',[]);
+        try{
+            $repo->preview($f['supplier'],$withoutGuarantee);
+            self::fail('Transfer released the transferor without § 1186 guarantee.');
+        }catch(PropertyException $e){
+            self::assertSame('property_receivable_transferor_guarantee_required',$e->errorCode);
+            self::assertSame([$old],$e->details['members']);
+        }
+
+        $reduced=$withoutGuarantee;
+        $reduced['debts'][0]['groups'][]=['group_key'=>'guarantor-'.$old,'role'=>'guarantor','mode'=>'individual','basis'=>'documented_title','members'=>[$old],
+            'extent'=>['num'=>'1','den'=>'2'],'evidence_ref'=>'Synthetic liability title','legal_reason'=>'Synthetic partial guarantee','valid_from'=>'2026-02-02T10:00:00+01:00','valid_to'=>null];
+        try{
+            $repo->preview($f['supplier'],$reduced);
+            self::fail('Transferor guarantee narrower than the transferred debt was accepted.');
+        }catch(PropertyException $e){
+            self::assertSame('property_receivable_transferor_guarantee_scope',$e->errorCode);
+        }
+
+        $full=$this->request($base,$f['clients'][2],1,null,'2026-02-02T10:00:00+01:00',[$old]);
+        $event=$repo->confirm($f['supplier'],$full,$repo->preview($f['supplier'],$full)['preview_hash'],'guaranteed-transfer',$f['actor']);
+        $roles=[];
+        foreach($event['snapshot']['debts'][0]['groups'] as $group)$roles[$group['role']]=$group['members'];
+        self::assertSame(['debtor'=>[$f['clients'][2]],'guarantor'=>[$old]],$roles);
+    }
     public function testReversalCannotRestoreAmountAlreadyUsedByTwoSuccessionTitles():void
     {
         $base=$this->settledPaymentFixture('1000','0');$f=$this->f;$old=$base['charge']['snapshot']['liability_groups'][0]['members'][0];$repo=new PartyEventRepository($this->db);

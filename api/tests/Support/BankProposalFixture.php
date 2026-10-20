@@ -7,7 +7,6 @@ namespace MyInvoice\Tests\Support;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository;
-use MyInvoice\Repository\Property\Payments\DebtRepository;
 use MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService;
 use MyInvoice\Service\Property\Payments\BankProposalService;
 
@@ -31,11 +30,12 @@ trait BankProposalFixture
             $q = $db->pdo()->prepare('SELECT id, amount_cents FROM unit_charge_lines WHERE supplier_id=? AND charge_id=? AND amount_cents>0 ORDER BY id');
             $q->execute([$f['supplier'], $charge['id']]);
             $lines = $q->fetchAll(\PDO::FETCH_ASSOC);
-            $debt = (new DebtRepository($db))->register($f['supplier'], ['charge_id' => $charge['id'], 'expected_version' => 2,
-                'principal_line_ids' => array_map(fn ($l) => (int) $l['id'], $lines), 'title_ref' => 'Synthetic prescription debt ' . $code,
-                'due_date' => '2026-01-15', 'legal' => ['basis' => 'legal_act', 'legal_act_date' => '2025-12-15', 'evidence' => 'Synthetic decision', 'regime' => 'general'],
-                'security' => ['kind' => 'unsecured', 'evidence' => 'Synthetic finding'], 'damages_for' => null], 'bank-proposal-debt-' . $code, $f['actor']);
-            $debts[$code] = $debt['id'];
+            // Dluh zaregistrovalo zaúčtování dávky (ChargeDebtRegistrar), jeden na předpis se všemi kladnými řádky.
+            $q = $db->pdo()->prepare('SELECT id FROM unit_payment_debts WHERE supplier_id=? AND charge_id=? ORDER BY id');
+            $q->execute([$f['supplier'], $charge['id']]);
+            $ids = array_map('intval', $q->fetchAll(\PDO::FETCH_COLUMN));
+            if (count($ids) !== 1) throw new \LogicException('Posted charge must own exactly one registered debt.');
+            $debts[$code] = $ids[0];
             $totals[$code] = array_reduce($lines, fn ($sum, $l) => bcadd($sum, (string) $l['amount_cents'], 0), '0');
         }
         return ['batch' => $batch, 'debts' => $debts, 'totals' => $totals];
