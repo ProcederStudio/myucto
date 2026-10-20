@@ -115,6 +115,187 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         $opening['931'] = '-830.00';
         ksort($opening, SORT_STRING);
         self::assertSame($opening, $this->balances('2027-01-01', '2027-01-01'));
+        // Shromáždění schválí závěrku 20. 3. 2027; o rozdělení výsledku rozhoduje až po dubnovém vypořádání.
+        self::assertTrue((new AccountingPeriodRepository($this->db))->setStatusCas($this->year2026, $this->supplier, 'approved', $this->periodVersion($this->year2026),
+            $this->actor, ['body' => 'Syntetické shromáždění vlastníků', 'decision_ref' => 'Syntetické usnesení 2027/03']));
+
+        $this->finalWaterInvoices();
+        $this->settleWater();
+        $this->refundOldCredit();
+
+        $april = ['221' => '224330.00', '315.100' => '3000.00', '315.110' => '7000.00', '315.300' => '4500.00', '324.200' => '-2000.00',
+            '379.910' => '-6000.00', '379.920' => '-5000.00', '931' => '-830.00', '955.100' => '-225000.00'];
+        self::assertSame($april, $this->balances('2027-04-25'));
+        // Oficiální rozvaha 504 s nevypořádaným 931 záměrně nevznikne; dubnový stav ukazuje manažerský pohled po účtech.
+        $view = $this->container->get(\MyInvoice\Service\Accounting\Reports\FinancialStatementService::class)->accountView($this->supplier, $year2027, '2027-04-25');
+        self::assertSame('management', $view['view_kind']);
+        self::assertEquals(['unresolved_pending_result' => 830, 'reconciliation_difference' => 0], $view['checks']);
+        $assets = $liabilities = 0.0;
+        foreach ($view['balances'] as $row) {
+            if ($row['closing_debit_balance'] > 0) $assets += $row['closing_debit_balance'];
+            else $liabilities -= $row['closing_debit_balance'];
+        }
+        self::assertEquals([238830, 238830], [$assets, $liabilities]);
+
+        $distribution = $closing->profitDistributionPreview($this->supplier, $this->year2026, '2027-06-15');
+        $closing->runProfitDistribution($this->supplier, $this->year2026, ['decision_date' => '2027-06-15',
+            'decision_reference' => 'Syntetické usnesení shromáždění 2027/06', 'decision_authority' => 'Syntetické shromáždění vlastníků',
+            'target_row_version' => $distribution['target_period']['row_version'], 'snapshot_hash' => $distribution['snapshot_hash'],
+            'allocations' => array_map(static fn (array $cell): array => ['cell_key' => $cell['key'], 'role' => 'result.retained_profit',
+                'amount' => abs($cell['available'])], $distribution['cells'])], ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+        $distributed = $april;
+        unset($distributed['931']);
+        $distributed['932'] = '-830.00';
+        ksort($distributed, SORT_STRING);
+        self::assertSame($distributed, $this->balances('2027-06-15'));
+
+        $closedNext = $this->close($year2027);
+        self::assertNotNull($closedNext['entry_id']);
+        self::assertSame([], $this->balances('2027-12-31'));
+        $openedNext = $closing->openNext($this->supplier, $year2027, $this->periodVersion($year2027));
+        self::assertNotNull($openedNext['entry_id']);
+        // Rámec 504 otevírá 932 záměrně do 931 (AccountingRoleProfile::openingAccount), rozvaha 2028 je tedy dubnová.
+        self::assertSame($april, $this->balances('2028-01-01', '2028-01-01'));
+    }
+
+    // ---------------------------------------------------------------- vyúčtování vody 2027
+
+    private array $finalCost = [];
+
+    /** V01 až V03: konečná faktura dosud nevyfakturované části 2026 obrátí přesně původní dohad. */
+    private function finalWaterInvoices(): void
+    {
+        $country = (int) $this->pdo->query("SELECT id FROM countries WHERE iso2='CZ'")->fetchColumn();
+        $currency = (int) $this->pdo->query("SELECT id FROM currencies WHERE code='CZK' ORDER BY id LIMIT 1")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO clients (supplier_id,company_name,street,city,zip,country_id,main_email,currency_default_id) VALUES (?,?,?,?,?,?,?,?)')
+            ->execute([$this->supplier, 'Syntetická vodárna', 'Syntetická 1', 'Syntetické město', '10000', $country, 'voda@example.test', $currency]);
+        $vendor = (int) $this->pdo->lastInsertId();
+        $this->container->get(\MyInvoice\Repository\PostingRuleRepository::class)
+            ->upsertOverride($this->supplier, 'invoice.services.received', '315.210', '321', 'Syntetická politika rozvahového profilu služeb');
+        $rate = (int) $this->pdo->query('SELECT id FROM vat_rates WHERE rate_percent=0 ORDER BY id LIMIT 1')->fetchColumn();
+        $invoices = $this->container->get(\MyInvoice\Repository\PurchaseInvoiceRepository::class);
+        $posting = $this->container->get(PostingService::class);
+        $workflow = $this->container->get(\MyInvoice\Service\Property\Services\Settlement\ServiceLifecycleWorkflow::class);
+        foreach ($this->waterSegments() as $key => $segment) {
+            $invoice = $invoices->createDraft(['vendor_id' => $vendor, 'vendor_invoice_number' => 'VODA-2026-' . $key, 'issue_date' => '2027-04-05',
+                'due_date' => '2027-04-30', 'currency_id' => $currency, 'exchange_rate' => 1, 'status' => 'received', 'vat_deduction' => 'none',
+                'vendor_is_vat_payer' => false], $this->actor, $this->supplier);
+            $invoices->replaceItems($invoice, [['description' => 'Syntetické vodné a stočné 2026 ' . $key, 'quantity' => 1, 'unit' => 'ks',
+                'unit_price_without_vat' => (int) $segment['invoice'], 'vat_rate_id' => $rate, 'expense_kind' => 'service', 'expense_account_code' => '315.210']]);
+            (new \MyInvoice\Service\Invoice\PurchaseInvoiceCalculator($this->db))->recompute($invoice);
+            $this->container->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class)
+                ->saveDocument($this->supplier, 'purchase_invoice', $invoice, [], [1 => $this->serviceDimensions($key)]);
+            $entry = $posting->postDocument($this->supplier, 'purchase_invoice', $invoice, $posting->buildFromPurchaseInvoice($this->supplier, $invoice),
+                ['entry_date' => '2027-04-05', 'posted_by' => $this->actor]);
+            $command = ['operation' => 'finalize', 'case_id' => $this->estimateCase[$key], 'accounting_date' => '2027-04-05', 'invoice_id' => $invoice,
+                'line_id' => $this->entryLine($entry, 'debit'), 'title' => 'Syntetické konečné rozúčtování dodávky vody 2026'];
+            $preview = $workflow->preview($this->supplier, $command, $this->actor);
+            $workflow->execute($this->supplier, $command, $this->actor, $preview['expected_state'], $preview['preview_hash'], 'water-final-' . $key);
+        }
+        self::assertSame(['221' => '278830.00', '315.100' => '3000.00', '315.110' => '9000.00', '315.210' => '132000.00', '321' => '-52000.00',
+            '324.110' => '-132000.00', '324.200' => '-2000.00', '379.910' => '-6000.00', '379.920' => '-5000.00', '931' => '-830.00', '955.100' => '-225000.00'],
+            $this->balances('2027-04-05'));
+        $this->post('2027-04-10', [['321', 'debit', '52000.00'], ['221', 'credit', '52000.00']]);
+    }
+
+    /** V04 až V07: vyúčtování po právních segmentech, žádné globální minimum za dům. */
+    private function settleWater(): void
+    {
+        $adapter = $this->container->get(\MyInvoice\Service\Property\Services\Settlement\SettlementOriginAdapter::class);
+        $documents = $this->container->get(\MyInvoice\Repository\Property\Services\Settlement\SettlementDocumentRepository::class);
+        $applications = $this->container->get(\MyInvoice\Repository\Property\Services\Settlement\SettlementApplicationRepository::class);
+        $date = '2027-04-20';
+        $totals = ['advance_applied_cents' => '0', 'new_claim_cents' => '0', 'cancelled_unpaid_cents' => '0', 'new_credit_cents' => '0'];
+        foreach ($this->waterSegments() as $key => $segment) {
+            $selector = ['kind' => 's3_line', 'id' => $this->lines[$key]['WATER'],
+                'cost_sources' => [['kind' => 'document', 'id' => $this->knownDocuments[$key]], ['kind' => 'lifecycle', 'id' => $this->estimateCase[$key]]]];
+            $current = $adapter->current($this->supplier, $this->f['units'][substr($key, 0, 3)], $this->f['service']['id'], $date, [$selector]);
+            $actual = bcadd(bcmul($segment['known'], '100', 0), bcmul($segment['invoice'], '100', 0), 0);
+            $facts = $this->documentFacts($key, $segment, 'FINAL-2026-' . $key, self::instant($date, '09:00:00'), $current, $actual);
+            $document = \MyInvoice\Service\Property\Services\Settlement\SettlementDocument::fromEvidence($facts);
+            $saved = $documents->save($this->supplier, $document, [$selector], $date, 0, 'final-' . $key, $this->actor);
+            $amounts = $document->snapshot()['amounts'];
+            foreach ($totals as $name => $sum) $totals[$name] = bcadd($sum, $amounts[$name], 0);
+            $request = $this->applicationRequest($key, $segment, $date, $current, $amounts, $facts['recipient_ids']);
+            if ($key === 'U05-B') $this->assertTransferredPaymentStaysPinned($applications, $saved['id'], $request, $current);
+            $preview = $applications->preview($this->supplier, $saved['id'], $request, 0);
+            $applications->apply($this->supplier, $saved['id'], $request, 0, $preview['preview_hash'], 'settle-' . $key, $this->actor);
+        }
+        self::assertSame(['advance_applied_cents' => '12750000', 'new_claim_cents' => '450000', 'cancelled_unpaid_cents' => '200000', 'new_credit_cents' => '250000'], $totals);
+    }
+
+    /**
+     * Dluh B přešel 1. 9. na C. Vyúčtování segmentu B smí použít zálohu a založit nový
+     * nárok B, ale nesmí uvolnit úhradu B připnutou k posouzení přechodu.
+     */
+    private function assertTransferredPaymentStaysPinned(object $applications, int $document, array $request, array $current): void
+    {
+        $pinned = $request;
+        $pinned['reliefs'] = [['allocation_id' => $current['allocations'][0]['id'], 'amount_cents' => '100',
+            'entitlement' => ['party_ids' => [$this->people['B']], 'evidence' => 'Syntetický neoprávněný kredit', 'due_date' => '2027-06-30', 'account_code' => '379.910']]];
+        try {
+            $applications->preview($this->supplier, $document, $pinned, 0);
+            self::fail('Vyúčtování uvolnilo úhradu převedeného dluhu.');
+        } catch (\MyInvoice\Service\Property\Payments\PaymentException $e) {
+            self::assertSame('property_payment_party_history_in_use', $e->errorCode);
+        }
+    }
+
+    private function applicationRequest(string $key, array $segment, string $date, array $current, array $amounts, array $recipients): array
+    {
+        $origin = $current['origins'][0];
+        $reliefs = [];
+        $credit = $amounts['new_credit_cents'];
+        $allocations = array_filter($current['allocations'], fn ($a) => $a['active']);
+        usort($allocations, fn ($a, $b) => bccomp($b['amount_cents'], $a['amount_cents'], 0) ?: $a['id'] <=> $b['id']);
+        foreach ($allocations as $allocation) {
+            if ($credit === '0') break;
+            $take = bccomp($credit, $allocation['amount_cents'], 0) < 0 ? $credit : $allocation['amount_cents'];
+            $reliefs[] = ['allocation_id' => $allocation['id'], 'amount_cents' => $take, 'entitlement' => ['party_ids' => $recipients,
+                'evidence' => 'Syntetický kredit oprávněných příjemců služby', 'due_date' => '2027-06-30', 'account_code' => '379.910']];
+            $credit = bcsub($credit, $take, 0);
+        }
+        $request = ['accounting_date' => $date, 'evidence' => 'Syntetické doručené vyúčtování vody 2026',
+            'advances' => [['origin_key' => $origin['kind'] . ':' . $origin['id'], 'applied_cents' => $amounts['advance_applied_cents']]],
+            'reliefs' => $reliefs, 'opening_credits' => [], 'new_claim' => null];
+        if ($amounts['new_claim_cents'] !== '0') {
+            $at = self::instant($date, '12:00:00');
+            $groups = $segment['person'] !== null ? [$this->group('OWNER-' . $segment['person'], $segment['person'], $at)] : $this->ownerGroups($key, $at);
+            $request['new_claim'] = ['party_ids' => $recipients, 'evidence' => 'Syntetický nový rozdílový nárok z vyúčtování', 'due_date' => '2027-06-30', 'account_code' => '315.300'];
+            $request['claim_title'] = ['effective_at' => $at, 'title_ref' => 'Syntetické vyúčtování služby 2026', 'liability_groups' => $groups,
+                'legal' => ['basis' => 'legal_act', 'legal_act_date' => $date, 'evidence' => 'Syntetické doručené vyúčtování', 'regime' => 'general'],
+                'security' => ['kind' => 'unsecured', 'evidence' => 'Syntetické posouzení bez zajištění']];
+        }
+        return $request;
+    }
+
+    /** V08: částečná výplata starého kreditu Q06 přes rezervaci a bankovní událost. */
+    private function refundOldCredit(): void
+    {
+        $credit = (int) $this->pdo->query('SELECT id FROM unit_credit_lots WHERE supplier_id=' . $this->supplier . ' AND opening_item_id IS NOT NULL')->fetchColumn();
+        $payments = $this->container->get(PaymentRepository::class);
+        $this->documentRefundAccount($this->people['Q06']);
+        $reservation = fn (string $amount) => ['amount_cents' => $amount, 'party_ids' => [$this->people['Q06']],
+            'disposition' => 'Syntetická dispozice Q06 k výplatě kreditu', 'recipient_account' => '1000000005/0100'];
+        $reserved = $payments->reserve($this->supplier, $credit, $payments->credit($this->supplier, $credit)['row_version'], $reservation('250000'), 'q06-reserve', $this->actor);
+        $state = $payments->credit($this->supplier, $credit);
+        self::assertSame(['600000', '250000', '350000'], [$state['balance_cents'], $state['reserved_cents'], $state['available_cents']]);
+        try {
+            $payments->reserve($this->supplier, $credit, $state['row_version'], $reservation('500000'), 'q06-reserve-over', $this->actor);
+            self::fail('Souběžná rezervace překročila kredit Q06.');
+        } catch (\MyInvoice\Service\Property\Payments\PaymentException $e) {
+            self::assertNotSame('', $e->errorCode);
+        }
+        $request = ['source' => ['kind' => 'bank', 'id' => $this->rawBank('2027-04-25', '-2500.00')],
+            'clearing_cells' => [['key' => 'refund', 'amount_cents' => '250000', 'dimensions' => []]],
+            'parts' => [['key' => 'refund-q06', 'request' => ['kind' => 'refund', 'amount_cents' => '250000', 'accounting_date' => '2027-04-25',
+                'reason' => 'Syntetická výplata kreditu Q06', 'reservation_id' => $reserved['id'], 'expected_reservation_version' => $reserved['row_version']]]]];
+        $facade = $this->container->get(\MyInvoice\Service\Property\Payments\Workflow\PaymentWorkflowFacade::class);
+        $preview = $facade->preview($this->supplier, $request);
+        $result = $facade->confirm($this->supplier, $request, $preview['preview_hash'], 'q06-refund', $this->actor);
+        self::assertSame($result, $facade->confirm($this->supplier, $request, $preview['preview_hash'], 'q06-refund', $this->actor));
+        $state = $payments->credit($this->supplier, $credit);
+        self::assertSame(['350000', '0', '350000'], [$state['balance_cents'], $state['reserved_cents'], $state['available_cents']]);
     }
 
     // ---------------------------------------------------------------- uzávěrka
@@ -358,11 +539,15 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
     /** Dimenze jednotky a služby z předpisu zálohy doplněné o činnost SVJ. */
     private function serviceDimensions(string $key): array
     {
+        if (isset($this->serviceDims[$key])) return $this->serviceDims[$key];
         $line = $this->lines[$key]['WATER'];
         $current = $this->container->get(\MyInvoice\Service\Property\Services\Settlement\SettlementOriginAdapter::class)
             ->current($this->supplier, $this->f['units'][substr($key, 0, 3)], $this->f['service']['id'], '2026-12-31', [['kind' => 's3_line', 'id' => $line]]);
-        return $current['origins'][0]['advance_line']['dimensions'] + $this->activityDimensions();
+        return $this->serviceDims[$key] = $current['origins'][0]['advance_line']['dimensions'] + $this->activityDimensions();
     }
+
+    /** @var array<string,array<int,int>> dimenze zjištěné v otevřeném roce 2026 */
+    private array $serviceDims = [];
 
     private function postDims(string $date, string $debit, string $credit, string $amount, array $dims): int
     {
