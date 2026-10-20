@@ -1812,6 +1812,7 @@ final class ClosingService
      * (openNext) našel i víceletý odklad pořízený v N (a rozpustil jen tranši N+1, ne celý
      * zbytek). `originEndsOn` = konec období, ze kterého openNext otevírá (deferováno za ním);
      * `targetEnd` = konec cílového období (rozlišení se týká jen položek začínajících do něj).
+     * Bere jen položky, jejichž odklad zaúčtovala uzávěrka ({@see deferredByClosingSql}).
      *
      * @return list<array<string,mixed>>
      */
@@ -1830,10 +1831,38 @@ final class ClosingService
                 AND pii.accrual_to IS NOT NULL
                 AND pii.accrual_to > ?
                 AND pii.accrual_from <= ?
+                AND ' . self::deferredByClosingSql('prepaid_expense_accrual', 'pi.supplier_id', 'pi.effective_cost_date') . '
               ORDER BY pi.id, pii.order_index, pii.id'
         );
-        $stmt->execute([$supplierId, $originEndsOn, $targetEnd]);
+        $stmt->execute([$supplierId, $originEndsOn, $targetEnd, $originEndsOn]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Podmínka „odklad dokladu zaúčtovala uzávěrka": den dokladu (`$dateSql`) leží v účetním
+     * období končícím nejpozději k vázanému `?` (konec období, ze kterého openNext otevírá),
+     * jehož krok časového rozlišení zaúčtoval odkladový zápis (`$sourceType`, period_id).
+     *
+     * openNext rozpouští jen to, co odložila uzávěrka. Odklad vzniklý jinak (doklad rozúčtovaný
+     * rovnou na 381/384, ruční nebo převzatý zápis) rozpouští účetní stejnou cestou, jakou
+     * vznikl, takže by ho openNext rozpustil podruhé. Doklad z cílového období nebyl odložen
+     * vůbec: jeho náklad či výnos je v tom období celý. Stejně čte odklad
+     * {@see pendingDeferralRelease} v projekci pro náhled DPPO.
+     */
+    private static function deferredByClosingSql(string $sourceType, string $supplierSql, string $dateSql): string
+    {
+        return "EXISTS (SELECT 1
+                  FROM accounting_periods dap
+                  JOIN journal_entries dje
+                    ON dje.supplier_id = dap.supplier_id
+                   AND dje.source_type = '{$sourceType}'
+                   AND dje.source_id = dap.id
+                   AND dje.posted_at IS NOT NULL
+                   AND dje.reversed_by IS NULL
+                 WHERE dap.supplier_id = {$supplierSql}
+                   AND dap.ends_on <= ?
+                   AND {$dateSql} >= dap.starts_on
+                   AND {$dateSql} <= dap.ends_on)";
     }
 
     /**
@@ -2156,12 +2185,16 @@ final class ClosingService
     /**
      * Řádky vydaných faktur s obdobím výnosu přesahujícím `afterDate`, jejichž zaúčtovaný
      * a nestornovaný zápis faktury leží v [postedFrom..postedTo]. Odklad: zápis v uzavíraném
-     * období; rozpuštění: zápis kdykoli do konce období, ze kterého se otevírá.
+     * období; rozpuštění: zápis kdykoli do konce období, ze kterého se otevírá, a jen v období,
+     * jehož odklad zaúčtovala uzávěrka (`$release`, {@see deferredByClosingSql}).
      *
      * @return list<array<string,mixed>>
      */
-    private function deferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy = null): array
+    private function deferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy = null, bool $release = false): array
     {
+        $deferredByClosing = $release
+            ? 'AND ' . self::deferredByClosingSql('deferred_revenue_accrual', 'je.supplier_id', 'je.entry_date')
+            : '';
         $stmt = $this->db->pdo()->prepare(
             'SELECT ii.id AS item_id, ii.invoice_id, ii.description, ii.total_without_vat,
                     ii.accrual_from, ii.accrual_to, i.varsymbol, cur.code AS currency_code
@@ -2178,15 +2211,20 @@ final class ClosingService
                                AND je.source_type = \'invoice\' AND je.source_id = i.id
                                AND je.posted_at IS NOT NULL AND je.reversed_by IS NULL
                                AND je.entry_date <= ?
-                               AND (? IS NULL OR je.entry_date >= ?))
+                               AND (? IS NULL OR je.entry_date >= ?)
+                               ' . $deferredByClosing . ')
               ORDER BY i.id, ii.order_index, ii.id'
         );
-        $stmt->execute([$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom]);
+        $params = [$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom];
+        if ($release) {
+            $params[] = $postedTo;
+        }
+        $stmt->execute($params);
         $rows = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $rows[] = $row + ['source' => 'invoice', 'membership_case_id' => null, 'revenue_account_code' => null];
         }
-        return [...$rows, ...$this->membershipDeferredRevenueRows($supplierId, $afterDate, $postedFrom, $postedTo, $startsBy)];
+        return [...$rows, ...$this->membershipDeferredRevenueRows($supplierId, $afterDate, $postedFrom, $postedTo, $startsBy, $release)];
     }
 
     /**
@@ -2196,8 +2234,11 @@ final class ClosingService
      *
      * @return list<array<string,mixed>>
      */
-    private function membershipDeferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy): array
+    private function membershipDeferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy, bool $release = false): array
     {
+        $deferredByClosing = $release
+            ? 'AND ' . self::deferredByClosingSql('deferred_revenue_accrual', 'je.supplier_id', 'je.entry_date')
+            : '';
         $stmt = $this->db->pdo()->prepare(
             "SELECT o.id AS item_id, NULL AS invoice_id, cc.id AS membership_case_id,
                     o.amount_cents / 100 AS total_without_vat,
@@ -2217,9 +2258,14 @@ final class ClosingService
                 AND je.posted_at IS NOT NULL AND je.reversed_by IS NULL
                 AND je.entry_date <= ?
                 AND (? IS NULL OR je.entry_date >= ?)
+                {$deferredByClosing}
               ORDER BY cc.id, o.id"
         );
-        $stmt->execute([$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom]);
+        $params = [$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom];
+        if ($release) {
+            $params[] = $postedTo;
+        }
+        $stmt->execute($params);
         $rows = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $rows[] = $row + ['description' => 'Členský příspěvek ' . $row['varsymbol']];
@@ -2279,7 +2325,7 @@ final class ClosingService
         $byAccount = [];
         $total = 0.0;
         $contexts = [];
-        foreach ($this->deferredRevenueRows($supplierId, $originEndsOn, null, $originEndsOn, $targetEnd) as $row) {
+        foreach ($this->deferredRevenueRows($supplierId, $originEndsOn, null, $originEndsOn, $targetEnd, true) as $row) {
             $from = substr((string) $row['accrual_from'], 0, 10);
             $to = substr((string) $row['accrual_to'], 0, 10);
             [$netCzk, $accounts] = $this->deferredRevenueItem($supplierId, $row, $contexts);
