@@ -23,6 +23,7 @@ final class PaymentBankProposalAction
     use AccountingActionSupport;
 
     public function __construct(
+        private readonly \MyInvoice\Infrastructure\Database\Connection $db,
         private readonly BankProposalRepository $proposals,
         private readonly BankProposalService $service,
         private readonly UnitPaymentResolver $resolver,
@@ -45,7 +46,10 @@ final class PaymentBankProposalAction
         return $this->run($request, $response, 'property', false, function (int $supplier) use ($request): array {
             $raw = (string) ($request->getQueryParams()['ids'] ?? '');
             if (!preg_match('/^[0-9]+(,[0-9]+){0,499}$/D', $raw)) PropertyInput::invalid('ids');
-            return ['items' => (object) $this->proposals->links($supplier, array_map('intval', explode(',', $raw)))];
+            // Banka se ptá u každé firmy; bez profilu SVJ odpoví po jediném dotazu a klient se už neptá.
+            $profiles = (new \MyInvoice\Repository\Property\PropertyProfileRepository($this->db))->history($supplier);
+            if (!in_array(true, array_column($profiles, 'enabled'), true)) return ['enabled' => false, 'items' => (object) []];
+            return ['enabled' => true, 'items' => (object) $this->proposals->links($supplier, array_map('intval', explode(',', $raw)))];
         });
     }
 

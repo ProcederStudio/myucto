@@ -154,7 +154,8 @@ final class UnitPaymentResolver
         return $result;
     }
 
-    private static function identifierSignal(array $identifier, string $vs, string $ss, array $tokens, string $message, ?string $account): ?string
+    /** Signál jednoho identifikátoru registru vůči pohybu; NULL, když se neshoduje. */
+    public static function identifierSignal(array $identifier, string $vs, string $ss, array $tokens, string $message, ?string $account): ?string
     {
         $value = (string) $identifier['value'];
         switch ($identifier['kind']) {
@@ -182,7 +183,7 @@ final class UnitPaymentResolver
     }
 
     /** @return array<string,true> číselné tokeny zprávy bez vodicích nul */
-    private static function digitTokens(string $message): array
+    public static function digitTokens(string $message): array
     {
         preg_match_all('/\d+/', $message, $matches);
         $out = [];
@@ -191,7 +192,7 @@ final class UnitPaymentResolver
     }
 
     /** Klíč českého účtu `předčíslí-číslo/banka` bez vodicích nul; NULL, když účet nejde porovnat. */
-    private static function accountKey(string $account, string $bank): ?string
+    public static function accountKey(string $account, string $bank): ?string
     {
         $national = AccountNumberNormalizer::czechNational(trim($account));
         $bank = trim($bank);

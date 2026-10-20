@@ -36,7 +36,7 @@ describe('property payment workflow', () => {
     calls.context.mockResolvedValue({ ...context, candidates: [{ ...context.candidates[0], existing_owner: true }] })
     calls.source.mockResolvedValue({ source_id: 9, source_version: 2, revision_id: null, kind: 'bank', id: 7, date: '2026-02-01', amount_cents: '10000', consumed_cents: '6000', available_cents: '4000', cells: [{ key: 'original', amount_cents: '10000', available_cents: '4000', dimensions: {}, dimension_splits: {} }] })
     const wrapper = mount(PropertyPaymentsView, { global: { plugins: plugins(), stubs: { PropertyPartyPicker: partyStub, ActionBar: actionsStub, PaymentSourceRevisionEditor: true } } })
-    await flushPromises(); await wrapper.get('[data-field="source"]').setValue('bank:7'); await flushPromises()
+    await flushPromises(); await wrapper.get('[data-source="bank:7"]').trigger('click'); await flushPromises()
     expect(calls.source).toHaveBeenCalledWith(1, 'bank', 7)
     const amount = wrapper.get<HTMLInputElement>('[data-field="cell-amount"]')
     expect(amount.element.value).toBe('100.00'); expect(amount.element.readOnly).toBe(true)
@@ -131,7 +131,7 @@ async function ready(overrides: Record<string, unknown> = {}) {
   return wrapper
 }
 type Ready = Awaited<ReturnType<typeof ready>>
-async function selectSource(wrapper: Ready, value = 'bank:7') { await wrapper.get('[data-field="source"]').setValue(value); await flushPromises() }
+async function selectSource(wrapper: Ready, value = 'bank:7') { await wrapper.get(`[data-source="${value}"]`).trigger('click'); await flushPromises() }
 async function fillCredit(wrapper: Ready, amount = '100') {
   await wrapper.get('[data-field="credit-amount"]').setValue(amount); await wrapper.get('[data-field="unit"]').setValue('12')
   await wrapper.get('[data-party]').setValue('5'); await wrapper.get('[data-field="entitlement-evidence"]').setValue('Synthetic entitlement')
@@ -150,7 +150,7 @@ describe('source pagination beyond the context page', () => {
     expect(calls.candidates).toHaveBeenNthCalledWith(1, 1, 'bank', 0, 100)
     expect(wrapper.text()).toContain('Payer bank8')
     expect(wrapper.text().match(/Synthetic payer/g)).toHaveLength(1)
-    expect(wrapper.get<HTMLSelectElement>('[data-field="source"]').element.value).toBe('bank:7')
+    expect(wrapper.get('[data-source="bank:7"]').attributes('aria-selected')).toBe('true')
     await wrapper.get('[data-action="source-more-bank"]').trigger('click'); await flushPromises()
     expect(calls.candidates).toHaveBeenNthCalledWith(2, 1, 'bank', 8, 100)
     expect(wrapper.text()).toContain('Payer bank9')

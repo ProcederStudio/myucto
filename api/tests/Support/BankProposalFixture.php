@@ -45,7 +45,7 @@ trait BankProposalFixture
     private function incoming(Connection $db, int $supplier, string $amount, array $fields = []): int
     {
         $pdo = $db->pdo();
-        $pdo->prepare("INSERT INTO bank_statements (supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date) VALUES (?,'Synthetic SVJ statement',?,'2000000006','0100','CZK','2026-02-01')")
+        $pdo->prepare("INSERT INTO bank_statements (supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date) VALUES (?,'Synthetic SVJ statement',?,'2000000042','0100','CZK','2026-02-01')")
             ->execute([$supplier, hash('sha256', random_bytes(20))]);
         $statement = (int) $pdo->lastInsertId();
         $row = $fields + ['posted_at' => '2026-02-01', 'variable_symbol' => null, 'specific_symbol' => null, 'counterparty_account' => null,

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSupplierStore } from '@/stores/supplier'
-import { propertyPaymentsApi, type PaymentCandidate, type PaymentCandidateKind, type PaymentSourceDetails, type PaymentWorkflowContext, type PaymentWorkflowHistory, type PaymentWorkflowPreview, type PaymentWorkflowRequest } from '@/api/propertyPayments'
+import { propertyPaymentsApi, type BankProposalOverrides, type BankProposalPlan, type CreditThirdPartyBasis, type PaymentAllocationPart, type PaymentCandidate, type PaymentCandidateKind, type PaymentSourceDetails, type PaymentWorkflowContext, type PaymentWorkflowHistory, type PaymentWorkflowPreview, type PaymentWorkflowRequest } from '@/api/propertyPayments'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import PropertyButton from '@/components/property/PropertyButton.vue'
 import PropertyInstantInput from '@/components/property/PropertyInstantInput.vue'
 import PropertyPartyPicker from '@/components/property/PropertyPartyPicker.vue'
 import PaymentSourceRevisionEditor from '@/components/property/payments/PaymentSourceRevisionEditor.vue'
+import PaymentSourcePicker from '@/components/property/payments/PaymentSourcePicker.vue'
+import BankProposalPanel from '@/components/property/payments/BankProposalPanel.vue'
+import BankProposalQueue from '@/components/property/payments/BankProposalQueue.vue'
 import { paymentCents, paymentDecimal } from '@/components/property/payments/paymentWorkflowForm'
 import OpsTabBar from '@/components/property/payments/operations/OpsTabBar.vue'
 import AllocationPartForm from '@/components/property/payments/operations/AllocationPartForm.vue'
@@ -26,7 +30,19 @@ const { t } = useI18n()
 const supplierStore = useSupplierStore()
 const supplier = computed(() => supplierStore.currentSupplierId)
 const scope = provideBusyScope()
-const tab = ref('receive')
+// Záložka a pohyb z banky se drží v URL: odkaz z výpisu i obnovení stránky vede na totéž místo.
+// Bez routeru (izolované testy komponenty) zůstává stav jen v komponentě.
+const route = useRoute() as ReturnType<typeof useRoute> | undefined
+const router = useRouter() as ReturnType<typeof useRouter> | undefined
+const TABS = ['receive', 'proposals', 'debts', 'corrections', 'card', 'saldo']
+const queryText = (name: string) => { const value = route?.query[name]; return typeof value === 'string' ? value : '' }
+const tab = ref(TABS.includes(queryText('tab')) ? queryText('tab') : 'receive')
+watch(tab, value => { if (route && router && route.query.tab !== value) void router.replace({ query: { ...route.query, tab: value } }) })
+watch(() => queryText('tab'), value => { if (TABS.includes(value) && value !== tab.value) tab.value = value })
+const requestedTransaction = computed(() => { const id = Number(queryText('bank_transaction')); return Number.isInteger(id) && id > 0 ? id : null })
+const proposal = ref<BankProposalPlan | null>(null)
+const proposalBusy = ref(false)
+let proposalEpoch = 0
 const context = ref<PaymentWorkflowContext | null>(null)
 const history = ref<PaymentWorkflowHistory[]>([])
 const historyNextCursor = ref<number | null>(null)
@@ -51,7 +67,8 @@ let epoch = 0
 let sourceEpoch = 0
 onBeforeUnmount(() => epoch++)
 const cells = ref<Array<{ key: string; amount: string; dimensions: Record<number, number> }>>([])
-const credits = ref([{ key: `part.${crypto.randomUUID()}`, amount: '', unit_id: 0, parties: [null] as Array<number | null>, evidence: '', due_date: '', reason: '', selection: {} as Record<string, string> }])
+const credits = ref([{ key: `part.${crypto.randomUUID()}`, amount: '', unit_id: 0, parties: [null] as Array<number | null>, evidence: '', due_date: '', reason: '', third_basis: '' as '' | CreditThirdPartyBasis, third_evidence: '', selection: {} as Record<string, string> }])
+const THIRD_BASES: CreditThirdPartyBasis[] = ['assignment', 'inheritance', 'mistaken_payment', 'settlement_title', 'other_documented']
 const extraCandidates = ref<PaymentCandidate[]>([])
 const cursors = reactive<Record<PaymentCandidateKind, number | null>>({ bank: 0, cash: 0 })
 const moreLoading = ref(false)
@@ -85,7 +102,7 @@ const failure = (e: unknown) => failureMessage(e, t('propertyPayments.failed'))
 const allocations = ref<AllocationPartState[]>([])
 const refunds = ref<RefundPartState[]>([])
 const sourceDate = computed(() => mode.value === 'new_cash' ? cash.issue_date || null : candidate.value?.date ?? null)
-const anyBusy = computed(() => busy.value || revisionBusy.value || moreLoading.value || scope.busy.value)
+const anyBusy = computed(() => busy.value || revisionBusy.value || moreLoading.value || proposalBusy.value || scope.busy.value)
 const partCount = computed(() => credits.value.length + allocations.value.length + refunds.value.length)
 function invalidate() { preview.value = null; submitted = null; token = crypto.randomUUID(); done.value = false }
 watch([selected, mode, date, cash, cells, credits, allocations, refunds], invalidate, { deep: true, flush: 'sync' })
@@ -123,6 +140,7 @@ watch(asOf, () => { epoch++; loading.value = false; resetMore(); context.value =
 async function load() {
   if (busy.value || revisionBusy.value) return
   const id = supplier.value; const ticket = ++epoch; loading.value = false; resetMore(); context.value = null; history.value = []; historyNextCursor.value = null; historyLoadingMore.value = false; selected.value = ''; resetParts(); invalidate(); error.value = ''
+  proposal.value = null; proposalEpoch++; proposalBusy.value = false
   if (!id) return
   loading.value = true
   try {
@@ -130,6 +148,57 @@ async function load() {
     if (ticket !== epoch || id !== supplier.value) return
     context.value = data; history.value = historyPage.items; historyNextCursor.value = historyPage.next_cursor
   } catch (e) { if (ticket === epoch) error.value = failure(e) } finally { if (ticket === epoch) loading.value = false }
+  if (ticket === epoch && context.value && requestedTransaction.value) void openTransaction(requestedTransaction.value)
+}
+/**
+ * Pohyb z banky (odkaz „Spárovat na jednotku SVJ" nebo návrh z fronty): vybere ho jako
+ * zdroj a předvyplní úhradu podle rozpoznané jednotky. Plán počítá stejný náhled jako
+ * ruční úhrada a potvrzuje se stejným tlačítkem a tokenem; nic se nepotvrdí samo.
+ */
+async function openTransaction(transactionId: number, overrides: BankProposalOverrides = {}) {
+  const id = supplier.value; const ticket = epoch; const current = ++proposalEpoch
+  if (!id || !context.value) return
+  const stale = () => ticket !== epoch || current !== proposalEpoch || supplier.value !== id
+  proposalBusy.value = true; error.value = ''
+  try {
+    if (!candidates.value.some(c => c.kind === 'bank' && c.id === transactionId)) {
+      const found = await propertyPaymentsApi.candidates(id, 'bank', 0, 1, { id: transactionId })
+      if (stale()) return
+      extraCandidates.value = [...extraCandidates.value, ...found.items]
+    }
+    if (candidates.value.some(c => c.kind === 'bank' && c.id === transactionId)) { mode.value = 'existing'; selected.value = `bank:${transactionId}` }
+    if (!context.value.capabilities.manage) return
+    const plan = await propertyPaymentsApi.bankProposalPlan(id, transactionId, overrides)
+    if (stale()) return
+    proposal.value = plan
+    if (plan.status === 'proposal' && plan.request) applyProposal(plan.request, plan.resolution.unit_id, plan.preview)
+  } catch (e) { if (!stale()) error.value = failure(e) } finally { if (current === proposalEpoch) proposalBusy.value = false }
+}
+function applyProposal(request: PaymentWorkflowRequest, unitId: number | null, ready: PaymentWorkflowPreview | null) {
+  const part = request.parts[0]
+  if (!part || part.request.kind !== 'allocation') return
+  const allocation = part.request as PaymentAllocationPart
+  const state = emptyAllocation()
+  state.key = part.key; state.amount = paymentDecimal(allocation.amount_cents); state.reason = allocation.reason; state.debts = [...allocation.debts]; state.unit_id = unitId ?? 0
+  if (allocation.payment) { state.facts.payer_id = allocation.payment.payer_id; state.facts.debtor_id = allocation.payment.debtor_id; state.facts.received_at = allocation.payment.received_at }
+  credits.value = []; refunds.value = []; allocations.value = [state]; date.value = allocation.accounting_date
+  if (ready) { preview.value = ready; submitted = request }
+}
+async function openQueued(transactionId: number) {
+  proposal.value = null
+  if (route && router && requestedTransaction.value !== transactionId) {
+    // Jediná navigace se záložkou i pohybem; samostatná změna záložky by ji přepsala.
+    await router.replace({ query: { ...route.query, tab: 'receive', bank_transaction: String(transactionId) } })
+    tab.value = 'receive'
+    return
+  }
+  tab.value = 'receive'
+  void openTransaction(transactionId)
+}
+watch(requestedTransaction, id => { if (id && context.value && !loading.value) void openTransaction(id) })
+function replan(overrides: BankProposalOverrides) {
+  const target = proposal.value?.bank_transaction_id
+  if (target) void openTransaction(target, overrides)
 }
 async function loadMoreHistory() {
   const id = supplier.value; const before = historyNextCursor.value; const ticket = epoch
@@ -144,7 +213,7 @@ watch(supplier, () => { epoch++; sourceEpoch++; busy.value = false; revisionBusy
 function addCell() { cells.value.push({ key: `cell.${crypto.randomUUID()}`, amount: '', dimensions: {} }) }
 function addAllocation() { allocations.value.push(emptyAllocation()) }
 function addRefund() { refunds.value.push(emptyRefund()) }
-function addCredit() { credits.value.push({ key: `part.${crypto.randomUUID()}`, amount: '', unit_id: 0, parties: [null], evidence: '', due_date: '', reason: '', selection: {} }) }
+function addCredit() { credits.value.push({ key: `part.${crypto.randomUUID()}`, amount: '', unit_id: 0, parties: [null], evidence: '', due_date: '', reason: '', third_basis: '', third_evidence: '', selection: {} }) }
 function request(): PaymentWorkflowRequest {
   if (!date.value || cells.value.length === 0 || partCount.value === 0) throw new Error('required')
   const source = mode.value === 'new_cash' ? { kind: 'cash' as const, draft: { ...cash, total_amount: paymentDecimal(paymentCents(cash.total_amount)) } } : candidate.value ? { kind: candidate.value.kind, id: candidate.value.id } : null
@@ -153,8 +222,10 @@ function request(): PaymentWorkflowRequest {
   const cashDocumentId = candidate.value?.kind === 'cash' && mode.value === 'existing' ? candidate.value.id : null
   const creditParts = credits.value.map(credit => {
     if (!credit.unit_id || !credit.evidence.trim() || !credit.reason.trim() || !credit.due_date || credit.parties.some(p => !p) || new Set(credit.parties).size !== credit.parties.length) throw new Error('required')
+    if (credit.third_basis && !credit.third_evidence.trim()) throw new Error('required')
     return { key: credit.key, request: { kind: 'allocation' as const, amount_cents: paymentCents(credit.amount), accounting_date: date.value, reason: credit.reason, debts: [],
-      credit_entitlement: { unit_id: credit.unit_id, party_ids: credit.parties as number[], evidence: credit.evidence, due_date: credit.due_date },
+      credit_entitlement: { unit_id: credit.unit_id, party_ids: credit.parties as number[], evidence: credit.evidence, due_date: credit.due_date,
+        ...(credit.third_basis ? { third_party: { basis: credit.third_basis, evidence: credit.third_evidence } } : {}) },
       ...(cells.value.length > 1 ? { clearing_selection: cells.value.filter(c => credit.selection[c.key]?.trim()).map(c => ({ key: c.key, amount_cents: paymentCents(credit.selection[c.key]!) })) } : {}) } }
   })
   const debtParts = allocations.value.map(part => buildAllocationPart(part, date.value, normalizedCells, sourceDate.value))
@@ -183,8 +254,11 @@ async function confirm() {
 }
 const actions = computed<ActionItem[]>(() => [preview.value ? { key: 'confirm', label: t('propertyPayments.confirm'), icon: 'check', variant: 'success', tier: 'primary', disabled: anyBusy.value || !context.value?.capabilities.post, run: () => { void confirm() } } : { key: 'preview', label: t('propertyPayments.preview'), icon: 'eye', variant: 'primary', tier: 'primary', disabled: anyBusy.value || !context.value?.capabilities.manage || done.value, run: () => { void showPreview() } },
   { key: 'refresh', label: t('propertyPayments.refresh'), icon: 'cycle', tier: 'secondary', disabled: anyBusy.value, run: () => { void load() } }])
-const tabs = computed(() => ['receive', 'debts', 'corrections', 'card', 'saldo'].map(key => ({ key, label: t(`propertyPayments.tabs.${key}`) })))
-function sourceLabel(c: PaymentWorkflowContext['candidates'][number]) { return [c.date, c.partner_name, c.description, `${c.amount} ${c.currency}`].filter(Boolean).join(' · ') }
+const tabs = computed(() => TABS.map(key => ({ key, label: t(`propertyPayments.tabs.${key}`) })))
+function foundSources(items: PaymentCandidate[]) {
+  const known = new Set(candidates.value.map(c => `${c.kind}:${c.id}`))
+  extraCandidates.value = [...extraCandidates.value, ...items.filter(c => !known.has(`${c.kind}:${c.id}`))]
+}
 function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revision && 'unit_no' in u.revision.state ? t('propertyPayments.unitNumber', { number: u.revision.state.unit_no }) : u.code }
 </script>
 
@@ -196,6 +270,8 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
     <p v-if="done" role="status" class="text-success-600">{{ t('propertyPayments.done') }}</p>
     <p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <OpsTabBar v-if="context" v-model="tab" :tabs="tabs" :disabled="anyBusy" />
+    <BankProposalPanel v-if="context && tab === 'receive' && proposal" :supplier="supplier ?? undefined" :plan="proposal" :units="context.units" :busy="anyBusy" @replan="replan" @close="proposal = null" />
+    <BankProposalQueue v-if="context && supplier && tab === 'proposals'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" @open="openQueued" />
     <p v-if="context && tab === 'receive' && !context.capabilities.manage" role="status" class="text-sm text-neutral-500" data-flag="read-only">{{ t('propertyPayments.readOnly') }}</p>
     <form v-if="context && tab === 'receive' && context.capabilities.manage" ref="form" class="space-y-4" @submit.prevent="showPreview">
       <p v-if="candidate?.currency === 'EUR'" class="rounded border border-neutral-200 p-3 text-sm" data-test="fx-source-help">{{ t('propertyPayments.fxSourceHelp') }}</p>
@@ -203,7 +279,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
         <section class="rounded-lg border border-neutral-200 p-4 space-y-3">
           <h2 class="font-semibold">{{ t('propertyPayments.source') }}</h2>
           <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.sourceMode') }}<select v-model="mode" :class="inputClass" data-field="source-mode"><option value="existing">{{ t('propertyPayments.existing') }}</option><option v-if="context.capabilities.cash" value="new_cash">{{ t('propertyPayments.newCash') }}</option></select></label>
-          <template v-if="mode === 'existing'"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.chooseSource') }}<select v-model="selected" required :class="inputClass" data-field="source"><option value="">{{ t('propertyPayments.choose') }}</option><option v-for="c in candidates" :key="`${c.kind}:${c.id}`" :value="`${c.kind}:${c.id}`" :disabled="c.support === 'fx_incomplete' || (!c.existing_owner && !(c.kind === 'bank' ? context.capabilities.bank : context.capabilities.cash))">{{ sourceLabel(c) }}</option></select></label><div v-if="moreKinds.length" class="space-y-2" data-section="source-more"><p class="text-sm">{{ t('propertyPayments.truncated') }}</p><div class="flex flex-wrap gap-2"><PropertyButton v-for="kind in moreKinds" :key="kind" icon="chevron" :data-action="`source-more-${kind}`" :disabled="anyBusy" @click="loadMore(kind)">{{ t(`propertyPayments.loadMoreSources.${kind}`) }}</PropertyButton></div></div></template>
+          <template v-if="mode === 'existing'"><div class="space-y-1"><span class="text-sm">{{ t('propertyPayments.chooseSource') }}</span><PaymentSourcePicker v-if="supplier" v-model="selected" :supplier="supplier" :candidates="candidates" :can-bank="context.capabilities.bank" :can-cash="context.capabilities.cash" :disabled="anyBusy" @found="foundSources" /></div><div v-if="moreKinds.length" class="space-y-2" data-section="source-more"><p class="text-sm">{{ t('propertyPayments.truncated') }}</p><div class="flex flex-wrap gap-2"><PropertyButton v-for="kind in moreKinds" :key="kind" icon="chevron" :data-action="`source-more-${kind}`" :disabled="anyBusy" @click="loadMore(kind)">{{ t(`propertyPayments.loadMoreSources.${kind}`) }}</PropertyButton></div></div></template>
           <div v-else class="grid gap-3 sm:grid-cols-2">
             <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.direction') }}<select v-model="cash.doc_type" :class="inputClass" data-field="cash-direction"><option value="in">{{ t('propertyPayments.directionIn') }}</option><option value="out">{{ t('propertyPayments.directionOut') }}</option></select></label>
             <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.register') }}<select v-model="cash.register_id" required :class="inputClass" data-field="cash-register"><option :value="0">{{ t('propertyPayments.choose') }}</option><option v-for="r in context.registers" :key="r.id" :value="r.id" :disabled="r.currency_code !== 'CZK'">{{ r.name }} ({{ r.currency_code }})</option></select></label>
@@ -231,6 +307,9 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
             <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.evidence') }}<input v-model="credit.evidence" required :class="inputClass" data-field="entitlement-evidence" /></label>
             <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.dueDate') }}<DateInput v-model="credit.due_date" required :class="dateInput" data-field="due-date" /></label>
             <label class="sm:col-span-2 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reason') }}<input v-model="credit.reason" required :class="inputClass" data-field="reason" /></label>
+            <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.creditThirdParty.basis') }}<select v-model="credit.third_basis" :class="inputClass" data-field="credit-third-basis"><option value="">{{ t('propertyPayments.creditThirdParty.owners') }}</option><option v-for="basis in THIRD_BASES" :key="basis" :value="basis">{{ t(`propertyPayments.creditThirdParty.bases.${basis}`) }}</option></select></label>
+            <label v-if="credit.third_basis" class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.creditThirdParty.evidence') }}<input v-model="credit.third_evidence" required :class="inputClass" data-field="credit-third-evidence" /></label>
+            <p class="sm:col-span-2 text-xs text-neutral-500">{{ t('propertyPayments.creditThirdParty.help') }}</p>
             <div v-if="cells.length > 1" class="sm:col-span-2 flex flex-wrap gap-3"><label v-for="(cell, cellIndex) in cells" :key="cell.key" class="w-full sm:w-40 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.consumeCell', { number: cellIndex + 1 }) }}<input v-model="credit.selection[cell.key]" inputmode="decimal" :class="inputClass" /></label></div>
             <PropertyButton icon="trash" variant="danger" :disabled="partCount === 1" @click="credits.splice(index, 1)">{{ t('propertyPayments.removePart') }}</PropertyButton>
           </div><PropertyButton icon="plus" @click="addCredit">{{ t('propertyPayments.addCredit') }}</PropertyButton>

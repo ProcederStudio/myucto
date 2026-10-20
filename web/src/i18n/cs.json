@@ -4910,7 +4910,18 @@
     "statement_delete_has_matches": "Avízo-výpis má spárované položky. Smazat ho lze, až je převezme oficiální výpis nebo je rozpárujete.",
     "notice_superseded_hint": "Tentýž pohyb je v oficiálním bankovním výpisu a úhradu nese on. Avízo je vyřešené a automaticky se znovu nepáruje.",
     "notice_superseded_chip": "Nahrazeno výpisem: {count}",
-    "journal_documents": "Dokumenty zápisu v deníku"
+    "journal_documents": "Dokumenty zápisu v deníku",
+    "property_payment": {
+      "match_unit": "Spárovat na jednotku SVJ",
+      "open": "Otevřít úhradu SVJ",
+      "used": "Úhrada SVJ",
+      "used_workflow": "Úhrada SVJ č. {id}",
+      "proposal": {
+        "identified": "Návrh: jednotka SVJ",
+        "review_required": "Návrh SVJ k posouzení",
+        "unidentified": "Jednotka SVJ neurčena"
+      }
+    }
   },
   "bank_accounts": {
     "account_added": "Bankovní účet přidán.",
@@ -29603,8 +29614,8 @@
           "reserved": "Rezervováno",
           "submitted": "Odesláno bance"
         },
-        "submissionEvidence": "Doklad o zrušení příkazu mimo systém",
-        "submissionHelp": "Zrušení odeslaného příkazu vyžaduje doklad o externím zrušení. Uvolní se jen nevyplacený zbytek {amount}.",
+        "submissionEvidence": "Doklad o žádosti o zrušení příkazu v bance",
+        "submissionHelp": "Žádost o zrušení odeslaného příkazu se jen zaznamená. Nevyplacený zbytek {amount} zůstává rezervovaný, dokud výpis nedoloží, že banka příkaz neprovedla, nebo dokud se vratka nespáruje z výpisu.",
         "submissionSubmit": "Zrušit odeslaný příkaz",
         "submit": "Rezervovat",
         "title": "Rezervace kreditu"
@@ -29699,13 +29710,22 @@
         "cancelled": "Zrušeno",
         "paid": "Vyplaceno",
         "reserved": "Rezervováno",
-        "submitted": "Odesláno bance"
+        "submitted": "Odesláno bance",
+        "cancel_requested": "Odesláno, zrušení čeká na potvrzení banky",
+        "failed": "Neprovedeno, rezervace uvolněna"
       },
-      "submissionEvidence": "Doklad o zrušení příkazu mimo systém",
-      "submissionHelp": "Zrušení odeslaného příkazu vyžaduje doklad o externím zrušení. Uvolní se jen nevyplacený zbytek {amount}.",
+      "submissionEvidence": "Doklad o žádosti o zrušení příkazu v bance",
+      "submissionHelp": "Žádost o zrušení odeslaného příkazu se jen zaznamená. Nevyplacený zbytek {amount} zůstává rezervovaný, dokud výpis nedoloží, že banka příkaz neprovedla, nebo dokud se vratka nespáruje z výpisu.",
       "submissionSubmit": "Zrušit odeslaný příkaz",
       "submit": "Rezervovat",
-      "title": "Rezervace kreditu"
+      "title": "Rezervace kreditu",
+      "releaseUnexecuted": "Uvolnit po doložení neprovedení",
+      "releaseHelp": "Rezervaci {amount} uvolní jen výpis účtu, ze kterého příkaz odešel, se dnem splatnosti nebo pozdějším, na kterém vratka není.",
+      "releaseSubmit": "Uvolnit rezervaci",
+      "releaseStatement": "Výpis dokládající neprovedení",
+      "releaseEvidence": "Popis dokladu",
+      "statementNumber": "výpis č. {number}",
+      "accountHelp": "Účet musí být ručně doložený u oprávněné osoby v kontaktu. Účet převzatý jen z bankovního výpisu nestačí."
     },
     "reverse": {
       "correctionHelp": "Použitý nebo rezervovaný výsledný kredit storno brání, dokud se nevyřeší.",
@@ -29764,14 +29784,105 @@
       "operations": "Operace",
       "receive": "Přijmout / vyplatit",
       "register": "Registrace dluhu",
-      "reservations": "Rezervace a vratky"
+      "reservations": "Rezervace a vratky",
+      "proposals": "Návrhy z banky",
+      "saldo": "Saldo"
     },
     "title": "Platby jednotek",
     "truncated": "Zobrazen je omezený počet posledních plateb.",
     "unassigned": "Nepřiřazeno",
     "unit": "Jednotka",
     "unitNumber": "Jednotka {number}",
-    "unknown": "Neznámé"
+    "unknown": "Neznámé",
+    "sourcePicker": {
+      "search": "Hledat pohyb",
+      "placeholder": "VS, SS, protistrana, popis nebo částka",
+      "searchAction": "Hledat",
+      "empty": "Žádný pohyb neodpovídá hledání.",
+      "vs": "VS {value}",
+      "ss": "SS {value}",
+      "kind": {
+        "bank": "Banka",
+        "cash": "Pokladna"
+      }
+    },
+    "creditThirdParty": {
+      "basis": "Titul věřitele mimo vlastníky",
+      "owners": "Vlastníci jednotky podle registru",
+      "evidence": "Doklad titulu",
+      "help": "Kredit patří vlastníkům jednotky podle registru k datu platby. Jinou osobu lze uvést jen s doloženým titulem.",
+      "bases": {
+        "assignment": "Postoupení",
+        "inheritance": "Dědění",
+        "mistaken_payment": "Omylem přijatá platba",
+        "settlement_title": "Vyúčtování služeb",
+        "other_documented": "Jiný doložený titul"
+      }
+    },
+    "bankProposal": {
+      "title": "Návrh úhrady z banky",
+      "close": "Zavřít návrh",
+      "used": "Pohyb už použila úhrada SVJ.",
+      "usedWorkflow": "Pohyb už použila úhrada SVJ č. {id}.",
+      "status": {
+        "identified": "Jednotka určena",
+        "review_required": "K posouzení",
+        "unidentified": "Neurčeno"
+      },
+      "score": "Síla shody {score}",
+      "noUnit": "Jednotka neurčena",
+      "reasons": {
+        "no_identifier_match": "Platbě neodpovídá žádný identifikátor z registru.",
+        "multiple_units": "Platbě odpovídá více jednotek. Vyberte jednotku.",
+        "weak_signal": "Jednotku naznačuje jen slabý signál (text platby nebo účet osoby).",
+        "ownership_review_required": "Vlastnictví jednotky k datu platby není jednoznačné.",
+        "debtor_choice_required": "Jednotku vlastní více osob. Vyberte dlužníka.",
+        "payer_not_proven": "Plátce není doložený jako dlužník. Potvrďte, že platil dlužník, nebo doplňte platbu třetí osoby.",
+        "unit_chosen_manually": "Jednotku zvolila účetní ručně.",
+        "other": "Návrh vyžaduje posouzení."
+      },
+      "signals": {
+        "vs": "VS",
+        "ss": "SS",
+        "sipo_link": "SIPO",
+        "account": "účet jednotky",
+        "payer_account": "účet osoby",
+        "text": "text platby",
+        "manual": "zvoleno ručně"
+      },
+      "review": {
+        "unit_required": "Vyberte jednotku, na kterou se má platba přiřadit.",
+        "debtor_required": "Vyberte dlužníka jednotky.",
+        "no_open_debts": "Dlužník nemá otevřené dluhy. Částku {amount} Kč zpracujte jako kredit s oprávněnými osobami.",
+        "legal_review": "Úhrada vyžaduje rozhodnutí: {reason}.",
+        "principal_distribution_required": "Částečná úhrada dluhu s více složkami vyžaduje rozdělení jistiny podle pokynu dlužníka.",
+        "debt_inventory_incomplete": "Některé předpisy dlužníka nemají zaregistrovaný dluh. Doplňte registraci dluhů.",
+        "liability_review": "Odpovědnost osob za dluh vyžaduje posouzení.",
+        "other": "Návrh doplňte v úhradě níže."
+      },
+      "legal": {
+        "ambiguous_priority": "pořadí dluhů podle § 1933 není jednoznačné",
+        "security_comparison_required": "je potřeba porovnat zajištění dluhů",
+        "third_party_unproven": "platba třetí osoby není doložená",
+        "debtor_unproven": "dlužník není doložený",
+        "underlying_claim_unresolved": "nejdřív je třeba uhradit dluh, ke kterému se vztahuje náhrada",
+        "credit_entitlement_required": "Část platby přesahuje otevřené dluhy. Přebytek zpracujte jako kredit s oprávněnými osobami.",
+        "other": "jiný právní důvod"
+      },
+      "remaining": "Na pohybu zůstává nepřiřazeno {amount} Kč. O přeplatku rozhodněte samostatnou částí úhrady.",
+      "ready": "Náhled je připravený. Zkontrolujte úhradu a potvrďte ji stejně jako ruční úhradu.",
+      "chooseUnit": "Jednotka",
+      "useUnit": "Použít jednotku",
+      "chooseDebtor": "Dlužník",
+      "useDebtor": "Použít dlužníka",
+      "help": "Návrh nic neúčtuje. Úhrada vznikne až potvrzením náhledu.",
+      "queueTitle": "Návrhy úhrad z banky",
+      "queueHelp": "Příchozí platby z importovaných výpisů s rozpoznanou jednotkou. Každý návrh otevřete, zkontrolujte a potvrďte.",
+      "queueEmpty": "Žádné návrhy k potvrzení.",
+      "filter": "Stav",
+      "filterOpen": "K potvrzení",
+      "open": "Otevřít návrh"
+    }
   },
   "propertyRegistry": {
     "active": "Aktivní",

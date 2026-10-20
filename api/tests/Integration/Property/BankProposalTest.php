@@ -71,7 +71,7 @@ final class BankProposalTest extends TestCase
     public function testStatementImportOfSvjCreatesProposalWithoutPosting(): void
     {
         $supplier = $this->f['supplier'];
-        $parsed = (new \MyInvoice\Service\Bank\GpcParser())->parse(self::gpc('2000000006', '001', [['amount_cents' => '12500', 'vs' => '5', 'ref' => '51001']]));
+        $parsed = (new \MyInvoice\Service\Bank\GpcParser())->parse(self::gpc('2000000042', '001', [['amount_cents' => '12500', 'vs' => '5', 'ref' => '51001']]));
         $container = Bootstrap::buildContainer();
         $container->set(Connection::class, $this->db);
         $result = $container->get(\MyInvoice\Service\Bank\StatementImporter::class)->importParsedPdf($parsed, 'synthetic-pdf-' . bin2hex(random_bytes(4)), 'synthetic.pdf', null, null, $supplier);

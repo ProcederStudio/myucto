@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
  * stejně: stejný výsledek, stejné pohyby a stejný počet dotazů i zápisů.
  *
  * Import výpisu potvrzuje vlastní transakci, takže test běží nad potvrzenými daty
- * syntetických účtů 99905624xx a po sobě je uklidí (vzor StatementImporterDuplicateTest).
+ * syntetických účtů 99905624xx (platných podle mod 11) a po sobě je uklidí (vzor StatementImporterDuplicateTest).
  */
 #[Group('integration')]
 final class StatementImportPropertyProposalRegressionTest extends TestCase
@@ -54,12 +54,12 @@ final class StatementImportPropertyProposalRegressionTest extends TestCase
         $plain = $this->importer(false);
         $hooked = $this->importer(true);
         // Zahřátí: první import v procesu plní mezipaměti schématu a nastavení; měří se až další.
-        $warmup = $this->importer(false)->import(self::gpc('9990562403', '001', $this->payments('63')), 'svj-proposal-w.gpc', null, $this->currency('9990562403'));
+        $warmup = $this->importer(false)->import(self::gpc('9990562424', '001', $this->payments('63')), 'svj-proposal-w.gpc', null, $this->currency('9990562424'));
         $this->statementIds[] = $warmup['statement_id'];
-        $plainCurrency = $this->currency('9990562401');
-        $hookedCurrency = $this->currency('9990562402');
-        [$plainResult, $plainCounts] = $this->measure(fn () => $plain->import(self::gpc('9990562401', '001', $this->payments('61')), 'svj-proposal-a.gpc', null, $plainCurrency));
-        [$hookedResult, $hookedCounts] = $this->measure(fn () => $hooked->import(self::gpc('9990562402', '001', $this->payments('62')), 'svj-proposal-b.gpc', null, $hookedCurrency));
+        $plainCurrency = $this->currency('9990562408');
+        $hookedCurrency = $this->currency('9990562416');
+        [$plainResult, $plainCounts] = $this->measure(fn () => $plain->import(self::gpc('9990562408', '001', $this->payments('61')), 'svj-proposal-a.gpc', null, $plainCurrency));
+        [$hookedResult, $hookedCounts] = $this->measure(fn () => $hooked->import(self::gpc('9990562416', '001', $this->payments('62')), 'svj-proposal-b.gpc', null, $hookedCurrency));
         $this->statementIds = [$plainResult['statement_id'], $hookedResult['statement_id']];
         unset($plainResult['statement_id'], $hookedResult['statement_id']);
         self::assertSame($plainResult, $hookedResult);
@@ -120,7 +120,7 @@ final class StatementImportPropertyProposalRegressionTest extends TestCase
     private function cleanup(): void
     {
         $pdo = $this->db->pdo();
-        $ids = array_map('intval', $pdo->query("SELECT id FROM bank_statements WHERE account_number LIKE '%999056240%'")->fetchAll(PDO::FETCH_COLUMN));
+        $ids = array_map('intval', $pdo->query("SELECT id FROM bank_statements WHERE account_number LIKE '%99905624%'")->fetchAll(PDO::FETCH_COLUMN));
         foreach ($ids as $id) {
             $pdo->prepare('DELETE FROM bank_api_evidence_months WHERE evidence_statement_id = ? OR monthly_statement_id = ?')->execute([$id, $id]);
             $pdo->prepare('DELETE FROM bank_api_months WHERE statement_id = ?')->execute([$id]);
