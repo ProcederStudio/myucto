@@ -15,6 +15,8 @@ final class ServiceLifecycleRoutes
         $app->get($base,[A::class,'page']);
         $app->get($base.'/choices',[A::class,'choices']);
         $app->get($base.'/sources/{kind:estimates|invoices|openings}',[A::class,'sources']);
+        $app->get($base.'/policies',[A::class,'policies']);
+        $app->post($base.'/policies',[A::class,'declarePolicy']);
         $app->get($base.'/{id:[0-9]+}',[A::class,'detail']);
         $app->post($base.'/preview/{operation:start|start_opening|unwind|finalize}',[A::class,'preview']);
         $app->post($base.'/commands/{operation:start|start_opening|unwind|finalize}',[A::class,'execute']);

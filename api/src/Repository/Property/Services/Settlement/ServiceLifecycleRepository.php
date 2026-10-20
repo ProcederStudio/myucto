@@ -24,6 +24,7 @@ final class ServiceLifecycleRepository
   $this->context($supplier);foreach([$supplier,$unit,$service,$actor] as $id)PropertyInput::id($id,'scope');E::date($from);E::date($to);if($from>$to||!in_array($policy,['service_balance_sheet','service_profit_and_loss'],true))E::reject('lifecycle_policy');PropertyInput::text($evidence,'policy_evidence',4000);
   foreach([[$unit,'unit'],[$service,'service']] as [$id,$kind])$this->one('SELECT id FROM property_objects WHERE supplier_id=? AND id=? AND kind=? FOR UPDATE',[$supplier,$id,$kind]);
   $existing=$this->q('SELECT * FROM property_service_lifecycle_cases WHERE supplier_id=? AND unit_id=? AND service_id=? AND period_from<=? AND period_to>=? FOR UPDATE',[$supplier,$unit,$service,$to,$from])->fetchAll(PDO::FETCH_ASSOC);if($existing!==[])E::reject('lifecycle_case_overlap');
+  (new ServiceLifecyclePolicyRepository($this->db))->assertForCase($supplier,$service,$from,$to,$policy,$evidence,$actor);
   $account=$this->one('SELECT account_type,is_active FROM chart_of_accounts WHERE supplier_id=? AND account_code=? FOR UPDATE',[$supplier,$serviceCostAccount]);if(!preg_match(\MyInvoice\Service\Property\Opening\OpeningRolePolicy::ROLES['service_cost'][2],$serviceCostAccount)||$account['account_type']!=='asset'||!$account['is_active'])E::reject('lifecycle_cost_account');$facts=['service_cost_account'=>$serviceCostAccount,'supplier_id'=>$supplier,'unit_id'=>$unit,'service_id'=>$service,'period_from'=>$from,'period_to'=>$to,'policy'=>$policy,'evidence'=>$evidence,'actor'=>$actor];
   $this->q('INSERT INTO property_service_lifecycle_cases(supplier_id,unit_id,service_id,period_from,period_to,policy,facts_json,facts_hash,created_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',[$supplier,$unit,$service,$from,$to,$policy,self::json($facts),PropertyInput::hash($facts),$actor]);return(int)$this->db->pdo()->lastInsertId();
  });}
@@ -84,8 +85,44 @@ final class ServiceLifecycleRepository
  {$saved=$estimate['receipt']['sources'][$index]??null;if(!$saved)E::reject('lifecycle_source_missing');if($estimate['receipt']['opening_item_id']!==null){$item=(new OpeningReadProof($this->db))->item($supplier,$estimate['receipt']['opening_item_id'],true);if(!$item['active']||$item['snapshot_hash']!==$estimate['receipt']['opening_hash']||PropertyInput::hash([$item['snapshot']['service_state']['accrual_unwind']??null])!==PropertyInput::hash([$estimate['receipt']['accrual_unwind']??null]))E::reject('lifecycle_opening_changed');$lines=[];foreach($item['components'] as $p)if(in_array($p['role'],['accrual_receivable','accrual_payable'],true))$lines[]=$p['line'];usort($lines,fn($a,$b)=>$a['side']==='debit'?-1:1);if(PropertyInput::hash($lines)!==PropertyInput::hash($saved['lines']))E::reject('lifecycle_source_changed');return $saved;}$actual=(new PaymentJournalProof($this->db))->current($supplier,$saved['entry']['id']);$expected=$saved;$expected['entry']['reversed_by']=$actual['entry']['reversed_by'];if(PropertyInput::hash($actual)!==PropertyInput::hash($expected))E::reject('lifecycle_source_changed');return $actual;}
  private function unwindLines(array $estimate,int $index):array
  {$source=$estimate['receipt']['sources'][$index];$unwind=$estimate['receipt']['accrual_unwind']??null;if($unwind===null)return array_map(JournalLineAmount::reversal(...),$source['lines']);$receivable=$source['lines'][0];$payable=$source['lines'][1];$a=JournalLineAmount::reversal($payable);$b=$payable;$b['account_code']=$unwind['expense_account'];$b['dimensions']+=$unwind['expense_dimensions'];$b['dimension_origins']+=array_fill_keys(array_keys($unwind['expense_dimensions']),['origin'=>'explicit','ref'=>'opening-accrual-policy']);$c=$receivable;$c['account_code']=$unwind['coverage_account'];$c['dimensions']+=$unwind['coverage_dimensions'];$c['dimension_origins']+=array_fill_keys(array_keys($unwind['coverage_dimensions']),['origin'=>'explicit','ref'=>'opening-accrual-policy']);$d=JournalLineAmount::reversal($receivable);return[$a,$b,$c,$d];}
+ /**
+  * Samostatné rozpuštění dohadu je přípustné jen v účetním období, které začíná až po
+  * skončení zúčtovacího období služby. V období spotřeby smí dohad zmizet jen spolu
+  * s konečným zúčtováním (unwindWithFinal), jinak by rok zůstal bez nákladu i krytí.
+  */
  public function unwind(int $supplier,int $caseId,string $date,int $actor):array
- {return $this->tx(function()use($supplier,$caseId,$date,$actor):array{$this->context($supplier);$case=$this->case($supplier,$caseId);$estimate=$this->estimate($supplier,$caseId);$entries=[];foreach(array_keys($estimate['receipt']['sources']) as $index){$event=$this->newEvent($supplier,$caseId,'unwind-'.$index,['kind'=>'unwind','estimate'=>$estimate['id'],'index'=>$index,'accounting_date'=>$date,'actor'=>$actor]);$entries[]=(new JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db)))->insertPropertyServiceLifecycle(ServiceLifecycleProof::fromPending($this->db,$this,$supplier,$event));}return $entries;});}
+ {return $this->tx(function()use($supplier,$caseId,$date,$actor):array{
+  $this->context($supplier);
+  $case=$this->case($supplier,$caseId);
+  if($this->accountingPeriod($supplier,E::date($date))['starts_on']<=$case['period_to'])E::reject('lifecycle_unwind_with_final_required');
+  return $this->unwindEntries($supplier,$caseId,$date,$actor);
+ });}
+ /** Rozpuštění jako součást konečného zúčtování ve stejné transakci a ke stejnému datu. */
+ public function unwindWithFinal(int $supplier,int $caseId,string $date,int $actor):array
+ {return $this->tx(function()use($supplier,$caseId,$date,$actor):array{$this->context($supplier);return $this->unwindEntries($supplier,$caseId,E::date($date),$actor);});}
+ public function isUnwound(int $supplier,int $caseId):bool
+ {
+  $this->context($supplier);
+  $estimate=$this->estimate($supplier,$caseId);
+  $completed=$this->completedUnwinds($supplier,$estimate,$this->events($supplier,$caseId));
+  return count($completed)===count($estimate['receipt']['sources']);
+ }
+ private function accountingPeriod(int $supplier,string $date):array
+ {
+  $period=$this->q('SELECT id,starts_on,ends_on FROM accounting_periods WHERE supplier_id=? AND starts_on<=? AND ends_on>=? ORDER BY id FOR UPDATE',[$supplier,$date,$date])->fetchAll(PDO::FETCH_ASSOC);
+  if(count($period)!==1)E::reject('lifecycle_period_missing');
+  return $period[0];
+ }
+ /** Konečné zúčtování musí ležet ve stejném účetním období jako všechna rozpuštění dohadu. */
+ private function assertUnwindPeriod(int $supplier,int $caseId,string $date):void
+ {
+  $period=$this->accountingPeriod($supplier,$date);
+  foreach($this->unwound($supplier,$caseId)['verified_unwind_dates'] as $unwindDate){
+   if($unwindDate<$period['starts_on']||$unwindDate>$period['ends_on'])E::reject('lifecycle_unwind_period');
+  }
+ }
+ private function unwindEntries(int $supplier,int $caseId,string $date,int $actor):array
+ {$case=$this->case($supplier,$caseId);$estimate=$this->estimate($supplier,$caseId);$entries=[];foreach(array_keys($estimate['receipt']['sources']) as $index){$event=$this->newEvent($supplier,$caseId,'unwind-'.$index,['kind'=>'unwind','estimate'=>$estimate['id'],'index'=>$index,'accounting_date'=>$date,'actor'=>$actor]);$entries[]=(new JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db)))->insertPropertyServiceLifecycle(ServiceLifecycleProof::fromPending($this->db,$this,$supplier,$event));}return $entries;}
  private function completedUnwinds(int $supplier,array $estimate,array $events):array
  {
   $completed=[];
@@ -112,13 +149,13 @@ final class ServiceLifecycleRepository
  private function invoice(array $case,int $invoice,int $lineId):array
  {$header=$this->one("SELECT id FROM journal_entries WHERE supplier_id=? AND source_type='purchase_invoice' AND source_id=? AND reversed_by IS NULL AND posted_at IS NOT NULL ORDER BY id FOR UPDATE",[$case['supplier_id'],$invoice]);$ledger=$this->source($case['supplier_id'],(int)$header['id']);$lines=array_values(array_filter($ledger['lines'],fn($l)=>$l['id']===$lineId));if(count($lines)!==1)E::reject('lifecycle_invoice_line');$line=$lines[0];$this->scoped($case,$line);$pattern=$case['policy']==='service_balance_sheet'?'/^315\\.2[0-9]{2}$/D':'/^5[0-9.]+$/D';if($line['side']!=='debit'||!preg_match($pattern,$line['account_code'])||($case['policy']==='service_balance_sheet'&&$line['account_code']!==$case['service_cost_account']))E::reject('lifecycle_invoice_role');$supplierLine=array_filter($ledger['lines'],fn($l)=>$l['side']==='credit'&&preg_match('/^321(?:\\.[0-9]+)?$/D',$l['account_code']));if($supplierLine===[])E::reject('lifecycle_invoice_counterpart');$documentHash=PropertyInput::hash($this->invoiceHashInput($case['supplier_id'],$invoice));return ['invoice_id'=>$invoice,'line'=>$line,'ledger'=>$ledger,'document_hash'=>$documentHash];}
  public function finalize(int $supplier,int $caseId,int $invoice,int $lineId,string $date,string $title,int $actor):array
- {return $this->tx(function()use($supplier,$caseId,$invoice,$lineId,$date,$title,$actor):array{$this->context($supplier);$case=$this->case($supplier,$caseId);$this->assertFinalDate($supplier,$caseId,$date);PropertyInput::text($title,'final_coverage_title',4000);$source=$this->invoice($case,$invoice,$lineId);(new PaymentPostingDate($this->db))->assertOpen($supplier,$date);if($date<$source['ledger']['entry']['entry_date'])E::reject('lifecycle_final_date');$event=$this->newEvent($supplier,$caseId,'final',['kind'=>'final','invoice_id'=>$invoice,'line_id'=>$lineId,'accounting_date'=>$date,'title'=>$title,'actor'=>$actor]);$this->claim($supplier,$event,[$source['line']],'final');if($case['policy']==='service_profit_and_loss')$entry=(new JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db)))->insertPropertyServiceLifecycle(ServiceLifecycleProof::fromPending($this->db,$this,$supplier,$event));else{$this->receipt($supplier,$event,['invoice'=>$source,'cost_line_id'=>$lineId,'amount_cents'=>bcmul($source['line']['amount'],'100',0)]);}$result=$this->current($supplier,$caseId);return $result['final'];});}
+ {return $this->tx(function()use($supplier,$caseId,$invoice,$lineId,$date,$title,$actor):array{$this->context($supplier);$case=$this->case($supplier,$caseId);$this->assertFinalDate($supplier,$caseId,$date);$this->assertUnwindPeriod($supplier,$caseId,$date);PropertyInput::text($title,'final_coverage_title',4000);$source=$this->invoice($case,$invoice,$lineId);(new PaymentPostingDate($this->db))->assertOpen($supplier,$date);if($date<$source['ledger']['entry']['entry_date'])E::reject('lifecycle_final_date');$event=$this->newEvent($supplier,$caseId,'final',['kind'=>'final','invoice_id'=>$invoice,'line_id'=>$lineId,'accounting_date'=>$date,'title'=>$title,'actor'=>$actor]);$this->claim($supplier,$event,[$source['line']],'final');if($case['policy']==='service_profit_and_loss')$entry=(new JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db)))->insertPropertyServiceLifecycle(ServiceLifecycleProof::fromPending($this->db,$this,$supplier,$event));else{$this->receipt($supplier,$event,['invoice'=>$source,'cost_line_id'=>$lineId,'amount_cents'=>bcmul($source['line']['amount'],'100',0)]);}$result=$this->current($supplier,$caseId);return $result['final'];});}
  private function finalLines(array $case,array $invoice,array $estimate):array
  {$line=$invoice['line'];$a=$line;$a['account_code']=$case['service_cost_account'];$a['side']='debit';$b=$line;$b['account_code']=$estimate['receipt']['accrual_unwind']['coverage_account']??$estimate['receipt']['sources'][1]['lines'][1]['account_code'];$b['side']='credit';return[$a,$b];}
  public function pending(Connection $db,int $supplier,int $eventId):array
  {if($db->pdo()!==$this->db->pdo())throw new \LogicException('Wrong lifecycle connection.');$this->context($supplier);$event=$this->event($supplier,$eventId);if($event['receipt']!==null)E::reject('lifecycle_already_written');$case=$this->case($supplier,$event['case_id']);$r=$event['request'];$date=E::date($r['accounting_date']);(new PaymentPostingDate($this->db))->assertOpen($supplier,$date);$period=$this->one("SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on<=? AND ends_on>=? AND status='open' FOR UPDATE",[$supplier,$date,$date]);$sourceEntry=null;
   if($r['kind']==='unwind'){$estimate=$this->estimate($supplier,$case['id']);if($estimate['id']!==$r['estimate'])E::reject('lifecycle_source_missing');$source=$this->original($supplier,$estimate,$r['index']);if($estimate['receipt']['opening_item_id']===null){if($source['entry']['reversed_by']!==null)E::reject('lifecycle_source_reversed');$sourceEntry=$source['entry']['id'];}if($date<($source['entry']['entry_date']??$case['period_to']))E::reject('lifecycle_unwind_date');$lines=$this->unwindLines($estimate,$r['index']);$sourceType=$sourceEntry===null?'property_service_lifecycle':$source['entry']['source_type'];}
-  elseif($r['kind']==='final'&&$case['policy']==='service_profit_and_loss'){$this->assertFinalDate($supplier,$case['id'],$date);$invoice=$this->invoice($case,$r['invoice_id'],$r['line_id']);$source=$invoice;$lines=$this->finalLines($case,$invoice,$this->estimate($supplier,$case['id']));$sourceType='property_service_lifecycle';}
+  elseif($r['kind']==='final'&&$case['policy']==='service_profit_and_loss'){$this->assertFinalDate($supplier,$case['id'],$date);$this->assertUnwindPeriod($supplier,$case['id'],$date);$invoice=$this->invoice($case,$r['invoice_id'],$r['line_id']);$source=$invoice;$lines=$this->finalLines($case,$invoice,$this->estimate($supplier,$case['id']));$sourceType='property_service_lifecycle';}
   else E::reject('lifecycle_operation');
   foreach($lines as &$line){unset($line['id']);$account=$this->one('SELECT id,account_type FROM chart_of_accounts WHERE supplier_id=? AND account_code=? FOR UPDATE',[$supplier,$line['account_code']]);$line['account_id']=(int)$account['id'];}unset($line);$header=['supplier_id'=>$supplier,'period_id'=>(int)$period['id'],'entry_date'=>$date,'document_date'=>$date,'document_no'=>null,'description'=>'Služby: '.$r['kind'],'source_type'=>$sourceType,'source_id'=>null,'posted_at'=>$event['recorded_at'],'posted_by'=>$r['actor']];return ['case'=>$case,'event'=>$r,'source'=>$source,'journal'=>['header'=>$header,'lines'=>$lines,'source_entry_id'=>$sourceEntry]];
  }
@@ -132,7 +169,31 @@ final class ServiceLifecycleRepository
  {
   $state=$this->currentState($supplier,$caseId,true);$pending=[];foreach($state['events'] as $key=>$event)if($event['receipt']===null)$pending[]=['code'=>'lifecycle_pending','event_id'=>$event['id'],'event_key'=>$key,'accounting_date'=>$event['request']['accounting_date']??null,'recorded_at'=>$event['recorded_at']];
   $estimate=$state['estimate_event'];$final=$state['current']['final'];if($final!==null)$final+=['recorded_at'=>$state['events']['final']['recorded_at'],'request'=>$state['events']['final']['request']];
+  array_push($pending,...$this->unwindGaps($supplier,$state['unwinds'],$final));
+  $policy=$this->policyGap($supplier,$state['current']['case']);
+  if($policy!==null)$pending[]=$policy;
   return ['case'=>$state['current']['case'],'estimate'=>$estimate===null?null:['event_id'=>$estimate['id'],'recorded_at'=>$estimate['recorded_at'],'request'=>$estimate['request'],'receipt'=>$estimate['receipt']],'unwinds'=>array_values($state['unwinds']),'final'=>$final,'pending'=>$pending];
+ }
+ /**
+  * Rozpuštění bez konečného zúčtování ve stejném účetním období nechává období bez
+  * nákladu i krytí. Uzávěrka toho období proto nesmí projít.
+  */
+ private function unwindGaps(int $supplier,array $unwinds,?array $final):array
+ {
+  $gaps=[];
+  foreach($unwinds as $unwind){
+   $period=$this->accountingPeriod($supplier,$unwind['accounting_date']);
+   $finalDate=$final['accounting_date']??null;
+   if($finalDate!==null&&$finalDate>=$period['starts_on']&&$finalDate<=$period['ends_on'])continue;
+   $gaps[]=['code'=>'lifecycle_unwind_without_final','event_id'=>$unwind['event_id'],'event_key'=>'unwind-'.$unwind['index'],'accounting_date'=>$period['ends_on'],'recorded_at'=>$unwind['recorded_at']];
+  }
+  return $gaps;
+ }
+ private function policyGap(int $supplier,array $case):?array
+ {
+  $versions=(new ServiceLifecyclePolicyRepository($this->db))->governing($supplier,$case['service_id'],$case['period_from'],$case['period_to']);
+  if(count($versions)===1&&$versions[0]['policy']===$case['policy'])return null;
+  return ['code'=>'service_policy_unproven','event_id'=>null,'event_key'=>null,'accounting_date'=>$case['period_to'],'recorded_at'=>null,'policy'=>$case['policy'],'version_ids'=>array_column($versions,'id')];
  }
  public function assertCostReady(int $supplier,int $unit,int $service,int $cost,string $date,?int $openingItem=null,?array $period=null):?array
  {$this->context($supplier);$cases=$this->q('SELECT id FROM property_service_lifecycle_cases WHERE supplier_id=? AND unit_id=? AND service_id=? ORDER BY id FOR UPDATE',[$supplier,$unit,$service])->fetchAll(PDO::FETCH_COLUMN);if($cases===[])return null;$matching=[];$relevant=false;foreach($cases as $id){$scope=$this->case($supplier,(int)$id);if($period!==null&&($scope['period_to']<$period['from']||$scope['period_from']>$period['to']))continue;$relevant=true;$state=$this->current($supplier,(int)$id);if(($state['final']['cost_line_id']??null)===$cost)$matching[]=$state;}if(!$relevant)return null;if(count($matching)!==1)E::reject('lifecycle_final_proof_required');$state=$matching[0];if($state['final']['accounting_date']>E::date($date))E::reject('lifecycle_final_after_settlement');if($openingItem!==null&&($state['estimate']['opening_item_id']??null)!==$openingItem)E::reject('lifecycle_opening_scope');return $state;}
