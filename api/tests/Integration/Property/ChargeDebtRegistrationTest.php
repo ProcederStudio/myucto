@@ -11,6 +11,7 @@ use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository;
 use MyInvoice\Repository\Property\Payments\DebtRepository;
 use MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar;
+use MyInvoice\Repository\Property\Receivables\PostedChargeDebtBackfill;
 use MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService;
 use MyInvoice\Service\Property\Payments\PaymentException;
 use MyInvoice\Tests\Support\{ChargeIssuanceFixture,PaymentCorrectionFixture};
@@ -116,6 +117,56 @@ final class ChargeDebtRegistrationTest extends TestCase
         } catch(PaymentException $e) {
             self::assertSame('property_payment_debt_inventory_incomplete',$e->errorCode);
         }
+    }
+
+    public function testBackfillRegistersPreviouslyPostedChargesOnceAndKeepsManualExceptions(): void
+    {
+        $this->f=$this->issuanceFixture($this->db);
+        $supplier=$this->f['supplier'];
+        $issuance=$this->container->get(IssuanceRepository::class);
+        $preview=(new IssuancePreviewService($this->db))->preview($supplier,$this->f['issue_request']);
+        $batch=$issuance->issue($supplier,['request'=>$this->f['issue_request'],'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'debt-backfill'],$this->f['actor']);
+        $batch=$issuance->post($supplier,$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$this->f['actor'],ChargeDebtRegistrar::MODE_MANUAL);
+        $positive=array_values(array_filter($batch['charges'],fn($c)=>bccomp($c['amount_cents'],'0',0)>0));
+        self::assertGreaterThan(1,count($positive));
+        $manual=array_values(array_filter($positive,fn($c)=>$c['unit_id']===$this->f['units']['G12']))[0];
+        $line=(int)$this->column('SELECT id FROM unit_charge_lines WHERE supplier_id=? AND charge_id=? AND component_id=?',[$supplier,$manual['id'],$this->f['components']['ADMIN']])[0];
+        (new DebtRepository($this->db))->register($supplier,['charge_id'=>$manual['id'],'expected_version'=>2,'principal_line_ids'=>[$line],'title_ref'=>'Synthetic separate administration debt',
+            'due_date'=>'2026-01-15','legal'=>['basis'=>'legal_act','legal_act_date'=>'2025-12-15','evidence'=>'Synthetic decision','regime'=>'general'],'security'=>['kind'=>'unsecured','evidence'=>'Synthetic finding'],'damages_for'=>null],'manual-backfill-debt',$this->f['actor']);
+
+        $backfill=new PostedChargeDebtBackfill($this->db);
+        $expected=count($positive);
+        $dry=$backfill->run($supplier,true,1);
+        self::assertSame(['candidates'=>$expected,'registered'=>$expected-1,'partial'=>1,'debts'=>[]],$dry);
+        self::assertSame(1,$this->scalar('SELECT COUNT(*) FROM unit_payment_debts WHERE supplier_id=?',[$supplier]));
+
+        $done=$backfill->run($supplier,false,1);
+        self::assertSame($expected-1,$done['registered']);
+        self::assertSame(1,$done['partial']);
+        self::assertArrayNotHasKey($manual['id'],$done['debts']);
+        self::assertSame($expected,$this->scalar('SELECT COUNT(*) FROM unit_payment_debts WHERE supplier_id=?',[$supplier]));
+        self::assertSame((string)$this->f['actor'],(string)$this->column('SELECT DISTINCT created_by FROM unit_payment_debts WHERE supplier_id=? AND idempotency_key LIKE ?',[$supplier,'charge-debt-%'])[0]);
+
+        $again=$backfill->run($supplier,false);
+        self::assertSame(['candidates'=>1,'registered'=>0,'partial'=>1,'debts'=>[]],$again);
+        self::assertSame($expected,$this->scalar('SELECT COUNT(*) FROM unit_payment_debts WHERE supplier_id=?',[$supplier]));
+
+        $debts=(new DebtRepository($this->db))->currentMany($supplier,array_values($done['debts']));
+        foreach($debts as $debt) {
+            self::assertSame(ChargeDebtRegistrar::automaticLegal(['id'=>$debt['snapshot']['charge_id'],'batch_id'=>$batch['id']]),$debt['snapshot']['legal']);
+            self::assertSame(ChargeDebtRegistrar::automaticSecurity(),$debt['snapshot']['security']);
+        }
+    }
+
+    public function testAutomaticDebtUsesStatutoryGeneralUnsecuredDefaults(): void
+    {
+        $this->f=$this->issuanceFixture($this->db);
+        $charge=$this->postFixture(ChargeDebtRegistrar::MODE_AUTOMATIC);
+        $debt=(int)$this->column('SELECT id FROM unit_payment_debts WHERE supplier_id=? AND charge_id=?',[$this->f['supplier'],$charge['id']])[0];
+        $snapshot=(new DebtRepository($this->db))->current($this->f['supplier'],$debt)['snapshot'];
+        // Vlastník v zákonném vztahu k SVJ není bez doložení spotřebitelem a předpis nedokládá zajištění.
+        self::assertSame(['basis'=>'statutory','evidence'=>'Zaúčtovaný předpis P-'.$charge['id'].' (dávka '.$charge['batch_id'].')','regime'=>'general'],$snapshot['legal']);
+        self::assertSame('unsecured',$snapshot['security']['kind']);
     }
 
     public function testUnknownRegistrationModeIsRejected(): void
