@@ -24,7 +24,7 @@ final class SecuritiesDebt504Terms
             self::need($terms['coupon_periods'] !== [], 'debt_coupon_period_required');
             $previous = null;
             foreach ($terms['coupon_periods'] as $period) {
-                self::need(is_array($period) && array_diff(array_keys($period),['from','to_exclusive','annual_rate_fraction','day_count','rounding','terms_reference'])===[], 'debt_coupon_period_required');
+                self::need(is_array($period) && array_diff(array_keys($period),['from','to_exclusive','annual_rate_fraction','day_count','frequency','rounding','terms_reference'])===[], 'debt_coupon_period_required');
                 SecuritiesDebt504Policy::coupon($period,$terms['nominal'],$period['from'] ?? '',$period['to_exclusive'] ?? '');
                 self::need(($previous === null || $previous === $period['from']) && $period['to_exclusive'] <= $terms['maturity_on'], 'debt_coupon_period_invalid');
                 $previous = $period['to_exclusive'];

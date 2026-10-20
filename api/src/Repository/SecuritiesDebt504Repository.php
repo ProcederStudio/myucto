@@ -71,7 +71,7 @@ final class SecuritiesDebt504Repository
         $fx=array_values(array_filter($fxAll,fn($r)=>$r['accounting_date']<=$date && (!$inventory||$r['accounting_date']!==$date)));$fxCursor=0;
         $eventIndex=array_column($events,null,'id');
         $reversals=[];foreach($events as $event)if($event['reversal_of']!==null)$reversals[(int)$event['reversal_of']]=$event;
-        $state=['id'=>$lot,'facts'=>$facts,'earned'=>'0.00','amortised'=>'0.00','coupon_received'=>'0.00','principal_redeemed'=>'0.00','valuation_czk'=>'0.00','book_czk'=>$facts['asset']['amount'],'principal_book_czk'=>$terms['clean_cost_czk'],'interest_book_czk'=>$terms['acquired_interest_czk'],'principal_book_native'=>$terms['clean_cost'],'latest_date'=>$terms['acquired_on'],'max_event_date'=>$terms['acquired_on'],'events'=>[]];
+        $state=['id'=>$lot,'facts'=>$facts,'earned'=>'0.00','amortised'=>'0.00','coupon_received'=>'0.00','principal_redeemed'=>'0.00','principal_sold'=>'0.00','interest_sold'=>'0.00','sold_on'=>null,'valuation_czk'=>'0.00','book_czk'=>$facts['asset']['amount'],'principal_book_czk'=>$terms['clean_cost_czk'],'interest_book_czk'=>$terms['acquired_interest_czk'],'principal_book_native'=>$terms['clean_cost'],'latest_date'=>$terms['acquired_on'],'max_event_date'=>$terms['acquired_on'],'events'=>[]];
         $applyFx=function(string $until,bool $inclusive=false)use(&$state,&$fxCursor,$fx):void{while(isset($fx[$fxCursor])&&($fx[$fxCursor]['accounting_date']<$until||($inclusive&&$fx[$fxCursor]['accounting_date']===$until))){$r=$fx[$fxCursor++];$state['principal_book_czk']=bcadd($state['principal_book_czk'],$r['principal_czk'],2);$state['interest_book_czk']=bcadd($state['interest_book_czk'],$r['interest_czk'],2);$state['book_czk']=bcadd($state['book_czk'],bcadd($r['principal_czk'],$r['interest_czk'],2),2);}};
         foreach($events as $row) {
             $request=self::decode($row['request_json']);$receipt=self::decode($row['receipt_json']);$id=(int)$row['id'];
@@ -92,12 +92,19 @@ final class SecuritiesDebt504Repository
                 if($row['operation']==='valuation')T::need($receipt['amount']===$change,'debt_event_corrupt');
                 if($row['operation']==='reverse'){
                     $original=$eventIndex[$row['reversal_of']]??null;T::need($original!==null && ($request['event_id']??null)===(int)$row['reversal_of'],'debt_event_corrupt');
-                    $old=self::decode($original['receipt_json']);T::need(isset($old['ledger']) && !isset($old['payment']) && $receipt['amount']===$old['amount'] && $receipt['book_change_czk']===bcsub('0',$old['book_change_czk'],2),'debt_event_corrupt');
+                    $old=self::decode($original['receipt_json']);T::need(isset($old['ledger']) && (!isset($old['payment']) || $original['operation']==='sale') && $receipt['amount']===$old['amount'] && $receipt['book_change_czk']===bcsub('0',$old['book_change_czk'],2),'debt_event_corrupt');
                 }
                 if(in_array($row['operation'],['accrual','amortisation'],true))T::need($native===$receipt['amount'],'debt_event_corrupt');
             }
-            if($proof===null && !isset($receipt['payment']))T::need($row['operation']==='valuation' && $row['journal_entry_id']===null && $row['reversal_of']===null && $receipt['amount']==='0.00' && $receipt['book_change_czk']==='0.00' && $receipt['lines']===[],'debt_event_corrupt');
-            if(in_array($row['operation'],['coupon_receipt','principal_redemption'],true)) {
+            if($proof===null && !isset($receipt['payment']) && $row['operation']==='reverse')$this->assertUnbound($row,$request,$receipt,$eventIndex);
+            elseif($proof===null && !isset($receipt['payment']))T::need($row['operation']==='valuation' && $row['journal_entry_id']===null && $row['reversal_of']===null && $receipt['amount']==='0.00' && $receipt['book_change_czk']==='0.00' && $receipt['lines']===[],'debt_event_corrupt');
+            if($row['operation']==='sale' && $reverse===null) {
+                $saved=$receipt['payment'];$payment=(new SecuritiesDebt504PaymentProof($this->db,$this->currentRead))->current($supplier,$saved['ledger']['entry']['id'],$saved['line']['id'],$facts['asset'],\MyInvoice\Service\Accounting\Closing\SecuritiesDebt504Policy::SALE_REVENUE_ACCOUNT);
+                T::need(self::hash($payment)===self::hash($saved),'debt_payment_source_changed');
+                T::need($proof!==null && $receipt['amount']===$payment['amount'] && $payment['date']===$row['accounting_date'],'debt_event_corrupt');
+                $expectedClaims[]=[$saved['line']['id'],'sale',bcmul($saved['line']['amount'],'100',0),$id];
+            }
+            if(in_array($row['operation'],['coupon_receipt','principal_redemption'],true) && $reverse===null) {
                 $saved=$receipt['payment'];$payment=(new SecuritiesDebt504PaymentProof($this->db,$this->currentRead))->current($supplier,$saved['ledger']['entry']['id'],$saved['line']['id'],$facts['asset']);
                 T::need(self::hash($payment)===self::hash($saved),'debt_payment_source_changed');
                 T::need($receipt['amount']===($row['operation']==='principal_redemption'?($request['nominal_amount']??null):$payment['amount']) && bccomp($receipt['amount'],'0',2)>0 && bccomp($receipt['amount'],$payment['money_amount'],2)<=0 && $receipt['book_change_czk']===bcsub('0',$payment['line']['amount'],2) && $payment['date']===$row['accounting_date'],'debt_event_corrupt');
@@ -109,6 +116,11 @@ final class SecuritiesDebt504Repository
             $state['latest_date']=max($state['latest_date'],$row['accounting_date']);
             if($row['operation']==='reverse')continue;
             if($reverse!==null && $reverse['accounting_date']<=$date)continue;
+            if($row['operation']==='sale'){
+                $this->applySale($state,$terms,$receipt,$row['accounting_date']);
+                $state['events'][]=['id'=>$id,'request'=>$request,'receipt'=>$receipt];
+                continue;
+            }
             if($row['operation']==='valuation'){
                 $quote=$request['quote'];\MyInvoice\Service\Accounting\Closing\SecuritiesValuation504Evidence::assertMarketBasis($quote+['quote_currency'=>$quote['currency']??null],$row['accounting_date'],$facts['currency']);
                 T::need(($quote['quote_type']??null)==='clean' && ($quote['as_of']??null)===$row['accounting_date'] && ($quote['currency']??null)===$facts['currency'],'debt_clean_quote_required');
@@ -141,10 +153,59 @@ final class SecuritiesDebt504Repository
         usort($expectedClaims,fn($a,$b)=>[$a[0],$a[1]]<=>[$b[0],$b[1]]);
         $actual=array_map(fn($c)=>[(int)$c['line_id'],$c['component'],$c['amount_cents'],$c['event_id']===null?null:(int)$c['event_id']],$claims);
         T::need($actual===$expectedClaims,'debt_claims_corrupt');
-        $state['unpaid_interest']=bcsub(bcadd($terms['acquired_interest'],$state['earned'],2),$state['coupon_received'],2);
-        $state['principal_balance']=bcsub($terms['nominal'],$state['principal_redeemed'],2);
+        $state['unpaid_interest']=self::unpaidInterest($terms,$state);
+        $state['principal_balance']=self::principalBalance($terms,$state);
         foreach(['unpaid_interest','principal_balance','interest_book_czk','principal_book_czk','principal_book_native'] as $field)T::need(bccomp($state[$field],'0',2)>=0,'debt_negative_balance');
         $state['hash']=self::hash([$facts,$events,$claims,$fxAll]);return $state;
+    }
+
+    private static function unpaidInterest(array $terms,array $state): string
+    {
+        $owed=bcadd($terms['acquired_interest'],$state['earned'],2);
+        return bcsub(bcsub($owed,$state['coupon_received'],2),$state['interest_sold'],2);
+    }
+
+    private static function principalBalance(array $terms,array $state): string
+    {
+        return bcsub(bcsub($terms['nominal'],$state['principal_redeemed'],2),$state['principal_sold'],2);
+    }
+
+    /**
+     * Prodej vyřadí celý zbytek držby. Uložený rozpis prodeje musí přesně odpovídat stavu
+     * ke dni prodeje, jinak by podvržený receipt přesunul jistinu do úroku nebo naopak.
+     */
+    private function applySale(array &$state,array $terms,array $receipt,string $date): void
+    {
+        $sold=$receipt['sold']??null;
+        $expected=['principal'=>self::principalBalance($terms,$state),'interest'=>self::unpaidInterest($terms,$state),'principal_czk'=>$state['principal_book_czk'],'interest_czk'=>$state['interest_book_czk']];
+        T::need($state['sold_on']===null && $sold===$expected,'debt_event_corrupt');
+        T::need($receipt['book_change_czk']===bcsub('0',bcadd($sold['principal_czk'],$sold['interest_czk'],2),2),'debt_event_corrupt');
+        $state['principal_sold']=$sold['principal'];
+        $state['interest_sold']=$sold['interest'];
+        $state['principal_book_czk']='0.00';
+        $state['interest_book_czk']='0.00';
+        $state['principal_book_native']='0.00';
+        $state['book_czk']=bcadd($state['book_czk'],$receipt['book_change_czk'],2);
+        $state['sold_on']=$date;
+    }
+
+    /**
+     * Storno navázané úhrady nemá účetní zápis: jen zrcadlí částky odvázané události
+     * a musí být ve stejném dni jako ona.
+     */
+    private function assertUnbound(array $row,array $request,array $receipt,array $eventIndex): void
+    {
+        $original=$eventIndex[$row['reversal_of']]??null;
+        T::need($original!==null && ($request['event_id']??null)===(int)$row['reversal_of'] && $row['journal_entry_id']===null,'debt_event_corrupt');
+        $old=self::decode($original['receipt_json']);
+        T::need(in_array($original['operation'],['coupon_receipt','principal_redemption'],true) && isset($old['payment']) && !isset($old['ledger']),'debt_event_corrupt');
+        T::need($original['accounting_date']===$row['accounting_date'] && $receipt['lines']===[] && $receipt['amount']===$old['amount'] && $receipt['book_change_czk']===bcsub('0',$old['book_change_czk'],2),'debt_event_corrupt');
+    }
+
+    public function releaseClaims(int $supplier,int $lot,int $event): void
+    {
+        $q=$this->db->pdo()->prepare('DELETE FROM accounting_securities_debt_claims WHERE supplier_id=? AND lot_id=? AND event_id=?');
+        $q->execute([$supplier,$lot,$event]);
     }
 
     public function event(int $supplier,int $lot,array $request,array $receipt,?int $reversal=null): int
@@ -162,8 +223,9 @@ final class SecuritiesDebt504Repository
         $out=['lots'=>[],'findings'=>[],'origins'=>[]];
         foreach($this->rows('SELECT id FROM accounting_securities_debt_lots WHERE supplier_id=? AND acquired_on<=? ORDER BY id FOR UPDATE',[$supplier,$date]) as $lot){
             $state=$this->current($supplier,(int)$lot['id'],$date,true);$facts=$state['facts'];$terms=$facts['terms'];
-            if($state['earned']!==T::earned($terms,$date))$out['findings'][]=['code'=>'debt_accrual_required','lot_id'=>$state['id']];
-            if($terms['classification']==='held_to_maturity' && $state['amortised']!==T::amortised($terms,$date))$out['findings'][]=['code'=>'debt_amortisation_required','lot_id'=>$state['id']];
+            $held=$state['sold_on']===null;
+            if($held && $state['earned']!==T::earned($terms,$date))$out['findings'][]=['code'=>'debt_accrual_required','lot_id'=>$state['id']];
+            if($held && $terms['classification']==='held_to_maturity' && $state['amortised']!==T::amortised($terms,$date))$out['findings'][]=['code'=>'debt_amortisation_required','lot_id'=>$state['id']];
             $raw=$this->rows('SELECT * FROM accounting_securities_debt_events WHERE supplier_id=? AND lot_id=? ORDER BY accounting_date,id FOR UPDATE',[$supplier,$state['id']]);
             $lines=self::partsAt($facts,$raw,$date,$state['fx_carries']);$valued=null;foreach($state['events'] as $event)if($event['request']['operation']==='valuation')$valued=$event['request']['accounting_date'];
             foreach($lines as $lineId=>$part)$out['origins'][$lineId]=[['kind'=>'declared_title','origin_line_id'=>$facts['asset']['id'],'reference'=>$terms['contract_reference']]];
@@ -180,6 +242,12 @@ final class SecuritiesDebt504Repository
             if($row['accounting_date']>$date||$row['operation']==='reverse'||isset($reversed[(int)$row['id']]))continue;
             $r=self::decode($row['receipt_json']);$op=$row['operation'];
             if($op==='valuation' && !isset($r['ledger'])){T::need($r['amount']==='0.00' && $r['book_change_czk']==='0.00' && $r['lines']===[],'debt_event_corrupt');continue;}
+            if($op==='sale'){
+                $asset=array_values(array_filter($r['ledger']['lines']??[],fn($line)=>$line['account_code']===$facts['asset']['account_code']));T::need(count($asset)===1,'debt_event_corrupt');
+                $sold=$r['sold'];
+                $lines[$asset[0]['id']]=['principal_czk'=>bcsub('0',$sold['principal_czk'],2),'principal_native'=>bcsub('0',$sold['principal_czk'],2),'interest_czk'=>bcsub('0',$sold['interest_czk'],2),'interest_native'=>bcsub('0',$sold['interest_czk'],2)];
+                continue;
+            }
             $interest=in_array($op,['accrual','coupon_receipt'],true);$native=$op==='valuation'?'0.00':$r['amount'];
             if(isset($r['payment'])){$line=$r['payment']['line'];$native=bcsub('0',$r['payment']['amount'],2);}
             else{$asset=array_values(array_filter($r['ledger']['lines']??[],fn($line)=>$line['account_code']===$facts['asset']['account_code']));T::need(count($asset)===1,'debt_event_corrupt');$line=$asset[0];}
@@ -215,7 +283,7 @@ final class SecuritiesDebt504Repository
     public function assertPaymentCapacity(int $supplier,array $payment,string $amount): void
     {
         $used='0.00';
-        foreach($this->rows("SELECT e.operation,e.request_json,e.request_hash,e.receipt_json,e.receipt_hash FROM accounting_securities_debt_events e WHERE e.supplier_id=? AND e.operation IN ('coupon_receipt','principal_redemption') ORDER BY e.id FOR UPDATE",[$supplier]) as $event){
+        foreach($this->rows("SELECT e.operation,e.request_json,e.request_hash,e.receipt_json,e.receipt_hash FROM accounting_securities_debt_events e WHERE e.supplier_id=? AND e.operation IN ('coupon_receipt','principal_redemption') AND NOT EXISTS(SELECT 1 FROM accounting_securities_debt_events r WHERE r.supplier_id=e.supplier_id AND r.reversal_of=e.id) ORDER BY e.id FOR UPDATE",[$supplier]) as $event){
             $receipt=self::decode($event['receipt_json']);$saved=$receipt['payment']??null;
             if(($saved['ledger']['entry']['id']??null)!==$payment['ledger']['entry']['id'])continue;
             $request=self::decode($event['request_json']);

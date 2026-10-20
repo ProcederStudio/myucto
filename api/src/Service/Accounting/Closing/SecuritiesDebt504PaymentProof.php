@@ -21,7 +21,7 @@ final class SecuritiesDebt504PaymentProof
         return $this->db->pdo()->prepare($sql);
     }
 
-    public function current(int $supplier,int $entryId,int $lineId,array $asset): array
+    public function current(int $supplier,int $entryId,int $lineId,array $asset,?string $account=null): array
     {
         $ledger=(new PaymentJournalProof($this->db))->snapshot($supplier,$entryId,$this->currentRead);
         $entry=$ledger['entry']; $kind=$entry['source_type']; $source=(int)$entry['source_id'];
@@ -50,7 +50,7 @@ final class SecuritiesDebt504PaymentProof
             }
             if ($line['id']===$lineId) $selected=$line;
         }
-        SecuritiesDebt504Terms::need($money===$amount && $selected!==null && $selected['side']==='credit' && $selected['account_code']===$asset['account_code'],'debt_payment_source_changed');
+        SecuritiesDebt504Terms::need($money===$amount && $selected!==null && $selected['side']==='credit' && $selected['account_code']===($account??$asset['account_code']),'debt_payment_source_changed');
         foreach (['dimensions','dimension_splits','cost_center','project_id','currency_code'] as $key)
             SecuritiesDebt504Terms::need(($selected[$key]??null)===($asset[$key]??null),'debt_tuple_changed');
         $value=$currency==='CZK'?$selected['amount']:($selected['amount_foreign']??'0.00');
