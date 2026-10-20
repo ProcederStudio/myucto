@@ -44,6 +44,64 @@ final class NonprofitTaxSnapshotBatchReader
         ]);
     }
 
+    private const int HEAD_BATCH = 200;
+    private const string LINE_COLUMNS = 'l.id,l.entry_id,l.line_no,l.account_id,l.side,l.signed_amount,l.amount_foreign,l.currency_code,l.fx_rate,
+        e.period_id,e.entry_date,e.source_type,e.source_id,e.reversed_by';
+
+    /**
+     * Řádky deníku období v pořadí (entry_date, entry_id, line_id) keyset stránkováním
+     * přímo nad deníkem: hlavičky přes idx_je_supplier_entry_date, řádky jen vybraných
+     * dokladů přes idx_jel_supplier_entry. Žádná pomocná kopie deníku.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function scanLines(int $supplierId, int $periodId, array $period, ?SnapshotCursor $after, int $take, bool $currentRead): array
+    {
+        $pdo = $this->db->pdo();
+        $lock = $this->lock($currentRead);
+        $endsBefore = (new \DateTimeImmutable($period['ends_on']))->modify('+1 day')->format('Y-m-d');
+        $scanned = [];
+        if ($after !== null) {
+            // Dokončení rozpracovaného dokladu z předchozí stránky.
+            $stmt = $pdo->prepare('SELECT ' . self::LINE_COLUMNS . '
+                FROM journal_entries e JOIN journal_entry_lines l ON l.supplier_id=e.supplier_id AND l.entry_id=e.id
+                WHERE e.supplier_id=? AND e.id=? AND e.period_id=? AND e.entry_date=? AND e.posted_at IS NOT NULL AND l.id>?
+                ORDER BY l.id LIMIT ' . $take . $lock);
+            $stmt->execute([$supplierId, $after->entryId, $periodId, $after->entryDate, $after->lineId]);
+            $scanned = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $afterDate = $after?->entryDate;
+        $afterEntry = $after?->entryId;
+        while (count($scanned) < $take) {
+            $params = [$supplierId, $period['starts_on'], $endsBefore, $periodId];
+            $keyset = '';
+            if ($afterDate !== null) {
+                $keyset = ' AND (e.entry_date>? OR (e.entry_date=? AND e.id>?))';
+                array_push($params, $afterDate, $afterDate, $afterEntry);
+            }
+            $heads = $pdo->prepare('SELECT e.id,e.entry_date FROM journal_entries e FORCE INDEX (idx_je_supplier_entry_date)
+                WHERE e.supplier_id=? AND e.entry_date>=? AND e.entry_date<? AND e.period_id=? AND e.posted_at IS NOT NULL' . $keyset . '
+                ORDER BY e.entry_date,e.id LIMIT ' . self::HEAD_BATCH . $lock);
+            $heads->execute($params);
+            $entries = $heads->fetchAll(PDO::FETCH_ASSOC);
+            if ($entries === []) break;
+            $ids = array_map(static fn (array $row): int => (int) $row['id'], $entries);
+            $lines = $pdo->prepare('SELECT STRAIGHT_JOIN ' . self::LINE_COLUMNS . '
+                FROM journal_entry_lines l FORCE INDEX (idx_jel_supplier_entry)
+                JOIN journal_entries e FORCE INDEX (uq_je_supplier_id) ON e.supplier_id=l.supplier_id AND e.id=l.entry_id
+                WHERE l.supplier_id=? AND l.entry_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')
+                  AND e.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')
+                ORDER BY e.entry_date,l.entry_id,l.id LIMIT ' . ($take - count($scanned)) . $lock);
+            $lines->execute([$supplierId, ...$ids, ...$ids]);
+            foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $row) $scanned[] = $row;
+            $last = $entries[array_key_last($entries)];
+            $afterDate = $last['entry_date'];
+            $afterEntry = (int) $last['id'];
+            if (count($entries) < self::HEAD_BATCH) break;
+        }
+        return $scanned;
+    }
+
     public function page(int $supplierId, int $periodId, ?SnapshotCursor $after = null, int $limit = 500, bool $currentRead = false): SnapshotPageV2
     {
         if ($limit < 1 || $limit > 500) throw new \InvalidArgumentException('Snapshot page limit must be between 1 and 500.');
@@ -51,22 +109,7 @@ final class NonprofitTaxSnapshotBatchReader
         if ($after !== null && ($after->entryDate < $period['starts_on'] || $after->entryDate > $period['ends_on'])) {
             throw new \InvalidArgumentException('Snapshot cursor does not belong to the requested period.');
         }
-        $params = [$supplierId, $periodId, $period['starts_on'], (new \DateTimeImmutable($period['ends_on']))->modify('+1 day')->format('Y-m-d')];
-        $cursor = '';
-        if ($after !== null) {
-            $cursor = ' AND (x.entry_date>? OR (x.entry_date=? AND x.entry_id>?) OR (x.entry_date=? AND x.entry_id=? AND x.line_id>?))';
-            array_push($params, $after->entryDate, $after->entryDate, $after->entryId, $after->entryDate, $after->entryId, $after->lineId);
-        }
-        $take = $limit + 1;
-        $stmt = $this->db->pdo()->prepare("SELECT STRAIGHT_JOIN l.id,l.entry_id,l.line_no,l.account_id,l.side,l.signed_amount,l.amount_foreign,l.currency_code,l.fx_rate,
-                e.period_id,e.entry_date,e.source_type,e.source_id,e.reversed_by
-            FROM nonprofit_tax_snapshot_line_locator x FORCE INDEX (PRIMARY)
-            JOIN journal_entries e ON e.supplier_id=x.supplier_id AND e.id=x.entry_id AND e.period_id=x.period_id AND e.entry_date=x.entry_date
-            JOIN journal_entry_lines l ON l.supplier_id=x.supplier_id AND l.id=x.line_id AND l.entry_id=x.entry_id
-            WHERE x.supplier_id=? AND x.period_id=? AND x.entry_date>=? AND x.entry_date<? AND e.posted_at IS NOT NULL{$cursor}
-            ORDER BY x.entry_date,x.entry_id,x.line_id LIMIT {$take}" . $this->lock($currentRead));
-        $stmt->execute($params);
-        $scanned = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $scanned = $this->scanLines($supplierId, $periodId, $period, $after, $limit + 1, $currentRead);
         $hasMore = count($scanned) > $limit;
         if ($hasMore) array_pop($scanned);
         if ($scanned === []) return new SnapshotPageV2([], [], null, null, null, 0);

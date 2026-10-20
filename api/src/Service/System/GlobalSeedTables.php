@@ -320,7 +320,7 @@ final class GlobalSeedTables
         ...\MyInvoice\Repository\Nonprofit\FundingRepository::TABLES,
         'nonprofit_tax_assessments',
         'nonprofit_tax_assessment_gift_elections', 'nonprofit_tax_assessment_funding_usage', 'nonprofit_tax_assessment_funding_members',
-        'nonprofit_tax_snapshot_chunks', 'nonprofit_tax_snapshot_manifests', 'nonprofit_tax_snapshot_manifest_chunks', 'nonprofit_tax_snapshot_line_locator',
+        'nonprofit_tax_snapshot_chunks', 'nonprofit_tax_snapshot_manifests', 'nonprofit_tax_snapshot_manifest_chunks',
         'nonprofit_tax_drafts', 'nonprofit_tax_draft_activities', 'nonprofit_tax_draft_decisions',
         'nonprofit_tax_draft_funding_pools', 'nonprofit_tax_draft_funding_members', 'nonprofit_tax_draft_funding_links',
         'nonprofit_tax_calculation_chunks', 'nonprofit_tax_calculation_manifests', 'nonprofit_tax_calculation_manifest_chunks',

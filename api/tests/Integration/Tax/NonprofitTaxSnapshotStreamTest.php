@@ -250,7 +250,7 @@ final class NonprofitTaxSnapshotStreamTest extends TestCase
     private function persistentCounts(): array
     {
         $out = [];
-        foreach (['nonprofit_tax_snapshot_line_locator', 'nonprofit_tax_snapshot_chunks', 'nonprofit_tax_snapshot_manifests',
+        foreach (['nonprofit_tax_snapshot_chunks', 'nonprofit_tax_snapshot_manifests',
             'nonprofit_tax_snapshot_manifest_chunks'] as $table) {
             $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE supplier_id=?");
             $stmt->execute([$this->supplier]);
