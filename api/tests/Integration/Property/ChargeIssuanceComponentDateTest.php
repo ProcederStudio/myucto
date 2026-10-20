@@ -191,7 +191,8 @@ final class ChargeIssuanceComponentDateTest extends TestCase
     private function post(array $batch): array
     {
         return $this->repository()->post($this->f['supplier'], $batch['id'], array_map(static fn (array $charge): array =>
-            ['id' => $charge['id'], 'row_version' => $charge['row_version']], $batch['charges']), $this->f['actor']);
+            ['id' => $charge['id'], 'row_version' => $charge['row_version']], $batch['charges']), $this->f['actor'],
+            \MyInvoice\Repository\Property\Receivables\ChargeDebtRegistrar::MODE_MANUAL);
     }
 
     private function reverse(array $charge): array
