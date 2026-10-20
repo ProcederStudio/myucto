@@ -28,6 +28,7 @@ import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 import { BTN_ICON_SM_BASE, OUTLINE, ICONS } from '@/components/ui/buttonStyles'
 import type { BankTransactionActions } from '@/composables/useBankTransactionActions'
 import { useSupplierStore } from '@/stores/supplier'
+import { hasFrameworkScope } from '@/security/frameworkScope'
 import { usePropertyBankLinks } from './usePropertyBankLinks'
 
 /** Náš zdrojový účet (jen scope='all' u „Všechny pohyby" — viz UnpostedBankTransaction). */
@@ -116,11 +117,12 @@ const outsideSaldo = computed(() => props.tx.match_status === 'unmatched'
 // Avízo, jehož pohyb převzal oficiální výpis: je vyřešené, úhradu nese výpis.
 const supersededNotice = computed(() => props.tx.notice_superseded === true)
 const noInvoiceExpected = computed(() => payrollMatched.value || ownTransfer.value || outsideSaldo.value || supersededNotice.value)
-// Úhrady jednotek SVJ: řádek se jen přihlásí o vazbu, dotaz jde jednou za dávku řádků
-// a firma bez profilu SVJ se po první odpovědi už neptá (usePropertyBankLinks).
+// Úhrady jednotek SVJ: řádek se jen přihlásí o vazbu, dotaz jde jednou za dávku řádků.
+// Firma bez profilu SVJ se neptá vůbec, SVJ bez povolených vazeb jen jednou (usePropertyBankLinks).
 const supplierStore = useSupplierStore()
 const propertyLinks = usePropertyBankLinks()
-const propertyReadable = computed(() => !auth.isClientRole && auth.canRead('property') && props.tx.amount > 0)
+const propertyReadable = computed(() => !auth.isClientRole && auth.canRead('property') && props.tx.amount > 0
+  && hasFrameworkScope(supplierStore.currentSupplier, 'svj'))
 watch(() => props.tx.id, id => { if (propertyReadable.value) propertyLinks.track(supplierStore.currentSupplierId, id) }, { immediate: true })
 const propertyLink = computed(() => propertyReadable.value ? propertyLinks.link(supplierStore.currentSupplierId, props.tx.id) : null)
 const propertyUsed = computed(() => !!propertyLink.value?.source)
