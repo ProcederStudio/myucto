@@ -14,8 +14,13 @@ use MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Anonymization\AccountDefinitionCloneScrubber;
 use MyInvoice\Service\Anonymization\DatabaseCloner;
+use MyInvoice\Service\Anonymization\FinancialCloneHashKind;
+use MyInvoice\Service\Anonymization\FinancialCloneHashMap;
 use MyInvoice\Service\Anonymization\MembershipCloneCapture;
 use MyInvoice\Service\Anonymization\MembershipCloneScrubber;
+use MyInvoice\Service\Anonymization\Nonprofit\J6CloneLegacyInputTransformer;
+use MyInvoice\Service\Anonymization\Nonprofit\J6CloneTypedTransformer;
+use MyInvoice\Service\Anonymization\Nonprofit\J6MembershipModuleFactRebaser;
 use MyInvoice\Service\Anonymization\NonprofitDppoCloneScrubber;
 use MyInvoice\Service\Anonymization\Pseudonymizer;
 use MyInvoice\Service\Anonymization\TextScrubber;
@@ -25,6 +30,7 @@ use MyInvoice\Service\Nonprofit\Membership\MembershipJournalProof;
 use MyInvoice\Service\Nonprofit\Membership\MembershipMemberService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitLegalProfileService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
+use MyInvoice\Service\Tax\Nonprofit\SourceFacts\MembershipJ6SourceFacts;
 use MyInvoice\Tests\Support\OwnedTestDatabaseCleanup;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -50,6 +56,7 @@ final class MembershipCloneScrubberTest extends TestCase
         self::assertSame(0, (int) $exists->fetchColumn());
         $ownedSchemas = [$schema];
         $target = null;
+        $hashMap = null;
         try {
             $cloner = new DatabaseCloner($server);
             $cloner->copyTables($cloner->plan($sourceSchema), $schema, static function (): void {});
@@ -67,6 +74,7 @@ final class MembershipCloneScrubberTest extends TestCase
             }
             self::assertSame($schema, $target->pdo()->query('SELECT DATABASE()')->fetchColumn());
             self::assertSame(0, (int) $target->pdo()->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn());
+            $hashMap = FinancialCloneHashMap::create($target->pdo());
             [$supplier, $memberId, $period, $actor, $charges, $members] = $this->fixture($target, $posting);
             $request = $this->chargeRequest($memberId);
             $preview = $charges->previewIssue($supplier, $request);
@@ -84,6 +92,24 @@ final class MembershipCloneScrubberTest extends TestCase
             $reverseRequest = ['case_id' => $issued['case']['id'], 'accounting_date' => '2026-12-31', 'reason' => 'Private reversal private-reversal@example.test'];
             $reversePreview = $charges->previewReverse($supplier, $reverseRequest);
             $reversed = $charges->confirmReverse($supplier, $reverseRequest, $reversePreview['expected_case_version'], $reversePreview['preview_hash'], 'private-reverse', $actor);
+            $oldClaim = (new MembershipChargeRepository($target))->claimForOperation($supplier, $issued['operation']['id']);
+            self::assertNotNull($oldClaim);
+            $oldHashes = [
+                'claim' => $oldClaim['record_hash'],
+                'revision' => $issued['operation']['proof']['member_revision']['record_hash'],
+                'legal' => $issued['operation']['proof']['legal_profile']['record_hash'],
+                'operation' => $issued['operation']['record_hash'],
+                'receipt' => NonprofitTaxRules::hash($issued['operation']['receipt']),
+                'classification' => NonprofitTaxRules::hash($issued['operation']['proof']['classification']),
+            ];
+            $target->pdo()->beginTransaction();
+            $oldSourceRows = [$this->membershipSourceRow($issued['operation']), $this->membershipSourceRow($reversed['operation'])];
+            $oldFacts = (new MembershipJ6SourceFacts($target))->capture($supplier, $oldSourceRows, true);
+            $target->pdo()->commit();
+            foreach ($oldSourceRows as &$oldSourceRow) {
+                $oldSourceRow['module_facts'] = [MembershipJ6SourceFacts::SCHEMA => $oldFacts[$oldSourceRow['line_id']]];
+            }
+            unset($oldSourceRow);
 
             [$smallCapture, $smallQueries] = $this->captureWithQueryCount($target);
             if ($smallCapture instanceof MembershipCloneCapture) $smallCapture->cleanup();
@@ -119,7 +145,7 @@ final class MembershipCloneScrubberTest extends TestCase
             $scrubber = new TextScrubber(new Pseudonymizer('synthetic-membership-clone'));
             AccountDefinitionCloneScrubber::run($target, $scrubber);
             $legalHashes = NonprofitDppoCloneScrubber::runProfiles($target, $scrubber, $dppoCapture);
-            MembershipCloneScrubber::run($target, $scrubber, $membershipCapture, $legalHashes);
+            MembershipCloneScrubber::run($target, $scrubber, $membershipCapture, $legalHashes, $hashMap);
 
             $repository = new MembershipRepository($target);
             $history = $repository->history($supplier, $memberId);
@@ -159,6 +185,68 @@ final class MembershipCloneScrubberTest extends TestCase
             $claim = $chargeRepository->claimForOperation($supplier, $operation['id']);
             $reversalClaim = $chargeRepository->claimForOperation($supplier, $reversal['id']);
             self::assertSame(2750000, $claim['amount_cents']);
+            $target->pdo()->beginTransaction();
+            $mapped = $hashMap->resolveOwnedMany([
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_CLAIM, 'supplier_id' => $supplier,
+                    'owner_id' => $claim['id'], 'old_hash' => $oldHashes['claim']],
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_REVISION, 'supplier_id' => $supplier,
+                    'owner_id' => $operation['member_revision_id'], 'old_hash' => $oldHashes['revision']],
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_LEGAL_PROFILE, 'supplier_id' => $supplier,
+                    'owner_id' => $operation['legal_profile_id'], 'old_hash' => $oldHashes['legal']],
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_OPERATION, 'supplier_id' => $supplier,
+                    'owner_id' => $operation['id'], 'old_hash' => $oldHashes['operation']],
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_JOURNAL_RECEIPT, 'supplier_id' => $supplier,
+                    'owner_id' => $operation['id'], 'old_hash' => $oldHashes['receipt']],
+                ['kind' => FinancialCloneHashKind::MEMBERSHIP_CLASSIFICATION, 'supplier_id' => $supplier,
+                    'owner_id' => $operation['id'], 'old_hash' => $oldHashes['classification']],
+            ]);
+            self::assertSame([$claim['record_hash'], $operation['proof']['member_revision']['record_hash'],
+                $operation['proof']['legal_profile']['record_hash'], $operation['record_hash'],
+                NonprofitTaxRules::hash($operation['receipt']), NonprofitTaxRules::hash($operation['proof']['classification'])],
+                array_values($mapped));
+            $rebasedSources = (new J6MembershipModuleFactRebaser($supplier, $hashMap))->rebaseRows($oldSourceRows);
+            $rebasedSource = $rebasedSources[0];
+            $rebasedFact = $rebasedSource['module_facts'][MembershipJ6SourceFacts::SCHEMA];
+            self::assertSame($oldSourceRows[0]['amount_cents'], $rebasedSource['amount_cents']);
+            self::assertSame($oldSourceRows[0]['date'], $rebasedSource['date']);
+            self::assertSame($operation['record_hash'], $rebasedFact['operation_record_hash']);
+            self::assertSame($operation['proof']['member_revision']['record_hash'], $rebasedFact['member_revision_hash']);
+            self::assertSame($operation['proof']['legal_profile']['record_hash'], $rebasedFact['legal_profile_hash']);
+            $rebasedReversalFact = $rebasedSources[1]['module_facts'][MembershipJ6SourceFacts::SCHEMA];
+            self::assertSame(-2750000, $rebasedSources[1]['amount_cents']);
+            self::assertSame($reversal['record_hash'], $rebasedReversalFact['operation_record_hash']);
+
+            $legacyRows = array_map(static function (array $row): array {
+                $row['id'] = 'line:' . $row['line_id'];
+                $row['activity'] = 'main';
+                $row['activity_kind_id'] = $row['axes']['activity_kind']['value_id'];
+                $row['tax_regime'] = 'subject';
+                $row['mandatory_non_deductible'] = false;
+                return $row;
+            }, $oldSourceRows);
+            $legacy = new J6CloneLegacyInputTransformer(new J6CloneTypedTransformer($scrubber,
+                new J6MembershipModuleFactRebaser($supplier, $hashMap)));
+            $selectBefore = (int) $target->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(PDO::FETCH_NUM)[1];
+            $legacyRebased = $legacy->transformPage('source', $legacyRows);
+            $selectAfter = (int) $target->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(PDO::FETCH_NUM)[1];
+            self::assertLessThanOrEqual(2, $selectAfter - $selectBefore);
+            self::assertSame(array_column($legacyRows, 'amount_cents'), array_column($legacyRebased, 'amount_cents'));
+            self::assertSame($operation['record_hash'], $legacyRebased[0]['module_facts'][MembershipJ6SourceFacts::SCHEMA]['operation_record_hash']);
+            $operationHashPath = ['module_facts', MembershipJ6SourceFacts::SCHEMA, 'operation_record_hash'];
+            self::assertTrue($legacy->permitsIdentityChange('source', $operationHashPath,
+                $legacyRows[0]['module_facts'][MembershipJ6SourceFacts::SCHEMA]['operation_record_hash'],
+                $legacyRebased[0]['module_facts'][MembershipJ6SourceFacts::SCHEMA]['operation_record_hash']));
+            self::assertFalse($legacy->permitsIdentityChange('source', $operationHashPath,
+                $legacyRows[0]['module_facts'][MembershipJ6SourceFacts::SCHEMA]['operation_record_hash'],
+                $legacyRebased[0]['module_facts'][MembershipJ6SourceFacts::SCHEMA]['operation_record_hash']));
+            try {
+                (new J6CloneLegacyInputTransformer(new J6CloneTypedTransformer($scrubber,
+                    new J6MembershipModuleFactRebaser($supplier + 1, $hashMap))))->transformPage('source', $legacyRows);
+                self::fail('Foreign tenant membership hash map must be rejected.');
+            } catch (\LogicException $failure) {
+                self::assertSame('J6 membership module fact nemá doloženou cílovou hash náhradu.', $failure->getMessage());
+            }
+            $target->pdo()->commit();
             self::assertSame($claim['id'], $reversalClaim['original_claim_id']);
             $clonedLegacyClaim = $chargeRepository->claimForOperation($supplier, $lastExtra['operation']['id']);
             self::assertNotNull($clonedLegacyClaim);
@@ -171,6 +259,10 @@ final class MembershipCloneScrubberTest extends TestCase
             self::assertStringNotContainsString('private-reversal@example.test', $json);
             self::assertSame($sourceBefore, $this->sourceCounts($source));
         } finally {
+            if ($hashMap instanceof FinancialCloneHashMap) {
+                if ($target instanceof Connection && $target->pdo()->inTransaction()) $target->pdo()->rollBack();
+                $hashMap->drop();
+            }
             if ($target instanceof Connection) $target->close();
             OwnedTestDatabaseCleanup::drop($server, $schema, $ownedSchemas);
             $exists->execute([$schema]);
@@ -231,6 +323,18 @@ final class MembershipCloneScrubberTest extends TestCase
             'receivable_account' => '315.100', 'revenue_account' => '684.100', 'title_reference' => 'Private title private-title@example.test',
             'evidence' => 'Private resolution private-resolution@example.test', 'nonreciprocal' => true, 'reason' => 'Private charge private-charge@example.test',
             'classification' => $this->classification];
+    }
+
+    private function membershipSourceRow(array $operation): array
+    {
+        $axes = [];
+        foreach ($operation['proof']['classification'] as $axis => $proof) {
+            $axes[$axis] = ['type_id' => $proof['type_id'], 'value_id' => $proof['value_id']];
+        }
+        return ['line_id' => $operation['revenue_line_id'], 'entry_id' => $operation['journal_entry_id'],
+            'date' => $operation['accounting_date'],
+            'amount_cents' => $operation['operation'] === 'issue' ? $operation['amount_cents'] : -$operation['amount_cents'],
+            'kind' => 'revenue', 'source_type' => 'nonprofit_membership', 'axes' => $axes];
     }
 
     private function sourceCounts(Connection $source): array

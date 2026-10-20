@@ -60,7 +60,8 @@ final class MembershipCloneScrubber
         }
     }
 
-    public static function run(Connection $db, TextScrubber $scrubber, MembershipCloneCapture $capture, array $legalHashes): void
+    public static function run(Connection $db, TextScrubber $scrubber, MembershipCloneCapture $capture, array $legalHashes,
+        ?FinancialCloneHashMap $hashes = null): void
     {
         self::assertClonePhase($db);
         $capture->assertReadable();
@@ -77,13 +78,14 @@ final class MembershipCloneScrubber
         try {
             foreach ($capture->batches('member') as $batch) self::rewriteMembers($pdo, $batch);
             $revisionState = null;
-            foreach ($capture->batches('revision') as $batch) self::rewriteRevisions($pdo, $scrubber, $batch, $revisionState);
+            foreach ($capture->batches('revision') as $batch) self::rewriteRevisions($pdo, $scrubber, $batch, $revisionState, $hashes);
             $oldChain = null;
             $proofChain = null;
             $finalChain = null;
             foreach ($capture->batches('operation') as $batch) {
                 foreach (self::groupBySupplier($batch, static fn (array $row): int => (int) $row['operation']['supplier_id']) as $supplier => $records) {
-                    self::rewriteOperations($db, $scrubber, (int) $supplier, $records, $legalHashes, $oldChain, $proofChain, $finalChain);
+                    self::rewriteOperations($db, $scrubber, (int) $supplier, $records, $legalHashes,
+                        $oldChain, $proofChain, $finalChain, $hashes);
                 }
             }
             self::finishChain($oldChain);
@@ -115,7 +117,8 @@ final class MembershipCloneScrubber
         }
     }
 
-    private static function rewriteRevisions(PDO $pdo, TextScrubber $scrubber, array $captured, ?array &$state): void
+    private static function rewriteRevisions(PDO $pdo, TextScrubber $scrubber, array $captured, ?array &$state,
+        ?FinancialCloneHashMap $hashes): void
     {
         foreach (self::groupBySupplier($captured, static fn (array $row): int => (int) $row['supplier_id']) as $supplier => $rows) {
             $current = self::rowsByIds($pdo, 'nonprofit_member_revisions', (int) $supplier, array_column($rows, 'id'));
@@ -130,6 +133,8 @@ final class MembershipCloneScrubber
                 $row['request_hash'] = NonprofitTaxRules::hash($row['request']);
                 $row['parent_hash'] = $state['record_hash'] ?? str_repeat('0', 64);
                 $row['record_hash'] = NonprofitTaxRules::hash(MembershipRepository::revisionRecord($row));
+                $hashes?->recordOwned(FinancialCloneHashKind::MEMBERSHIP_REVISION, (int) $supplier,
+                    $row['id'], $old['record_hash'], $row['record_hash']);
                 $updates[] = ['id' => $row['id'], 'legal_basis_json' => NonprofitTaxRules::canonicalJson($row['legal_basis']),
                     'request_json' => NonprofitTaxRules::canonicalJson($row['request']), 'idempotency_key' => $row['idempotency_key'],
                     'request_hash' => $row['request_hash'], 'parent_hash' => $row['parent_hash'], 'record_hash' => $row['record_hash']];
@@ -140,7 +145,9 @@ final class MembershipCloneScrubber
         }
     }
 
-    private static function rewriteOperations(Connection $db, TextScrubber $scrubber, int $supplier, array $records, array $legalHashes, ?array &$oldChain, ?array &$proofChain, ?array &$finalChain): void
+    private static function rewriteOperations(Connection $db, TextScrubber $scrubber, int $supplier, array $records,
+        array $legalHashes, ?array &$oldChain, ?array &$proofChain, ?array &$finalChain,
+        ?FinancialCloneHashMap $hashes): void
     {
         $pdo = $db->pdo();
         $capturedById = [];
@@ -208,6 +215,21 @@ final class MembershipCloneScrubber
             $operation['preview_hash'] = $previewHash;
             $operation['parent_hash'] = $parentHash;
             $operation['record_hash'] = NonprofitTaxRules::hash($repository->operationRecord($operation));
+            if ($hashes !== null) {
+                $claim = $context['claims'][$old['id']];
+                $hashes->recordOwned(FinancialCloneHashKind::MEMBERSHIP_CLAIM, $supplier,
+                    $claim['id'], $claim['record_hash'], $claim['record_hash']);
+                $hashes->recordOwned(FinancialCloneHashKind::MEMBERSHIP_LEGAL_PROFILE, $supplier,
+                    $old['legal_profile_id'], $old['proof']['legal_profile']['record_hash'],
+                    $operation['proof']['legal_profile']['record_hash']);
+                $hashes->recordOwned(FinancialCloneHashKind::MEMBERSHIP_OPERATION, $supplier,
+                    $old['id'], $old['record_hash'], $operation['record_hash']);
+                $hashes->recordOwned(FinancialCloneHashKind::MEMBERSHIP_JOURNAL_RECEIPT, $supplier,
+                    $old['id'], NonprofitTaxRules::hash($old['receipt']), NonprofitTaxRules::hash($operation['receipt']));
+                $hashes->recordOwned(FinancialCloneHashKind::MEMBERSHIP_CLASSIFICATION, $supplier,
+                    $old['id'], NonprofitTaxRules::hash($old['proof']['classification']),
+                    NonprofitTaxRules::hash($operation['proof']['classification']));
+            }
             $commandUpdates[] = ['id' => $row['command']['id'], 'idempotency_key' => 'clone-membership-command-' . $row['command']['id'],
                 'request_json' => NonprofitTaxRules::canonicalJson($request), 'request_hash' => NonprofitTaxRules::hash($request)];
             $operationUpdates[] = ['id' => $operation['id'], 'preview_hash' => $previewHash,
