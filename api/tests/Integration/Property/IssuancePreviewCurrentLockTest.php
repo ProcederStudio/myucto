@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Property;
 
 use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceRepository;
@@ -13,12 +14,16 @@ use MyInvoice\Service\Property\Charges\Issuance\IssuancePreviewService;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceRequest;
 use MyInvoice\Service\Property\PropertyInput;
 use MyInvoice\Tests\Support\ChargeIssuanceFixture;
+use MyInvoice\Tests\Support\OwnedSandboxDatabase;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
 final class IssuancePreviewCurrentLockTest extends TestCase
 {
     use ChargeIssuanceFixture;
+    use OwnedSandboxDatabase;
+
+    private const SANDBOX='issue_current_lock';
 
     private array $connections=[];
 
@@ -90,12 +95,13 @@ final class IssuancePreviewCurrentLockTest extends TestCase
 
     private function repository(Connection $db):IssuanceRepository
     {
-        $container=Bootstrap::buildContainer();$container->set(Connection::class,$db);return $container->get(IssuanceRepository::class);
+        $container=Bootstrap::buildContainer();$container->set(Config::class,self::sandboxConfig(self::SANDBOX));$container->set(Connection::class,$db);return $container->get(IssuanceRepository::class);
     }
 
     private function connection():Connection
     {
-        $db=Connection::withoutSharedTestConnection(static fn()=>Bootstrap::buildContainer()->get(Connection::class));
-        self::assertStringEndsWith('_test',(string)$db->pdo()->query('SELECT DATABASE()')->fetchColumn());$db->pdo()->exec('SET SESSION innodb_snapshot_isolation=0');$this->connections[]=$db;return $db;
+        // Test commituje podvrženou revizi předpisu, kterou append-only triggery nedovolí
+        // smazat; ve sdílené DB by shodila každý další klon celé databáze.
+        $db=self::sandboxConnection(self::SANDBOX);$db->pdo()->exec('SET SESSION innodb_snapshot_isolation=0');$this->connections[]=$db;return $db;
     }
 }
