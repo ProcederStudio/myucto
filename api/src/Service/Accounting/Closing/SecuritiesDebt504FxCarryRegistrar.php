@@ -30,7 +30,7 @@ final class SecuritiesDebt504FxCarryRegistrar
                 SecuritiesDebt504Terms::need(count($treatments)===1 && is_bool($treatments[0]['fair_value']??null),'debt_fx_carry_unproven');$fair=$treatments[0]['fair_value'];
                 $book=$native=$interestBook=$interestNative='0.00';$lineIds=[];
                 foreach($lot['lines'] as $id=>$part){$b=$fair?$part['interest_czk']:bcadd($part['principal_czk'],$part['interest_czk'],2);$n=$fair?$part['interest_native']:bcadd($part['principal_native'],$part['interest_native'],2);$book=bcadd($book,$b,2);$native=bcadd($native,$n,2);$interestBook=bcadd($interestBook,$part['interest_czk'],2);$interestNative=bcadd($interestNative,$part['interest_native'],2);if($b!=='0.00'||$n!=='0.00')$lineIds[]=(int)$id;}
-                if($lineIds===[])continue;sort($lineIds,SORT_NUMERIC);
+                if($lineIds===[]||($book==='0.00'&&$native==='0.00'))continue;sort($lineIds,SORT_NUMERIC);
                 $positions=array_values(array_filter($payload['preview']['positions']??[],fn($p)=>($p['case_origin']??null)===$lot['origin']));
                 SecuritiesDebt504Terms::need(count($positions)===1,'debt_fx_carry_unproven');$position=$positions[0];$ids=$position['source_line_ids'];sort($ids,SORT_NUMERIC);
                 SecuritiesDebt504Terms::need($ids===$lineIds && $position['booked_czk']===$book && $position['foreign_balance']===$native && $position['slot']==='saldo' && $position['finding']===null && is_string($position['rate']),'debt_fx_basis_changed');

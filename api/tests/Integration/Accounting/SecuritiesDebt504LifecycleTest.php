@@ -137,6 +137,79 @@ final class SecuritiesDebt504LifecycleTest extends TestCase
         self::assertContains($proceeds['line_id'],array_map(fn($row)=>(int)$row['line_id'],$this->service->sources($this->supplier,'2026-03-31','proceeds')));
     }
 
+    /**
+     * Částečný prodej 400 000 Kč nominálu z 1 000 000 Kč k 31. 3. 2026 (ČÚS 406 bod 3.2.1):
+     * jistina 985 000 Kč (980 000 + rozpuštěný diskont 5 000) se vyřadí poměrem 0,4 = 394 000 Kč,
+     * prodaný alikvotní úrok je úrok běžného kupónového období z prodaného nominálu
+     * 30 027,40 - 18 016,44 = 12 010,96 Kč. Zbytek nabíhá úrok i diskont jen ze 600 000 Kč
+     * a doprodej zbytku vyřadí jen to, co po prvním prodeji zůstalo.
+     */
+    public function testHeldToMaturityPartialSaleDerecognisesProportionAndRemainderContinuesWithoutDoubleRelease(): void
+    {
+        $lot=$this->register('held_to_maturity');
+        $this->apply($this->op('accrual',$lot,'2025-12-31'));
+        $this->apply($this->op('amortisation',$lot,'2025-12-31'));
+        self::assertSame('9863.02',$this->apply($this->op('accrual',$lot,'2026-03-31'))['amount']);
+        self::assertSame('1642.34',$this->apply($this->op('amortisation',$lot,'2026-03-31'))['amount']);
+        $proceeds=$this->bank('406500.00','2026-03-31','653');
+        $sale=$this->op('sale',$lot,'2026-03-31')+$proceeds+['nominal_amount'=>'400000.00'];
+
+        $preview=$this->service->preview($this->supplier,$sale,$this->actor);
+        self::assertSame([['063','credit','406010.96'],['553','debit','406010.96']],$this->sides($preview['plan']['lines']));
+        self::assertSame('406500.00',$preview['plan']['amount']);
+        self::assertSame(['principal'=>'400000.00','interest'=>'12010.96','principal_czk'=>'394000.00','interest_czk'=>'12010.96',
+            'principal_native'=>'394000.00','fx_principal_czk'=>'0.00','fx_interest_czk'=>'0.00'],$preview['plan']['sold']);
+        $first=$this->apply($sale);
+
+        $state=$this->service->detail($this->supplier,$lot,'2026-03-31');
+        self::assertNull($state['sold_on']);
+        self::assertSame('600000.00',$state['principal_balance']);
+        self::assertSame('591000.00',$state['principal_book_czk']);
+        self::assertSame('18016.44',$state['unpaid_interest']);
+        self::assertSame('609016.44',$state['book_czk']);
+        self::assertSame([],$this->closingFindings('2026-03-31'));
+        try{$this->service->preview($this->supplier,$this->op('amortisation',$lot,'2026-03-31'),$this->actor);self::fail('The sold part was amortised again.');}
+        catch(ClosingException $e){self::assertSame('debt_no_change',$e->errorCode);}
+
+        $this->apply($this->op('reverse',$lot,'2026-03-31')+['event_id'=>$first['event_id']]);
+        $state=$this->service->detail($this->supplier,$lot,'2026-03-31');
+        self::assertSame('1000000.00',$state['principal_balance']);
+        self::assertSame('1015027.40',$state['book_czk']);
+        $this->apply($sale);
+
+        self::assertSame('5983.56',$this->apply($this->op('accrual',$lot,'2026-06-30'))['amount']);
+        $this->apply($this->op('coupon_receipt',$lot,'2026-07-01')+$this->bank('24000.00','2026-07-01','063'));
+        self::assertSame('0.00',$this->service->detail($this->supplier,$lot,'2026-07-01')['unpaid_interest']);
+        self::assertSame('3010.95',$this->apply($this->op('amortisation',$lot,'2026-12-31'))['amount']);
+        self::assertSame('12098.63',$this->apply($this->op('accrual',$lot,'2026-12-31'))['amount']);
+        self::assertSame([],$this->closingFindings('2026-12-31'));
+
+        $rest=$this->op('sale',$lot,'2026-12-31')+$this->bank('610000.00','2026-12-31','653');
+        $preview=$this->service->preview($this->supplier,$rest,$this->actor);
+        self::assertSame([['063','credit','606109.58'],['553','debit','606109.58']],$this->sides($preview['plan']['lines']));
+        self::assertSame(['principal'=>'600000.00','interest'=>'12098.63','principal_czk'=>'594010.95','interest_czk'=>'12098.63'],$preview['plan']['sold']);
+        $this->apply($rest);
+
+        $state=$this->service->detail($this->supplier,$lot,'2026-12-31');
+        self::assertSame('2026-12-31',$state['sold_on']);
+        self::assertSame('0.00',$state['book_czk']);
+        self::assertSame('0.00',$state['principal_balance']);
+        self::assertSame('0.00',$state['unpaid_interest']);
+        self::assertSame('0.00',$this->balance('063'));
+        self::assertSame('1012120.54',bcsub($this->turnover('553','debit'),$this->turnover('553','credit'),2));
+        self::assertSame('4379.46',bcsub(bcsub($this->turnover('653','credit'),$this->turnover('653','debit'),2),bcsub($this->turnover('553','debit'),$this->turnover('553','credit'),2),2));
+        try{$this->service->preview($this->supplier,$this->op('accrual',$lot,'2027-03-31'),$this->actor);self::fail('A sold bond accrued further interest.');}
+        catch(ClosingException $e){self::assertSame('debt_sold',$e->errorCode);}
+    }
+
+    public function testPartialSaleNominalMustNotExceedRemainingHolding(): void
+    {
+        $lot=$this->register('trading');
+        $this->apply($this->op('accrual',$lot,'2026-03-31'));
+        try{$this->service->preview($this->supplier,$this->op('sale',$lot,'2026-03-31')+$this->bank('1020000.00','2026-03-31','653')+['nominal_amount'=>'1000000.01'],$this->actor);self::fail('A sale above the remaining nominal was accepted.');}
+        catch(ClosingException $e){self::assertSame('debt_sale_nominal_invalid',$e->errorCode);}
+    }
+
     public function testBoundCouponReceiptCanBeUnboundOnlyOnItsOwnDate(): void
     {
         $lot=$this->register('held_to_maturity');
