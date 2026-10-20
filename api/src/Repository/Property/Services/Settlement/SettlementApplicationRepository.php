@@ -20,7 +20,7 @@ final class SettlementApplicationRepository
         $doc=$this->documents->findLatest($supplier,$document);$head=$this->head($supplier,$document);
         if($head['row_version']!==$expected)SettlementEvidence::reject('version_conflict');
         if($head['application_id']!==null)SettlementEvidence::reject('already_applied');
-        PropertyInput::fields($request,['accounting_date','evidence','advances','reliefs','opening_credits','new_claim','claim_title']);
+        self::assertRequestShape($request);
         $facts=$doc['document'];$live=$this->origins->current($supplier,$facts['unit_id'],$facts['service_id'],$request['accounting_date'],$doc['origin_receipt']['request']['selectors']);
         if(PropertyInput::hash($live['origins'])!==PropertyInput::hash($facts['origins']))SettlementEvidence::reject('document_origin_changed');
         $matching=array_filter($live['costs'],fn($cost)=>PropertyInput::hash($cost)===PropertyInput::hash($facts['cost']));if(count($matching)!==1)SettlementEvidence::reject('document_cost_changed');
@@ -51,6 +51,33 @@ final class SettlementApplicationRepository
         $snapshot=['document_id'=>$document,'document_hash'=>$doc['document_hash'],'expected_version'=>$expected,'request'=>$request,'current_origin_hash'=>$live['current_hash'],'origin_receipt'=>$live,'party_receipt'=>$partyReceipt,'plan'=>$plan,'parties'=>array_values($parties),'header'=>$header,'claim_title'=>$title];
         if($dimensions)(new SystemDimensionWritePolicy($this->db))->assertPropertyServiceSettlementJournal($header,$plan['lines'],\MyInvoice\Service\Property\Services\Settlement\SettlementHistoricalCarrierProof::fromCurrent($this->db,$this,$supplier,$document,$request,$expected));
         return $snapshot+['preview_hash'=>PropertyInput::hash($snapshot)];
+    }
+    /**
+     * Tvar požadavku se ověří dřív, než se z něj čte: chybějící pole nebo jiný typ je
+     * validační chyba (422), ne TypeError s odpovědí 500.
+     */
+    private static function assertRequestShape(array $request):void
+    {
+        $required=['accounting_date','evidence','advances','reliefs','opening_credits','new_claim'];
+        PropertyInput::fields($request,[...$required,'claim_title']);
+        foreach($required as $key)if(!array_key_exists($key,$request))PropertyInput::invalid($key);
+        SettlementEvidence::date($request['accounting_date']);
+        PropertyInput::text($request['evidence'],'disposition.evidence',4000);
+        foreach(['advances','reliefs','opening_credits'] as $collection){
+            foreach(PropertyInput::list($request[$collection],$collection,10000) as $part){
+                if(!is_array($part))PropertyInput::invalid($collection);
+            }
+        }
+        foreach($request['reliefs'] as $part){
+            PropertyInput::id($part['allocation_id']??null,'allocation_id');
+            if(!is_array($part['entitlement']??null))PropertyInput::invalid('entitlement');
+        }
+        foreach($request['opening_credits'] as $part){
+            if(!is_string($part['origin_key']??null))PropertyInput::invalid('origin_key');
+            if(!is_array($part['entitlement']??null))PropertyInput::invalid('entitlement');
+        }
+        if($request['new_claim']!==null&&!is_array($request['new_claim']))PropertyInput::invalid('new_claim');
+        if(array_key_exists('claim_title',$request)&&$request['claim_title']!==null&&!is_array($request['claim_title']))PropertyInput::invalid('claim_title');
     }
     public function apply(int $supplier,int $document,array $request,int $expected,string $previewHash,string $token,int $actor):array
     {

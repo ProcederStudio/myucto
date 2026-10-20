@@ -33952,7 +33952,11 @@ components:
               const: false
             service_settlements:
               type: string
-              const: not_implemented
+              description: Stav vyúčtování služeb. none = žádný dokument vyúčtování, pending = některý dokument čeká na zaúčtování, applied = poslední revize všech dokumentů je zaúčtovaná.
+              enum:
+              - none
+              - pending
+              - applied
             opening_import:
               type: string
               const: verified_recorded_batches
@@ -34078,7 +34082,11 @@ components:
               const: false
             service_settlements:
               type: string
-              const: not_implemented
+              description: Stav vyúčtování služeb. none = žádný dokument vyúčtování, pending = některý dokument čeká na zaúčtování, applied = poslední revize všech dokumentů je zaúčtovaná.
+              enum:
+              - none
+              - pending
+              - applied
             opening_import:
               type: string
               const: verified_recorded_batches
@@ -34522,9 +34530,12 @@ components:
         financial_complete:
           type: boolean
         service_settlements:
+          description: Stav vyúčtování služeb v rozsahu karty. none = žádný dokument vyúčtování, pending = některý dokument čeká na zaúčtování, applied = poslední revize všech dokumentů je zaúčtovaná.
           type: string
           enum:
-          - not_implemented
+          - none
+          - pending
+          - applied
         opening_import:
           type: string
           enum:
