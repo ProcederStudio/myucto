@@ -165,6 +165,96 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         }
     }
 
+    public function testPagedAssessmentConfirmedOverHttpDrivesDppoToZeroTax(): void
+    {
+        $this->postReferenceYear();
+        (new NonprofitLegalProfileService($this->db))->confirm($this->supplier, $this->period, $this->legalRequest('tj-legal-paged'), $this->actor);
+        $assessment = $this->referenceAssessment();
+        $base = '/periods/' . $this->period . '/nonprofit-tax';
+        [$status, $opened] = $this->http('POST', $base . '/draft', ['profile' => $assessment['profile']]);
+        self::assertSame(200, $status, json_encode($opened));
+        $draft = $opened['draft'];
+        self::assertTrue($opened['capabilities']['source_complete']);
+        $path = $base . '/drafts/' . $draft['id'];
+        $revision = $draft['revision_no'];
+        $patches = [
+            'activities' => array_map(static fn (string $id, array $payload): array => ['activity_kind_id' => $id, 'payload' => $payload],
+                array_map('strval', array_keys($assessment['activities'])), array_values($assessment['activities'])),
+            'decisions' => array_map(static fn (string $id, array $payload): array => ['source_id' => $id, 'payload' => $payload],
+                array_keys($assessment['decisions']), array_values($assessment['decisions'])),
+            'funding-links' => array_map(static fn (array $link): array => ['source_id' => $link['source_id'], 'cost_id' => $link['cost_id'],
+                'payload' => ['amount_cents' => $link['amount_cents'], 'evidence' => $link['evidence']]], $assessment['funding']),
+        ];
+        foreach ($patches as $collection => $upserts) {
+            [$status, $changed] = $this->http('PATCH', $path . '/' . $collection, ['expected_revision' => $revision, 'upserts' => $upserts, 'deletes' => []]);
+            self::assertSame(200, $status, $collection . ': ' . json_encode($changed));
+            $revision = $changed['draft']['revision_no'];
+        }
+        [$status, $confirmed] = $this->http('POST', $path . '/confirm', ['expected_revision' => $revision, 'expected_assessment_id' => null,
+            'reason' => 'Syntetické stránkované posouzení TJ Příklad', 'idempotency_key' => 'tj-paged-confirm-' . $this->supplier]);
+        self::assertSame(200, $status, json_encode($confirmed));
+        self::assertSame(10000000, $confirmed['receipt']['summary']['assessed_result_cents']);
+        $stored = $this->pdo->prepare('SELECT storage_version,legacy_input_hash FROM nonprofit_tax_assessments WHERE supplier_id=? AND id=?');
+        $stored->execute([$this->supplier, $confirmed['assessment_id']]);
+        self::assertSame(['storage_version' => 'paged_v2', 'legacy_input_hash' => null], $stored->fetch(PDO::FETCH_ASSOC));
+
+        $this->saveStatementNotes(2025);
+        $service = $this->container->get(TaxReturnService::class);
+        $read = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
+        $draftReturn = $service->saveInputs($this->supplier, 2025, 'po', ['nonprofit' => ['reduction_kc' => 100000,
+            'reduction_evidence' => 'Syntetický předem schválený plán použití úspory']], $read['return']['row_version'], $this->actor, partial: true);
+        $saving = $draftReturn['computed']['nonprofit']['saving'];
+        self::assertSame(100000, $saving['base_before_reduction_kc']);
+        self::assertSame(100000, $saving['reduction_kc']);
+        self::assertSame(0, $saving['tax_with_reduction_kc']);
+        self::assertSame(21000, $saving['saving_kc']);
+        self::assertSame(0, (int) $draftReturn['computed']['tax']);
+        self::assertSame(2, $draftReturn['podklady']['nonprofit_calculation']['data']['j6_receipt']['version']);
+
+        (new NonprofitDppoAcceptanceService($this->db))->change($this->supplier, NonprofitDppoAcceptanceService::ACCEPT, true,
+            'Syntetický protokol porovnání s etalonem TJ Příklad', 'Syntetická akceptace výpočtu', 'tj-paged-accept', null, $this->actor);
+        $draftReturn = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
+        $final = $service->finalize($this->supplier, 2025, 'po', $draftReturn['return']['row_version'], $this->actor,
+            expectedNonprofitFilingProofHash: $draftReturn['nonprofit_filing_proof_hash']);
+        self::assertSame('final', $final['return']['status']);
+        $built = $service->buildXml($this->supplier, 2025, 'po');
+        self::assertStringContainsString('uv_vyhl="504"', $built['xml']);
+        $source = (new NonprofitTaxSavingsService($this->db))->context($this->supplier)['sources'][0];
+        self::assertSame('2100000', $source['source']['saving_cents']);
+
+        // Změna účetních podkladů po potvrzení: DPPO odmítne zastaralé stránkované posouzení.
+        $main = $this->catalog['activity']['values']['main'];
+        $this->entry('O-99', '2025-06-01', [['602', 'credit', '1.00', [$main, $this->kinds['education'], $this->catalog['tax_regime']['values']['subject']]],
+            ['221', 'debit', '1.00']]);
+        try {
+            $this->container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoDataProvider::class)->gather($this->supplier, 2025);
+            self::fail('Stale paged J6 assessment was accepted by DPPO.');
+        } catch (TaxReturnException $e) {
+            self::assertSame('nonprofit_dppo_j6_receipt_invalid', $e->errorCode);
+        }
+    }
+
+    private function http(string $method, string $path, array $body = []): array
+    {
+        $app = \Slim\Factory\AppFactory::create(new \Slim\Psr7\Factory\ResponseFactory(), $this->container);
+        \MyInvoice\Routes::register($app);
+        $app->add($this->container->get(\MyInvoice\Middleware\CsrfMiddleware::class));
+        $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest($method, '/api/accounting' . $path)
+            ->withParsedBody($body)
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $this->actor, 'role' => 'accountant'])
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_SESSION, ['csrf_token' => 'synthetic-tj-csrf'])
+            ->withAttribute('auth.effective_role', new \MyInvoice\Security\EffectiveRole(125, 'Synthetic TJ', 'staff', true,
+                ['accounting' => 2, 'accounting.periods.close' => 2]))
+            ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
+            ->withAttribute(\MyInvoice\Middleware\TenantDomainMiddleware::ATTR_CONTEXT,
+                new \MyInvoice\Service\Tenant\TenantDomainContext('canonical', 'example.test', 'https://example.test'))
+            ->withHeader('Origin', 'https://example.test')
+            ->withHeader('X-CSRF-Token', 'synthetic-tj-csrf');
+        $response = $app->handle($request);
+        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR)];
+    }
+
     private function postReferenceYear(): void
     {
         $main = $this->catalog['activity']['values']['main'];
