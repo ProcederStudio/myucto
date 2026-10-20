@@ -93,7 +93,10 @@ final class AccountingDecreeService
             $declaredDecree = $header->getAttribute('uv_vyhl');
             $startsOn = $this->xmlDate($header->getAttribute('zdobd_od'));
             $endsOn = $this->xmlDate($header->getAttribute('zdobd_do'));
-            if ($startsOn !== null && $this->forDate($supplierId, $startsOn) !== $declaredDecree) {
+            // Přiznání 500 bez přílohy závěrky atribut uv_vyhl nenese; neuvedený rámec
+            // je v rozporu jen s obdobím 504, které uv_vyhl vždy zapisuje.
+            $effectiveDecree = $startsOn === null ? null : $this->forDate($supplierId, $startsOn);
+            if ($effectiveDecree !== null && ($declaredDecree === '' ? $effectiveDecree === '504' : $effectiveDecree !== $declaredDecree)) {
                 throw new TaxReturnException('dppo_accounting_framework_not_supported', 'Účetní rámec v DPPO neodpovídá rámci platnému pro skutečné zdaňovací období.', 422);
             }
             if ($header->getAttribute('uv_vyhl') === '504') {
