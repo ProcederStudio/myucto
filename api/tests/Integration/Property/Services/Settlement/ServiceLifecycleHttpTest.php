@@ -34,7 +34,7 @@ final class ServiceLifecycleHttpTest extends TestCase
         $q=(new ServerRequestFactory())->createServerRequest($method,'/api/property/service-lifecycles'.$path)->withParsedBody($body)->withQueryParams($query)
           ->withAttribute(AuthMiddleware::ATTR_METHOD,$auth)->withAttribute(AuthMiddleware::ATTR_USER,['id'=>$this->f['actor'],'role'=>'accountant'])
           ->withAttribute(AuthMiddleware::ATTR_SESSION,['csrf_token'=>'synthetic-lifecycle-csrf'])
-          ->withAttribute('auth.effective_role',new EffectiveRole(99,'Synthetic lifecycle role','staff',true,$permissions??['property'=>1,'property.settlements.manage'=>2,'property.settlements.post'=>2,'property.settlements.reverse'=>2]))
+          ->withAttribute('auth.effective_role',new EffectiveRole(99,'Synthetic lifecycle role','staff',true,$permissions??['property'=>1,'property.settlements.manage'=>2,'property.settlements.post'=>2,'property.settlements.reverse'=>2,'property.settlements.unwind'=>2]))
           ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID,$supplier??$this->f['supplier'])
           ->withAttribute(TenantDomainMiddleware::ATTR_CONTEXT,new \MyInvoice\Service\Tenant\TenantDomainContext('canonical','example.test','https://example.test'))
           ->withHeader('Origin','https://example.test');
@@ -107,7 +107,7 @@ final class ServiceLifecycleHttpTest extends TestCase
         [$nullStatus]=$this->http('POST','/preview/unwind',['command'=>['operation'=>'unwind','case_id'=>$d['case'],'accounting_date'=>null]]);self::assertSame(422,$nullStatus);self::assertSame($before,$this->fingerprint());
         [$status]=$this->http('POST','/preview/start_opening',['command'=>$c],supplier:$s+999999);self::assertNotSame(200,$status);self::assertSame($before,$this->fingerprint());
         $preview=$this->review($c);self::assertSame('11000000',$preview['plan']['estimate_cents']);$done=$this->commit($c,$preview,'native-opening-start');
-        $unwind=['operation'=>'unwind','case_id'=>$done['case_id'],'accounting_date'=>'2027-04-01'];[$status]=$this->http('POST','/preview/unwind',['command'=>$unwind],['property'=>1,'property.settlements.manage'=>2]);self::assertSame(403,$status);
+        $unwind=['operation'=>'unwind','case_id'=>$done['case_id'],'accounting_date'=>'2027-04-01'];[$status]=$this->http('POST','/preview/unwind',['command'=>$unwind],['property'=>1,'property.settlements.manage'=>2,'property.settlements.reverse'=>2]);self::assertSame(403,$status);[$status,$body]=$this->http('POST','/preview/unwind',['command'=>$unwind],['property'=>1,'property.settlements.unwind'=>2]);self::assertSame(200,$status,json_encode($body));
         $preview=$this->review($unwind);self::assertCount(4,$preview['plan']['journals'][0]['lines']);$this->commit($unwind,$preview,'native-opening-unwind');
         $d['case']=$done['case_id'];$invoice=$this->invoke('invoice',$d);$final=['operation'=>'finalize','case_id'=>$d['case'],'accounting_date'=>'2027-04-01','invoice_id'=>$invoice['invoice'],'line_id'=>$invoice['line']['id'],'title'=>'Synthetic S6 final legal allocation'];$preview=$this->review($final);self::assertSame('11200000',$preview['plan']['final_cents']);$this->commit($final,$preview,'native-opening-final');
         [$status,$detail]=$this->http('GET','/'.$d['case']);self::assertSame(200,$status,json_encode($detail));self::assertSame('finalized',$detail['phase']);$this->invoke('applySettlement',$d,$detail['cost_line_id'],$d['paid']);

@@ -6,7 +6,7 @@ namespace MyInvoice\Action\Property\Services\Settlement;
 
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
-use MyInvoice\Repository\Property\Services\Settlement\ServiceLifecycleReadRepository;
+use MyInvoice\Repository\Property\Services\Settlement\{ServiceLifecycleReadRepository,ServiceLifecyclePolicyRepository};
 use MyInvoice\Security\{AccessLevel,RequestAuthorization};
 use MyInvoice\Service\Property\{PropertyInput,PropertyException};
 use MyInvoice\Service\Property\Services\Settlement\{ServiceLifecycleWorkflow,SettlementEvidence};
@@ -15,7 +15,7 @@ use Psr\Http\Message\{ServerRequestInterface as Request,ResponseInterface as Res
 final class ServiceLifecycleAction
 {
     use AccountingActionSupport;
-    public function __construct(private readonly ServiceLifecycleReadRepository $read,private readonly ServiceLifecycleWorkflow $workflow) {}
+    public function __construct(private readonly ServiceLifecycleReadRepository $read,private readonly ServiceLifecycleWorkflow $workflow,private readonly ServiceLifecyclePolicyRepository $policies) {}
     public function page(Request $q,Response $r): Response
     {
         return $this->run($q,$r,'property',false,function(int $supplier)use($q){$a=$this->query($q,['after_id']);return $this->read->page($supplier,$this->integer($a['after_id']??0))+['capabilities'=>$this->capabilities($q)];});
@@ -32,6 +32,22 @@ final class ServiceLifecycleAction
     {
         return $this->run($q,$r,'property',false,function(int $supplier)use($q,$args){$a=$this->query($q,['unit_id','service_id','from','to','after_id']);return $this->read->sources($supplier,$args['kind'],$this->integer($a['unit_id']??null),$this->integer($a['service_id']??null),SettlementEvidence::date($a['from']??null),SettlementEvidence::date($a['to']??null),$this->integer($a['after_id']??0));});
     }
+    public function policies(Request $q,Response $r): Response
+    {
+        return $this->run($q,$r,'property',false,function(int $supplier)use($q){
+            $a=$this->query($q,['service_id','after_id']);
+            $service=isset($a['service_id'])?PropertyInput::id($this->integer($a['service_id']),'service_id'):null;
+            return $this->policies->list($supplier,$service,$this->integer($a['after_id']??0))+['capabilities'=>$this->capabilities($q)];
+        });
+    }
+    public function declarePolicy(Request $q,Response $r): Response
+    {
+        return $this->run($q,$r,'property.settlements.manage',true,function(int $supplier)use($q){
+            $b=$q->getParsedBody();if(!is_array($b))PropertyInput::invalid('body');
+            SettlementEvidence::fields($b,['service_id','valid_from','policy','evidence']);
+            return $this->policies->declare($supplier,PropertyInput::id($b['service_id'],'service_id'),SettlementEvidence::date($b['valid_from']),is_string($b['policy'])?$b['policy']:PropertyInput::invalid('policy'),is_string($b['evidence'])?$b['evidence']:PropertyInput::invalid('evidence'),PropertyInput::id($this->userId($q),'actor'));
+        });
+    }
     public function preview(Request $q,Response $r,array $args): Response {return $this->command($q,$r,$args,false);}
     public function execute(Request $q,Response $r,array $args): Response {return $this->command($q,$r,$args,true);}
     private function command(Request $q,Response $r,array $args,bool $execute): Response
@@ -47,7 +63,7 @@ final class ServiceLifecycleAction
     }
     private function capabilities(Request $q): array
     {
-        $out=[];foreach(['manage','post','reverse'] as $cap)$out[$cap]=RequestAuthorization::allows($q,'property.settlements.'.$cap,AccessLevel::WRITE);return $out;
+        $out=[];foreach(['manage','post','reverse','unwind'] as $cap)$out[$cap]=RequestAuthorization::allows($q,'property.settlements.'.$cap,AccessLevel::WRITE);return $out;
     }
     private function query(Request $q,array $fields): array
     {

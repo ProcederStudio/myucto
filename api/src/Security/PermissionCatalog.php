@@ -100,6 +100,7 @@ final class PermissionCatalog
             ['property.settlements.manage', 'property', 'Připravovat vyúčtování služeb SVJ', $staffOnly],
             ['property.settlements.post', 'property', 'Účtovat vyúčtování služeb SVJ', $staffOnly],
             ['property.settlements.reverse', 'property', 'Stornovat vyúčtování služeb SVJ', $staffOnly],
+            ['property.settlements.unwind', 'property', 'Rozpouštět dohady služeb SVJ', $staffOnly],
             ['property.funds.post', 'property', 'Účtovat čerpání záloh a příjmy vlastníků SVJ', $staffOnly],
             ['property.funds.reverse', 'property', 'Stornovat čerpání záloh a příjmy vlastníků SVJ', $staffOnly],
             ['property.opening.manage', 'property', 'Připravovat počáteční stavy SVJ', $staffOnly],
