@@ -2955,6 +2955,9 @@ final class Routes
             $g->post('/periods/{id:[0-9]+}/nonprofit-funding/confirm', [\MyInvoice\Action\Nonprofit\FundingAction::class, 'confirm']);
             $g->get('/periods/{id:[0-9]+}/nonprofit-legal-profile', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'profile']);
             $g->post('/periods/{id:[0-9]+}/nonprofit-legal-profile/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmProfile']);
+            $g->post('/periods/{id:[0-9]+}/nonprofit-legal-profile/readiness', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'readiness']);
+            $g->get('/nonprofit-dppo/acceptance', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'acceptance']);
+            $g->post('/nonprofit-dppo/acceptance/{operation:accept|revoke}', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'changeAcceptance']);
             $g->get('/nonprofit-membership/members', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'members']);
             $g->get('/nonprofit-membership/members/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'member']);
             $g->get('/nonprofit-membership/claims/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'claim']);

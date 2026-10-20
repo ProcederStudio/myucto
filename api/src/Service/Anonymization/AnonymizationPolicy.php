@@ -139,6 +139,8 @@ final class AnonymizationPolicy
         'nonprofit_tax_assessments' => ['status'=>'keep','reason'=>'keep','ruleset'=>'keep','input_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep','snapshot_json'=>'keep','assessment_json'=>'keep','result_json'=>'keep',
             'storage_version'=>'keep','calculation_input_hash'=>'keep','result_root_hash'=>'keep','coverage_root_hash'=>'keep','summary_json'=>'keep','j6_receipt_json'=>'keep',
             'legacy_storage_version'=>'keep','legacy_input_hash'=>'keep','legacy_snapshot_sha256'=>'keep','legacy_assessment_sha256'=>'keep','legacy_result_sha256'=>'keep','sidecar_conversion_reason'=>'keep'],
+        'nonprofit_dppo_acceptances' => ['status'=>'keep','ruleset'=>'keep','form_code'=>'keep','form_version'=>'keep','xsd_sha256'=>'keep',
+            'verification_reference'=>'text','reason'=>'text','idempotency_key'=>'keep','request_hash'=>'keep'],
         // Stránkovaný graf J6 se při anonymizaci nepřepisuje; AnonymizationService klon s takovými daty odmítne.
         'nonprofit_tax_assessment_funding_members' => ['anchor'=>'keep','member_id'=>'keep','record_hash'=>'keep'],
         'nonprofit_tax_assessment_funding_usage' => ['anchor'=>'keep','record_hash'=>'keep'],

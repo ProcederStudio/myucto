@@ -37945,6 +37945,24 @@
     }
   },
   "nonprofitDppo": {
+    "checkReadiness": "Check calculation readiness",
+    "readinessPending": "The DPPO data is assembled only after you press Check calculation readiness.",
+    "usedCost": "Used cost",
+    "acceptance": {
+      "title": "DPPO 504 calculation acceptance",
+      "help": "Finalization, XML export and filing of DPPO 504 become available only after the company administrator explicitly accepts the calculation. The acceptance applies to the listed version of the rules and the form.",
+      "accepted": "The calculation is accepted",
+      "stale": "The acceptance belongs to an older version of the rules or the form",
+      "notAccepted": "The calculation is not accepted",
+      "binding": "Rules {ruleset}, form {version}",
+      "last": "Last change {date}",
+      "reference": "Reference to the performed verification",
+      "confirm": "I explicitly confirm that I verified the calculation and that the reference points to the verification record.",
+      "revokeConfirm": "I confirm the withdrawal of the acceptance; finalization, XML and filing will be blocked.",
+      "accept": "Accept the calculation",
+      "revoke": "Withdraw acceptance",
+      "adminOnly": "Only the company administrator can change the acceptance."
+    },
     "operations": {
       "title": "Available return operations",
       "form": "Current form {code}, version {version} dated {date}",

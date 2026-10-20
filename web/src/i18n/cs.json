@@ -37945,6 +37945,24 @@
     }
   },
   "nonprofitDppo": {
+    "checkReadiness": "Ověřit připravenost výpočtu",
+    "readinessPending": "Podklady DPPO se sestaví až po stisknutí tlačítka Ověřit připravenost výpočtu.",
+    "usedCost": "Použitý náklad",
+    "acceptance": {
+      "title": "Akceptace výpočtu DPPO 504",
+      "help": "Finalizace, export XML a podání DPPO 504 jsou dostupné až po výslovné akceptaci výpočtu správcem firmy. Akceptace platí pro uvedenou verzi pravidel a formuláře.",
+      "accepted": "Výpočet je akceptovaný",
+      "stale": "Akceptace patří starší verzi pravidel nebo formuláře",
+      "notAccepted": "Výpočet není akceptovaný",
+      "binding": "Pravidla {ruleset}, formulář {version}",
+      "last": "Poslední změna {date}",
+      "reference": "Odkaz na provedené ověření",
+      "confirm": "Výslovně potvrzuji, že jsem výpočet ověřil(a) a odkaz vede na doklad o ověření.",
+      "revokeConfirm": "Potvrzuji odvolání akceptace; finalizace, XML a podání se zablokují.",
+      "accept": "Akceptovat výpočet",
+      "revoke": "Odvolat akceptaci",
+      "adminOnly": "Akceptaci mění pouze správce firmy."
+    },
     "operations": {
       "title": "Dostupné operace přiznání",
       "form": "Aktuální formulář {code}, verze {version} ze dne {date}",

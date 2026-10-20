@@ -828,6 +828,17 @@ výpočtu neautorizuje podání. Finalizace vytváří neměnný důkaz podklad�
 daňových ztrát, výkazů a XML. Export a odeslání znovu kontrolují příslušné
 podmínky; před odesláním musí odpovídat také aktuální finální podklady.
 
+Načtení obrazovky podklady DPPO nesestavuje. Připravenost výpočtu ověříte
+tlačítkem **Ověřit připravenost výpočtu**; teprve potom obrazovka ukáže zjištění
+a nabídne převzetí do přiznání.
+
+Finalizace, export XML a podání DPPO 504 jsou dostupné až po **akceptaci výpočtu**.
+Akceptaci zapíná pouze správce firmy v sekci **Akceptace výpočtu DPPO 504**:
+výslovně potvrdí, že výpočet ověřil, a uvede odkaz na provedené ověření (například
+protokol porovnání s nezávislým výpočtem). Výchozí stav je vypnutý. Akceptace platí
+pro konkrétní verzi pravidel a formuláře; po jejich změně je potřeba ji potvrdit znovu.
+Správce ji může kdykoli odvolat, záznamy akceptací zůstávají v historii.
+
 Příloha daňových ztrát používá doložená kalendářní období, přesné částky
 v celých Kč a stejný plán uplatnění jako evidence ztrát. Respektuje také
 podporované zpětné uplatnění a jeho limity. Historický záznam ztráty

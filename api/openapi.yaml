@@ -1310,27 +1310,6 @@ paths:
           description: Nativní podklady se nepodařilo ověřit.
         '422':
           description: Neplatný filtr nebo kurzor.
-  /api/v1/accounting/periods/{id}/nonprofit-legal-profile:
-    get:
-      tags: [Accounting]
-      summary: Potvrzený právní profil504 a připravenost nativníhoDPPO
-      description: Pouze čtení. Potvrzení právního profilu je interní session operace s CAS a neměnnou historií.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitLegalProfileRead' } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/accounting/nonprofit-tax-savings:
-    get:
-      tags: [Accounting]
-      summary: Skutečné daňové úspory§20(7), historie a způsobilé náklady
-      description: Pouze čtení. Čerpání i odvolání vyžaduje interní session, přesný serverový preview, head CAS a idempotency token. Stejný náklad nelze financovat opakovaně jiným vlastníkem.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitTaxSavingsRead' } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/accounting/periods/{id}/nonprofit-tax:
     get:
       tags:

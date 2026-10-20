@@ -18,19 +18,23 @@ final class Dppo504CapabilityService
     private const FORM_DATE = '2025-10-21';
     private const XSD_SHA256 = 'db3846b9495f38362a845a5becee732347cea995df44ec03006011ed12f3272c';
 
-    public function capabilities(string $startsOn, string $endsOn, string $returnType = 'A'): array
+    /**
+     * $calculationAccepted = firma výslovně akceptovala výpočet pro aktuální verzi pravidel
+     * a formuláře (NonprofitDppoAcceptanceService). Bez ní zůstává dostupný jen výpočet.
+     */
+    public function capabilities(string $startsOn, string $endsOn, string $returnType = 'A', bool $calculationAccepted = false): array
     {
         $manifest = $this->manifest();
         $result = ['manifest' => $manifest];
         foreach ([self::COMPUTE, self::FINALIZE, self::EXPORT_XML, self::SUBMIT] as $operation) {
-            $result[$operation] = $this->capability($operation, $startsOn, $endsOn, $returnType, $manifest);
+            $result[$operation] = $this->capability($operation, $startsOn, $endsOn, $returnType, $manifest, $calculationAccepted);
         }
         return $result;
     }
 
-    public function assert(string $operation, string $startsOn, string $endsOn, string $returnType = 'A'): array
+    public function assert(string $operation, string $startsOn, string $endsOn, string $returnType = 'A', bool $calculationAccepted = false): array
     {
-        $capability = $this->capability($operation, $startsOn, $endsOn, $returnType, $this->manifest());
+        $capability = $this->capability($operation, $startsOn, $endsOn, $returnType, $this->manifest(), $calculationAccepted);
         if (!$capability['allowed']) {
             throw new TaxReturnException($capability['code'], $capability['message'], 422);
         }
@@ -70,7 +74,7 @@ final class Dppo504CapabilityService
         }
     }
 
-    private function capability(string $operation, string $startsOn, string $endsOn, string $returnType, array $manifest): array
+    private function capability(string $operation, string $startsOn, string $endsOn, string $returnType, array $manifest, bool $calculationAccepted): array
     {
         if (!in_array($operation, [self::COMPUTE, self::FINALIZE, self::EXPORT_XML, self::SUBMIT], true)) {
             throw new \InvalidArgumentException('Unknown DPPO 504 capability.');
@@ -90,6 +94,9 @@ final class Dppo504CapabilityService
         $latestStart = $returnType === 'A' ? '2025-12-30' : '2025-12-31';
         if ($startsOn < '2021-01-01' || $startsOn > $latestStart) {
             return $this->blocked('nonprofit_dppo_form_period_not_supported', 'Zveřejněná struktura DPPDP9 05.01.01 nepřijímá začátek tohoto období. Výpočet zůstává dostupný bez finalizace, XML a podání.');
+        }
+        if (!$calculationAccepted) {
+            return $this->blocked('nonprofit_dppo_calculation_not_accepted', 'Finalizace, XML a podání DPPO 504 vyžadují výslovnou akceptaci výpočtu správcem firmy. Výpočet zůstává dostupný.');
         }
         return $this->allowed();
     }
