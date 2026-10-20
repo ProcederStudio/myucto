@@ -31,7 +31,7 @@ final class NonprofitDppoCloneIntegrationTest extends TestCase
             }finally{(new \ReflectionMethod($fixture,'tearDown'))->invoke($fixture);}
         });
     }
-    public static function unsupportedGraphs():array{return [['archive'],['command'],['orphan_binding']];}
+    public static function unsupportedGraphs():array{return [['command'],['orphan_binding']];}
     #[\PHPUnit\Framework\Attributes\DataProvider('unsupportedGraphs')]
     public function testFinancialArchiveCloneFailsClosedBeforeTextMutationAndPreservesSource(string $graph):void
     {

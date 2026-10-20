@@ -98,11 +98,7 @@ final class AnonymizationService
                 }
                 $log('Zachytávám finanční archivy DPPO 504…');
                 NonprofitDppoArchiveCloneCapture::capture($captureConnection, $protectedRows);
-                if ($captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_sources LIMIT 1')->fetchColumn() !== false
-                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false
-                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_cost_bindings LIMIT 1')->fetchColumn() !== false) {
-                    throw new \RuntimeException('Anonymizace evidence daňových úspor DPPO 504 není podporována. Zdrojová databáze zůstala zachovaná.');
-                }
+                NonprofitTaxSavingsCloneScrubber::capture($captureConnection);
                 $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
@@ -132,6 +128,7 @@ final class AnonymizationService
                 NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs, $legalHashes);
                 $log('Přepisuji finanční archivy DPPO 504…');
                 (new NonprofitDppoArchiveCloneAdapter($targetConnection, $this->scrubber, $protectedRows))->run();
+                NonprofitTaxSavingsCloneScrubber::run($targetConnection, $this->scrubber);
             } finally {
                 $targetConnection->close();
             }
