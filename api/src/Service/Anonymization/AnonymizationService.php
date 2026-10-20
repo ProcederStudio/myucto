@@ -97,7 +97,7 @@ final class AnonymizationService
                     }
                 }
                 $log('Zachytávám finanční archivy DPPO 504…');
-                NonprofitDppoArchiveCloneCapture::capture($captureConnection, $protectedRows);
+                $archiveCount = NonprofitDppoArchiveCloneCapture::capture($captureConnection, $protectedRows);
                 NonprofitTaxSavingsCloneScrubber::capture($captureConnection);
                 $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
@@ -127,8 +127,9 @@ final class AnonymizationService
                 MembershipCloneScrubber::run($targetConnection, $this->scrubber, $membershipInputs, $legalHashes);
                 NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs, $legalHashes);
                 $log('Přepisuji finanční archivy DPPO 504…');
-                (new NonprofitDppoArchiveCloneAdapter($targetConnection, $this->scrubber, $protectedRows))->run();
+                $archivedSubmissions = (new NonprofitDppoArchiveCloneAdapter($targetConnection, $this->scrubber, $protectedRows))->run();
                 NonprofitTaxSavingsCloneScrubber::run($targetConnection, $this->scrubber);
+                $transport = (new TaxSubmissionTransportCloneScrubber($targetConnection))->run($archivedSubmissions);
             } finally {
                 $targetConnection->close();
             }
@@ -141,7 +142,15 @@ final class AnonymizationService
             $cloner->finalize($plan, $options->target);
             $pdo->prepare('REPLACE INTO app_meta (k, v) VALUES (?, ?)')->execute([
                 self::MARKER_KEY,
-                (string) json_encode(['created_at' => gmdate('c'), 'tool' => 'anonymize-clone'], JSON_UNESCAPED_SLASHES),
+                (string) json_encode([
+                    'created_at' => gmdate('c'),
+                    'tool' => 'anonymize-clone',
+                    'financial_archive' => [
+                        'archives' => $archiveCount,
+                        'submissions' => $transport['count'],
+                        'transport_root' => $transport['root'],
+                    ],
+                ], JSON_UNESCAPED_SLASHES),
             ]);
         } catch (\Throwable $e) {
             $pdo->exec('DROP DATABASE IF EXISTS ' . DatabaseCloner::quote($options->target));

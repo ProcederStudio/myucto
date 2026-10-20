@@ -7,7 +7,10 @@ namespace MyInvoice\Tests\Integration\Anonymization;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\TaxSubmissionEpoRepository;
 use MyInvoice\Repository\TaxSubmissionRepository;
+use MyInvoice\Service\Submission\AnonymizedCloneSubmissionProvenance;
+use MyInvoice\Service\Submission\Channel\SubmissionChannelException;
 use MyInvoice\Service\Anonymization\AnonymizationOptions;
 use MyInvoice\Service\Anonymization\AnonymizationService;
 use MyInvoice\Service\Anonymization\DatabaseCloner;
@@ -83,6 +86,7 @@ final class NonprofitDppoFinancialArchiveCloneTest extends TestCase
 
             $cloned = $this->connection($config, $target);
             try {
+                $this->assertTransportProvenance($server, $source, $target, $cloned, $fixture, $final['xml_sha256']);
                 $container = Bootstrap::buildContainer();
                 $container->set(Connection::class, $cloned);
                 $read = $container->get(TaxReturnService::class)->getReturn($supplier, 2026, 'po', $fixture['actor']);
@@ -121,15 +125,62 @@ final class NonprofitDppoFinancialArchiveCloneTest extends TestCase
         $final = $service->finalize($supplier, 2026, 'po', $draft['return']['row_version'], $actor, expectedNonprofitFilingProofHash: $draft['nonprofit_filing_proof_hash']);
         $built = $service->buildXml($supplier, 2026, 'po');
         $submissions = new TaxSubmissionRepository($db);
-        $submissions->archive($supplier, 'dppdp9', 2026, null, null, $built['xml'], [], 'passed', [], null);
-        $submissions->archive($supplier, 'dppdp9', 2026, null, null, $built['xml'], [], 'passed', [], null);
+        $sent = $submissions->archive($supplier, 'dppdp9', 2026, null, null, $built['xml'], [], 'passed', [], null);
+        $prepared = $submissions->archive($supplier, 'dppdp9', 2026, null, null, $built['xml'], [], 'passed', [], null);
+        $epo = new TaxSubmissionEpoRepository($db);
+        $sentAttempt = $epo->insertAttempt($supplier, $sent, str_repeat('a', 32), hash('sha256', $built['xml']), $actor, 'test');
+        $db->pdo()->prepare("UPDATE tax_submission_attempts SET status = 'submitted', remote_submission_ref = 'SYNTH-EPO-REF-1', submitted_at = NOW() WHERE id = ?")->execute([$sentAttempt]);
+        $epo->insertAttempt($supplier, $prepared, str_repeat('b', 32), hash('sha256', $built['xml']), $actor, 'test');
         $returnId = (int) $db->pdo()->query("SELECT id FROM income_tax_returns WHERE supplier_id = {$supplier} AND year = 2026 AND taxpayer_type = 'po' AND status = 'final'")->fetchColumn();
         $snapshotId = (int) $db->pdo()->query('SELECT final_snapshot_id FROM income_tax_returns WHERE id = ' . $returnId)->fetchColumn();
         self::assertGreaterThan(0, $snapshotId);
         self::assertSame('final', $final['return']['status'] ?? null);
         $db->pdo()->commit();
 
-        return ['supplier' => $supplier, 'actor' => $actor, 'return_id' => $returnId, 'snapshot_id' => $snapshotId];
+        return ['supplier' => $supplier, 'actor' => $actor, 'return_id' => $returnId, 'snapshot_id' => $snapshotId, 'sent' => $sent, 'prepared' => $prepared, 'xml' => $built['xml']];
+    }
+
+    /**
+     * Podání se zdrojovým XML zůstávají jen záznamem transportu zdrojové instalace:
+     * odeslaný pokus beze změny, rozpracovaný zrušený, znovu odeslat nejde ani jedno.
+     * Nové podání založené v kopii mapované není.
+     */
+    private function assertTransportProvenance(PDO $server, string $source, string $target, Connection $cloned, array $fixture, string $targetSha): void
+    {
+        $quoted = DatabaseCloner::quote($target);
+        $rows = $server->query("SELECT tax_submission_id, source_xml_sha256, target_xml_sha256, transport_class, attempt_count, transport_receipt_root FROM {$quoted}.anonymized_clone_submission_provenance ORDER BY tax_submission_id")->fetchAll(PDO::FETCH_ASSOC);
+        $sourceSha = hash('sha256', $fixture['xml']);
+        self::assertSame([
+            ['tax_submission_id' => $fixture['sent'], 'source_xml_sha256' => $sourceSha, 'target_xml_sha256' => $targetSha, 'transport_class' => 'source_provenance', 'attempt_count' => 1],
+            ['tax_submission_id' => $fixture['prepared'], 'source_xml_sha256' => $sourceSha, 'target_xml_sha256' => $targetSha, 'transport_class' => 'cancelled_before_dispatch', 'attempt_count' => 1],
+        ], array_map(static function (array $row): array {
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $row['transport_receipt_root']);
+            unset($row['transport_receipt_root']);
+            return $row;
+        }, $rows));
+        $attempts = static fn (string $schema): array => $server->query('SELECT tax_submission_id, status, request_sha256, remote_submission_ref FROM ' . DatabaseCloner::quote($schema) . '.tax_submission_attempts ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $before = $attempts($source);
+        $after = $attempts($target);
+        self::assertSame($before[0], $after[0]);
+        self::assertSame('submitted', $after[0]['status']);
+        self::assertSame('prepared', $before[1]['status']);
+        self::assertSame('cancelled', $after[1]['status']);
+
+        $marker = json_decode((string) $server->query("SELECT v FROM {$quoted}.app_meta WHERE k = 'anonymized_clone'")->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(1, $marker['financial_archive']['archives']);
+        self::assertSame(2, $marker['financial_archive']['submissions']);
+
+        foreach ([$fixture['sent'], $fixture['prepared']] as $id) {
+            try {
+                (new TaxSubmissionEpoRepository($cloned))->insertAttempt($fixture['supplier'], $id, str_repeat('c', 32), $targetSha, $fixture['actor'], 'test');
+                self::fail('Archivované podání kopie šlo znovu odeslat.');
+            } catch (SubmissionChannelException $e) {
+                self::assertSame('anonymized_clone_archived_submission', $e->errorCode);
+            }
+        }
+        $fresh = (new TaxSubmissionRepository($cloned))->archive($fixture['supplier'], 'dppdp9', 2026, null, null, (string) $server->query("SELECT xml_content FROM {$quoted}.tax_submissions WHERE id = " . $fixture['sent'])->fetchColumn(), [], 'passed', [], null);
+        (new AnonymizedCloneSubmissionProvenance($cloned))->assertDispatchable($fixture['supplier'], $fresh);
+        self::assertGreaterThan(0, (new TaxSubmissionEpoRepository($cloned))->insertAttempt($fixture['supplier'], $fresh, str_repeat('d', 32), $targetSha, $fixture['actor'], 'test'));
     }
 
     /** @return list<string> */

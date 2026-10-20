@@ -85,8 +85,49 @@ final class NonprofitDppoArchiveCloneAdapter
             }
         } while (count($ids) === self::PAGE);
         $this->assertSubmissionsRewritten();
+        $this->revalidate();
 
         return $this->submissions;
+    }
+
+    /**
+     * Po přepisu se každý archiv znovu načte z kopie a ověří stejně, jako ho čte aplikace:
+     * otisky sloupců, důkaz výpočtu s XML, uložený výpočet finálního přiznání a kopie XML.
+     */
+    private function revalidate(): void
+    {
+        $pdo = $this->db->pdo();
+        $snapshot = $pdo->prepare('SELECT * FROM income_tax_return_snapshots WHERE id = ?');
+        $return = $pdo->prepare('SELECT id, final_snapshot_id, computed FROM income_tax_returns WHERE supplier_id = ? AND id = ?');
+        $copies = $pdo->prepare("SELECT xml_content, xml_sha256 FROM tax_submissions WHERE supplier_id = ? AND form_code = 'dppdp9' AND period_year = ? AND xml_sha256 = ?");
+        $last = 0;
+        do {
+            $ids = $this->protected->idsAfter(FinancialArchiveProtectedTable::SNAPSHOT, $last, self::PAGE);
+            foreach ($ids as $id) {
+                $last = $id;
+                $snapshot->execute([$id]);
+                $row = $snapshot->fetch(PDO::FETCH_ASSOC);
+                if (!is_array($row)
+                    || !hash_equals((string) $row['source_sha256'], hash('sha256', (string) $row['source_manifest']))
+                    || !hash_equals((string) $row['xml_sha256'], hash('sha256', (string) $row['xml_content']))) {
+                    throw new \LogicException("Přepsaný archiv DPPO 504 (snapshot {$id}) nemá shodné otisky.");
+                }
+                $decoded = json_decode((string) $row['snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+                $proof = NonprofitDppoStoredProof::verify($decoded, json_decode((string) $row['source_manifest'], true, 512, JSON_THROW_ON_ERROR), (string) $row['xml_content']);
+                $return->execute([(int) $row['supplier_id'], (int) $row['tax_return_id']]);
+                $taxReturn = $return->fetch(PDO::FETCH_ASSOC);
+                if (is_array($taxReturn) && (int) $taxReturn['final_snapshot_id'] === $id
+                    && NonprofitTaxRules::canonicalJson(json_decode((string) $taxReturn['computed'], true, 512, JSON_THROW_ON_ERROR)) !== NonprofitTaxRules::canonicalJson($decoded)) {
+                    throw new \LogicException("Finální přiznání archivu DPPO 504 (snapshot {$id}) nese jiný výpočet než přepsaný snapshot.");
+                }
+                $copies->execute([(int) $row['supplier_id'], (int) $proof['period']['fiscal_year'], (string) $row['xml_sha256']]);
+                foreach ($copies->fetchAll(PDO::FETCH_ASSOC) as $copy) {
+                    if ((string) $copy['xml_content'] !== (string) $row['xml_content']) {
+                        throw new \LogicException("Kopie přepsaného XML archivu DPPO 504 (snapshot {$id}) se liší.");
+                    }
+                }
+            }
+        } while (count($ids) === self::PAGE);
     }
 
     private function rewriteOne(int $snapshotId): void
