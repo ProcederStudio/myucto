@@ -103,7 +103,10 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             ['A.II.1.' => 830, 'B.II.4.' => 225000, 'B.III.3.' => 134000, 'B.III.17.' => 11000, 'B.III.22.' => 50000],
             ['A.I.6.' => 10060, 'A.V.22.' => 240000, 'B.IV.5.' => 40, 'B.IV.7.' => 790, 'B.IV.10.' => 250060, 'C.' => 830, 'D.' => 830]);
 
-        $closed = $this->close($this->year2026);
+        // Úrok z prodlení a náhrada právního nákladu jsou jiný zdanitelný příjem: přiznání je
+        // nutné, i když potvrzený výpočet daně vyjde nula.
+        $closed = $this->close($this->year2026, ['status' => 'filing_required', 'reason' => 'other_taxable_income',
+            'legal_basis' => 'zdp_38mb_b', 'taxable_source_count' => 39]);
         self::assertNotNull($closed['entry_id']);
         self::assertSame([], $this->balances('2026-12-31'), 'Po uzávěrce jsou všechny účty včetně 933 a 962 nulové.');
         $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
@@ -150,7 +153,9 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         ksort($distributed, SORT_STRING);
         self::assertSame($distributed, $this->balances('2027-06-15'));
 
-        $closedNext = $this->close($year2027);
+        // Rok 2027 má jen vyúčtování služeb a vratku kreditu: žádný nový zdanitelný příjem.
+        $closedNext = $this->close($year2027, ['status' => 'filing_not_required', 'reason' => 'only_exempt_or_withheld_income',
+            'legal_basis' => 'zdp_38mb_b', 'taxable_source_count' => 0]);
         self::assertNotNull($closedNext['entry_id']);
         self::assertSame([], $this->balances('2027-12-31'));
         $openedNext = $closing->openNext($this->supplier, $year2027, $this->periodVersion($year2027));
@@ -356,8 +361,11 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         return (int) $q->fetchColumn();
     }
 
-    /** Uzávěrka produkčním postupem; daňové posouzení 504 je potvrzené před uzavřením knih. */
-    private function close(int $period): array
+    /**
+     * Uzávěrka produkčním postupem; daňové posouzení 504 je potvrzené před uzavřením knih.
+     * Předkontrola SVJ musí po potvrzení ukázat očekávaný výsledek testu § 38mb písm. b).
+     */
+    private function close(int $period, array $expectedPrecheck): array
     {
         $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
         $meta = ['user_id' => $this->actor, 'posted_by' => $this->actor];
@@ -383,7 +391,18 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         } catch (\MyInvoice\Service\Accounting\Closing\ClosingException $e) {
             self::assertSame('nonprofit_tax_assessment_required', $e->errorCode);
         }
+        $guard = $this->container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentGuard::class);
+        $pending = $guard->closingCheck($this->supplier, $period);
+        self::assertFalse($pending['complete']);
+        self::assertSame(['status' => 'unassessed', 'reason' => 'assessment_incomplete', 'legal_basis' => 'zdp_38mb_b', 'taxable_source_count' => 0],
+            $pending['svj_precheck'], 'Bez potvrzeného posouzení předkontrola nesmí dovodit nepodání.');
         \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($this->container, $this->supplier, $period, $this->actor);
+        $confirmed = $guard->closingCheck($this->supplier, $period);
+        self::assertTrue($confirmed['complete']);
+        self::assertSame($expectedPrecheck, $confirmed['svj_precheck']);
+        $check = array_values(array_filter($closing->runPrecheck($this->supplier, $period, $this->periodVersion($period), $meta)['checks'] ?? [],
+            fn (array $c): bool => $c['key'] === 'nonprofit_tax_assessment'));
+        self::assertSame($expectedPrecheck, $check[0]['value']['svj_precheck'] ?? null);
         return $closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta);
     }
 
