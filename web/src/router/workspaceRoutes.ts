@@ -367,7 +367,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'property/charges', name: 'property-charges', component: () => import('@/views/PropertyChargesView.vue'), meta: { requiresSupplier: true, frameworkScope: 'svj' } },
       { path: 'property/service-settlements/:id(\\d+)?', name: 'property-service-settlements', component: () => import('@/views/PropertySettlementsView.vue'), meta: { requiresSupplier: true, frameworkScope: 'svj' } },
       { path: 'accounting/securities/debt', name: 'accounting-securities-debt', component: () => import('@/views/SecuritiesDebt504View.vue'), meta: { requiresSupplier: true, requiresAccountingMode: true, frameworkScope: 'nonprofit504' } },
-      { path: 'accounting/framework-conversion', name: 'accounting-framework-conversion', component: () => import('@/views/FrameworkConversionView.vue'), meta: { requiresSupplier: true, requiresAccountingMode: true, frameworkScope: 'nonprofit504' } },
+      { path: 'accounting/framework-conversion', name: 'accounting-framework-conversion', component: () => import('@/views/FrameworkConversionView.vue'), meta: { requiresSupplier: true, requiresAccountingMode: true, frameworkScope: 'conversion504' } },
       { path: 'property/service-lifecycles', name: 'property-service-lifecycles', component: () => import('@/views/PropertyServiceLifecycleView.vue'), meta: { requiresSupplier: true, frameworkScope: 'svj' } },
       { path: 'property/funds', name: 'property-funds', component: () => import('@/views/PropertyFundsView.vue'), meta: { requiresSupplier: true, frameworkScope: 'svj' } },
       { path: 'property/openings', name: 'property-openings', component: () => import('@/views/PropertyOpeningView.vue'), meta: { requiresSupplier: true, frameworkScope: 'svj' } },

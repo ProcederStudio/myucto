@@ -413,6 +413,7 @@ const navSections = computed<NavSection[]>(() => {
   const dimensionsEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.dimensions_enabled === true
   // Agendy NNO/504 a SVJ jen firmám, kterých se týkají; stejnou podmínku vynucuje router.
   const nonprofitScope = hasFrameworkScope(supplierStore.currentSupplier, 'nonprofit504')
+  const conversionScope = hasFrameworkScope(supplierStore.currentSupplier, 'conversion504')
   const svjScope = hasFrameworkScope(supplierStore.currentSupplier, 'svj')
   const sections: NavSection[] = [
     {
@@ -630,6 +631,8 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/accounting/statement-mapping', label: t('nav.accounting_statement_mapping'), icon: ICONS.codebooks, permission: 'accounting' },
         ...(nonprofitScope ? [
           { to: '/accounting/securities/debt', label: t('securitiesDebt.title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
+        ] : []),
+        ...(conversionScope ? [
           { to: '/accounting/framework-conversion', label: t('nav.framework_conversion'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
         ] : []),
         { to: '/accounting/saldo',            label: t('nav.accounting_saldo'),            icon: ICONS.coin },

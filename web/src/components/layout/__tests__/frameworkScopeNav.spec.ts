@@ -84,9 +84,18 @@ describe('navigace agend NNO/504 a SVJ', () => {
     for (const path of [...NONPROFIT_ITEMS, ...SVJ_ITEMS]) expect(paths).toContain(path)
   })
 
+  it('SVJ na rámci 500 vidí převod rámce (stejně jako doporučení v Nastavení), ne ostatní agendy 504', () => {
+    const paths = navigationPaths({ accounting_framework: 'cz_500', entity_profile: 'svj' })
+    expect(paths).toContain('/accounting/framework-conversion')
+    for (const path of NONPROFIT_ITEMS.filter(item => item !== '/accounting/framework-conversion')) expect(paths).not.toContain(path)
+    for (const path of SVJ_ITEMS) expect(paths).toContain(path)
+  })
+
   it('router nese stejnou podmínku na každé z 14 položek', () => {
     const scopes = new Map(createWorkspaceRoutes().map(route => [`/${route.path.replace(/\/:id.*$/, '')}`, route.meta?.frameworkScope]))
-    for (const path of NONPROFIT_ITEMS) expect(scopes.get(path)).toBe('nonprofit504')
+    for (const path of NONPROFIT_ITEMS) {
+      expect(scopes.get(path)).toBe(path === '/accounting/framework-conversion' ? 'conversion504' : 'nonprofit504')
+    }
     for (const path of SVJ_ITEMS) expect(scopes.get(path)).toBe('svj')
   })
 })
