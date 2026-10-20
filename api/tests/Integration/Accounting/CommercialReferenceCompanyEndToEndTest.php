@@ -30,6 +30,9 @@ use Slim\Psr7\Response as Psr7Response;
  *
  * Očekávané hodnoty jsou spočtené ručně z účetní a daňové logiky (rozpis v komentářích
  * u jednotlivých kroků), ne opsané z výstupu aplikace. Všechny osoby a částky jsou syntetické.
+ *
+ * Mzdy v referenčním příkladu nejsou: PayrollFullFlowTrait si zakládá vlastní firmu
+ * i obalovou transakci a pracuje s pevnými daty roku 2026, rok 2024 tedy neumí.
  */
 final class CommercialReferenceCompanyEndToEndTest extends TestCase
 {
@@ -127,6 +130,8 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         $this->assertVatReports2024();
         $this->clearVat(2024);
         $this->closing2024();
+        $this->year2025();
+        $this->closing2025();
     }
 
     /**
@@ -195,6 +200,114 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         $opening += ['431' => '-100800.00', '548' => '27300.00', '602' => '-33400.00'];
         ksort($opening, SORT_STRING);
         self::assertSame($opening, $this->balances('2025-01-01', '2025-01-01'));
+    }
+
+    // ---------------------------------------------------------------- rok 2025
+
+    private function year2025(): void
+    {
+        $posting = $this->container->get(PostingService::class);
+        $manual = fn (string $date, string $debit, string $credit, string $amount, string $text): int => $posting->postDocument($this->supplier, 'manual', null, [
+            ['account_code' => $debit, 'side' => 'debit', 'amount' => $amount], ['account_code' => $credit, 'side' => 'credit', 'amount' => $amount],
+        ], ['entry_date' => $date, 'description' => $text, 'posted' => true, 'posted_by' => $this->actor, 'user_id' => $this->actor]);
+
+        $this->bank('2025-01-10', [[44165.00, 'FV-LIC', 'Odberatel Alfa']]);
+        // Nájem za prosinec 2024 od neplátce 12 000 (518) a zúčtování výdaje příštích období 383 / 518.
+        $this->parties['najem'] = $this->party('Pronajímatel Théta', 'CZ', '55555551', 'CZ55555551', false, true);
+        $this->pdo->prepare('UPDATE clients SET is_vat_payer=0 WHERE id=?')->execute([$this->parties['najem']]);
+        $this->docs['PF-NAJ'] = $this->purchase('najem', 'NAJ-2024-12', '2025-01-15', [['Syntetický nájem prosinec 2024', 12000, $this->vat0,
+            ['expense_account_code' => '518']]], ['vat_deduction' => 'none', 'vendor_is_vat_payer' => false, 'varsymbol' => '2501']);
+        $manual('2025-01-15', '383', '518', '12000.00', 'Zúčtování výdaje příštích období – nájem prosinec 2024');
+        $this->bank('2025-01-31', [[-12000.00, 'PF-NAJ', 'Pronajimatel Theta']]);
+        // Audit 2024 fakturován 16 000 + 21 % 3 360; dohad 15 000 se zúčtuje 389 / 518.
+        $this->docs['PF-AUD'] = $this->purchase('delta', 'PF-DELTA-2503', '2025-03-10', [['Syntetický audit 2024', 16000, $this->vat21]], ['varsymbol' => '2502']);
+        $manual('2025-03-10', '389', '518', '15000.00', 'Zúčtování dohadu na audit 2024');
+        $this->bank('2025-03-31', [
+            [-19360.00, 'PF-AUD', 'Sluzby Delta'],
+            [-35700.00, 'DPPO-2024', 'Financni urad DPPO', 'account:341'],
+        ]);
+        // FV-5: služby 150 000 + 21 % 31 500; PF-5: služby 20 000 + 21 % 4 200; obě uhrazeny 30. 6.
+        $this->docs['FV-5'] = $this->issued('alfa', '2025-05-15', [['Syntetické poradenství květen', 150000, $this->vat21]]);
+        $this->docs['PF-5'] = $this->purchase('delta', 'PF-DELTA-2505', '2025-05-20', [['Syntetické služby', 20000, $this->vat21]], ['varsymbol' => '2503']);
+        // Zálohy na daň z příjmů 2025 podle § 38a: 2 × 14 300.
+        $this->bank('2025-06-16', [[-14300.00, 'ZAL-1', 'Financni urad zaloha', 'account:341']]);
+        $this->bank('2025-06-30', [
+            [181500.00, 'FV-5', 'Odberatel Alfa'],
+            [-24200.00, 'PF-5', 'Sluzby Delta'],
+        ]);
+        // Valná hromada 30. 6. 2025 schválí závěrku 2024 a celý zisk 100 800 převede do nerozděleného zisku (431 → 428).
+        self::assertTrue((new AccountingPeriodRepository($this->db))->setStatusCas($this->period2024, $this->supplier, 'approved',
+            $this->periodVersion($this->period2024), $this->actor));
+        $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        $distribution = $closing->runProfitDistribution($this->supplier, $this->period2024, ['decision_date' => '2025-06-30',
+            'target_row_version' => $this->periodVersion($this->period2025),
+            'allocations' => [['account_code' => '428', 'amount' => 100800.00, 'kind' => 'retained']]], ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+        self::assertEquals([100800.0, 0.0], [$distribution['available_profit'], $distribution['withholding']]);
+        // Reprezentace 5 000 v hotovosti, daňově neuznatelná (513).
+        $this->cash(['purpose' => 'other', 'doc_type' => 'out', 'issue_date' => '2025-07-10', 'total_amount' => 5000.00,
+            'counter_account_code' => '513', 'description' => 'Syntetické pohoštění obchodních partnerů']);
+        $this->bank('2025-12-15', [[-14300.00, 'ZAL-2', 'Financni urad zaloha', 'account:341']]);
+        $this->clearVat(2025);
+
+        self::assertEquals(['odp_sum_nar' => '3360', 'odp_tuz23_nar' => '3360', 'pln23' => '16000', 'dano_no' => '3360', 'odp_zocelk' => '3360'], $this->dph(2025, 3));
+        self::assertEquals(['dan23' => '31500', 'obrat23' => '150000', 'odp_sum_nar' => '4200', 'odp_tuz23_nar' => '4200', 'pln23' => '20000',
+            'dan_zocelk' => '31500', 'dano_da' => '27300', 'odp_zocelk' => '4200'], $this->dph(2025, 5));
+        self::assertSame([], $this->dph(2025, 1), 'Nájem od neplátce do přiznání nepatří.');
+        self::assertSame(['A4' => [['76543214', '150000.00', '31500.00', '0.00', '0.00']], 'B2' => [['22222227', '20000.00', '4200.00', '0.00', '0.00']]],
+            $this->kh(2025, 5));
+
+        // Předpis záloh 2025 z finálního DPPO 2024: 15. 6. připadá na neděli, lhůta se posouvá na pondělí 16. 6. (§ 33 odst. 4 DŘ).
+        $schedule = $this->container->get(\MyInvoice\Service\Tax\Return\TaxAdvanceScheduleService::class)->listForYear($this->supplier, 2025, 'po');
+        self::assertEquals([['2025-06-16', 14300.0], ['2025-12-15', 14300.0]],
+            array_map(static fn (array $row): array => [(string) $row['due_date'], (float) $row['amount']], $schedule));
+    }
+
+    /**
+     * Uzávěrka 2025: odpisy 12 × 2 000 = 24 000, daňově 22,25 % × 120 000 = 26 700; rezerva trvá.
+     * VH před zdaněním: výnosy 602 33 400 + 150 000 = 183 400; náklady 513 5 000 + 518 (12 000 − 12 000
+     * + 16 000 − 15 000 + 20 000) 21 000 + 548 27 300 + 551 24 000 = 77 300; VH = 106 100.
+     * DPPO: ř. 40 reprezentace 5 000, ř. 150 odpisy 26 700 − 24 000 = 2 700, ř. 200 108 400,
+     * zaokrouhleno 108 000, daň 22 680; zaplacené zálohy 28 600 → přeplatek 5 920; daň do 30 000 → zálohy na 2026 nejsou.
+     */
+    private function closing2025(): void
+    {
+        $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        $period = $this->period2025;
+        $meta = ['user_id' => $this->actor, 'posted_by' => $this->actor];
+        $closing->start($this->supplier, $period, $this->periodVersion($period), $meta);
+        $closing->runPrecheck($this->supplier, $period, $this->periodVersion($period), $meta);
+        $depreciation = $closing->bookDepreciation($this->supplier, $period, $meta);
+        self::assertEquals([24000.0, 26700.0], [$depreciation['total_accounting'], $depreciation['total_tax']]);
+        $closing->confirmStep($this->supplier, $period, 'depreciation', 'done', null, $this->periodVersion($period), $meta);
+        $closing->runFxRevaluation($this->supplier, $period, [], $this->periodVersion($period), $meta);
+        foreach (['estimates', 'deferrals', 'provisions'] as $step) {
+            $closing->confirmStep($this->supplier, $period, $step, 'skipped', null, $this->periodVersion($period), $meta);
+        }
+
+        $dppo = $this->finalDppo(2025, ['tax_paid_advances' => 28600]);
+        self::assertSame([10 => 106100.0, 40 => 5000.0, 70 => 5000.0, 150 => 2700.0, 170 => 2700.0, 200 => 108400.0, 270 => 108000.0,
+            290 => 22680.0, 340 => 22680.0], $this->dppoLines($dppo, [10, 40, 50, 70, 150, 170, 200, 270, 290, 340]));
+        self::assertEquals([28600.0, -5920.0, 'none'], [$dppo['advances_paid'], $dppo['balance_due'], $dppo['next_advances']['regime']]);
+        $closing->runIncomeTax($this->supplier, $period, (float) $closing->incomeTaxPreview($this->supplier, $period)['suggested_amount'], $this->periodVersion($period), $meta);
+
+        self::assertSame(self::TRIAL_BALANCE_2025, $this->balances('2025-12-31'));
+        $this->assertStatements($period, '2025-12-31', 677535,
+            ['B.II.2.' => 74000, 'C.II.2.4.3.' => 5920, 'C.IV.1.' => 16210, 'C.IV.2.' => 581405],
+            ['A.I.1.' => 200000, 'A.IV.1.' => 320800, 'A.V.' => 83420, 'B.4.' => 25000, 'C.II.8.5.' => 48315],
+            ['I.' => 183400, 'A.3.' => 26000, 'E.1.1.' => 24000, 'F.5.' => 27300, 'L.1.' => 22680],
+            83420, 183400);
+        self::assertStringContainsString('kc_ii_340="22680"', $this->container->get(\MyInvoice\Service\Tax\Return\TaxReturnService::class)
+            ->buildXml($this->supplier, 2025, 'po')['xml']);
+
+        $this->inventory($period);
+        self::assertNotNull($closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta)['document_no']);
+        self::assertSame([], $this->balances('2025-12-31'));
+        $closing->openNext($this->supplier, $period, $this->periodVersion($period), $meta);
+        $opening = self::TRIAL_BALANCE_2025;
+        foreach (array_keys($opening) as $account) if (in_array(((string) $account)[0], ['5', '6'], true)) unset($opening[$account]);
+        $opening['431'] = '-83420.00';
+        ksort($opening, SORT_STRING);
+        self::assertSame($opening, $this->balances('2026-01-01', '2026-01-01'));
     }
 
     /**
@@ -372,6 +485,11 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
     }
 
     // ---------------------------------------------------------------- uzávěrka a daň
+
+    /** Konečné zůstatky 2025 před uzavřením knih; 341 je přeplatek záloh 28 600 − daň 22 680 = 5 920. */
+    private const TRIAL_BALANCE_2025 = ['022' => '120000.00', '082' => '-46000.00', '211' => '16210.00', '221' => '581405.00', '341' => '5920.00',
+        '343' => '-48315.00', '411' => '-200000.00', '428' => '-320800.00', '459' => '-25000.00', '513' => '5000.00', '518' => '21000.00',
+        '548' => '27300.00', '551' => '24000.00', '591' => '22680.00', '602' => '-183400.00'];
 
     /** Konečné zůstatky 2024 před uzavřením knih (ručně spočtená předvaha, syntetické účty). */
     private const TRIAL_BALANCE_2024 = ['022' => '120000.00', '082' => '-22000.00', '211' => '21210.00', '221' => '475600.00', '311' => '44165.00',
@@ -567,7 +685,15 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         $ids = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
         foreach ($rows as $index => $row) {
             $kind = $row[3] ?? ($row[0] < 0 ? 'purchase_invoice_id' : 'invoice_id');
-            if ($kind === null) continue;
+            if (str_starts_with($kind, 'account:')) {
+                // Pohyb bez dokladu (platba finančnímu úřadu) zaúčtuje účetní ručně MD/D.
+                $counter = substr($kind, 8);
+                $this->container->get(\MyInvoice\Service\Accounting\Bank\BankPostingService::class)->postManual($this->supplier, $ids[$index], [
+                    'debit_account_code' => $row[0] < 0 ? $counter : '221', 'credit_account_code' => $row[0] < 0 ? '221' : $counter,
+                    'description' => $row[2]], ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+                $this->assertPosted('bank', $ids[$index]);
+                continue;
+            }
             $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/bank/transactions/' . $ids[$index] . '/match')
                 ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
                 ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->actor, 'role' => 'admin'])
