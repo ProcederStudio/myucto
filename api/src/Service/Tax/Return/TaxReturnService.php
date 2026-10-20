@@ -1633,7 +1633,10 @@ final class TaxReturnService
         return ['file' => [
             'content'  => $pdf,
             'filename' => sprintf('priloha-ucetni-zaverky-%d.pdf', $fiscalYear),
-            'label'    => sprintf('Příloha v účetní závěrce za rok %d (vyhl. %s/2002 Sb.)', $fiscalYear, $decree),
+            // Rámec 500 drží původní název přílohy v podání (§ 39); 504 cituje jen vyhlášku.
+            'label'    => $decree === '500'
+                ? sprintf('Příloha v účetní závěrce za rok %d (§ 39 vyhl. 500/2002 Sb.)', $fiscalYear)
+                : sprintf('Příloha v účetní závěrce za rok %d (vyhl. %s/2002 Sb.)', $fiscalYear, $decree),
         ], 'warning' => null];
     }
 
