@@ -166,6 +166,14 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
 
         self::assertSame(0, (int) $db->query("SELECT COUNT(*) FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.post'")->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.reverse'")->fetchColumn());
+
+        $settlements = "SELECT COUNT(*) FROM role_permissions WHERE role_id=" . (int) $roles['accountant'] . " AND permission_key='property.settlements.manage'";
+        self::assertSame(1, (int) $db->query($settlements)->fetchColumn());
+        $db->prepare("DELETE FROM role_permissions WHERE role_id=? AND permission_key='property.settlements.manage'")->execute([(int) $roles['accountant']]);
+        $db->exec("DELETE FROM migrations WHERE filename='2046_property_service_settlement_permissions.sql'");
+        $this->runMigrator();
+        self::assertSame(0, (int) $db->query($settlements)->fetchColumn(), 'Opakovaný běh 2046 nesmí vrátit odebrané právo.');
+        self::assertSame(1, (int) $db->query("SELECT COUNT(*) FROM role_permissions WHERE role_id=" . (int) $roles['accountant'] . " AND permission_key='property.settlements.post'")->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
