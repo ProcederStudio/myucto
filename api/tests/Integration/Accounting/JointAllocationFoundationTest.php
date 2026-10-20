@@ -186,6 +186,19 @@ final class JointAllocationFoundationTest extends TestCase
         $this->refused('allocation_not_found', fn () => $reader->ledgerProjection($this->supplier + 1000000, $batch['id']));
     }
 
+    public function testBatchLedgerProjectionMatchesSingleProjectionAndHasBoundedQueries(): void
+    {
+        [$request] = $this->applyRequest();
+        $batch = $this->allocations->apply($this->supplier, $request);
+        $reader = new \MyInvoice\Repository\JointAllocationReadRepository($this->db);
+        $single = $reader->ledgerProjection($this->supplier, $batch['id']);
+        $before = (int) $this->db->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'];
+        $batched = $reader->ledgerProjectionsForBatches($this->supplier, [$batch['id']]);
+        $queries = (int) $this->db->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'] - $before;
+        self::assertSame([$batch['id'] => $single], $batched);
+        self::assertLessThanOrEqual(4, $queries);
+        self::assertSame([], $reader->ledgerProjectionsForBatches($this->supplier, []));
+    }
     public function testCurrentReadProjectionSeesBatchAndCancellationAfterCallerSnapshot(): void
     {
         [$request] = $this->applyRequest();

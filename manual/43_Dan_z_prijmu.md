@@ -828,6 +828,17 @@ výpočtu neautorizuje podání. Finalizace vytváří neměnný důkaz podklad�
 daňových ztrát, výkazů a XML. Export a odeslání znovu kontrolují příslušné
 podmínky; před odesláním musí odpovídat také aktuální finální podklady.
 
+Načtení obrazovky podklady DPPO nesestavuje. Připravenost výpočtu ověříte
+tlačítkem **Ověřit připravenost výpočtu**; teprve potom obrazovka ukáže zjištění
+a nabídne převzetí do přiznání.
+
+Finalizace, export XML a podání DPPO 504 jsou dostupné až po **akceptaci výpočtu**.
+Akceptaci zapíná pouze správce firmy v sekci **Akceptace výpočtu DPPO 504**:
+výslovně potvrdí, že výpočet ověřil, a uvede odkaz na provedené ověření (například
+protokol porovnání s nezávislým výpočtem). Výchozí stav je vypnutý. Akceptace platí
+pro konkrétní verzi pravidel a formuláře; po jejich změně je potřeba ji potvrdit znovu.
+Správce ji může kdykoli odvolat, záznamy akceptací zůstávají v historii.
+
 Příloha daňových ztrát používá doložená kalendářní období, přesné částky
 v celých Kč a stejný plán uplatnění jako evidence ztrát. Respektuje také
 podporované zpětné uplatnění a jeho limity. Historický záznam ztráty
@@ -836,6 +847,42 @@ rok nebo zkrácené období s přílohou ztrát vyžaduje samostatné zpracován
 
 Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
 Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
+
+Pracovní plocha pro posouzení neziskové organizace načítá podklady po stránkách. Nejprve
+zobrazí pouze souhrn zdrojů a potvrzenou historii. Koncept otevřete výslovně po volbě
+právního profilu a jeho důkazu; teprve potom procházíte účetní řádky, rozhodnutí,
+činnosti a vazby použitých prostředků. Další stránka se načte jen po stisknutí tlačítka,
+takže ani dlouhé účetní období nestahuje celý rok do prohlížeče.
+
+Každé uložení posune revizi konceptu. Staré stránkovací odkazy a starý náhled tím
+pozbudou platnost. Náhled slouží ke kontrole rozhodnutí, výsledku, pokrytí a doloženého
+použití prostředků. Potvrzení výsledek náhledu slepě nepřebírá: znovu načte aktuální
+účetní podklady, ověří poslední potvrzené posouzení a až poté vytvoří neměnný záznam.
+Pokud po odeslání není kvůli přerušení spojení zřejmý výsledek, obrazovka nabídne
+opakování přesně stejného požadavku bez vzniku dvojí revize.
+
+Rozpracovaný koncept se při dalším otevření obrazovky načte automaticky. Každý
+uživatel má pro účetní období nejvýše jeden vlastní koncept.
+
+Potvrzenou historii lze opět procházet po stránkách. Pokud mezitím vznikne nová
+revize, obrazovka historii načte znovu od začátku. U každé revize otevřete její
+neměnné zdroje a výsledkové části, stáhnete souhrn v PDF nebo XLSX, případně úplný
+proudový NDJSON export. Souhrn obsahuje přechod od účetního výsledku k výsledku
+posouzení; úplné podklady jsou jen v NDJSON exportu.
+
+Aktuální potvrzené posouzení může oprávněný uživatel **odvolat**. Uvede důvod
+a potvrdí zaškrtnutím u tlačítka. Odvolání vytvoří novou revizi a původní potvrzení
+zůstane v historii. Odvolat nelze posouzení, na jehož zdroje financování navazuje
+potvrzené čerpání v pozdějším období.
+
+Revize uložená ve starším formátu je označena **Starší formát, vyžaduje převod**.
+Oprávněný uživatel ji převede tlačítkem **Převést do nového formátu**. Převod
+zachová číslo revize i původní uložená data, výsledek znovu přepočítá a uloží jen
+tehdy, když se s původním výsledkem shoduje. Samotné zobrazení žádný převod ani jiný
+zápis nespouští.
+
+DPPO 504 přebírá aktuální potvrzenou revizi v obou formátech. Pokud se po potvrzení
+změnily účetní podklady období, výpočet DPPO posouzení odmítne a je potřeba je potvrdit znovu.
 
 U SVJ jsou doložené příspěvky vlastníků na správu domu a pozemku a úhrady služeb
 vedeny odděleně jako příjmy mimo předmět daně. Toto zařazení nelze změnit ani ručním

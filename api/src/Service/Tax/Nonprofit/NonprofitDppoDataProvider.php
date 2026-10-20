@@ -13,7 +13,8 @@ use MyInvoice\Service\Tax\Return\TaxReturnException;
 final class NonprofitDppoDataProvider
 {
     public function __construct(private readonly Connection $db,private readonly NonprofitTaxSourceRepository $sources,
-        private readonly NonprofitTaxAssessmentRepository $assessments,private readonly J6FundingCapacity $fundingCapacity,private readonly \MyInvoice\Service\Accounting\Reports\FinancialStatementService $statements,private readonly \MyInvoice\Service\Accounting\Reports\Statement504Service $statements504) {}
+        private readonly NonprofitTaxAssessmentRepository $assessments,private readonly J6FundingCapacity $fundingCapacity,private readonly \MyInvoice\Service\Accounting\Reports\FinancialStatementService $statements,private readonly \MyInvoice\Service\Accounting\Reports\Statement504Service $statements504,
+        private readonly NonprofitDppoAssessmentSource $assessmentSource) {}
 
     public function gather(int $supplier,int $fiscalYear,array $inputs=[]):array
     {
@@ -23,11 +24,8 @@ final class NonprofitDppoDataProvider
             $snapshot=$this->sources->snapshot($supplier,(int)$period['id'],true);
             if($snapshot['findings']!==[])throw new TaxReturnException('nonprofit_dppo_sources_incomplete','Účetní podklady vyžadují úplné průkazné sémantické členění.',422);
             $legal=$snapshot['legal_profile']??null;if($legal===null)throw new TaxReturnException('nonprofit_dppo_legal_profile_required','Pro období potvrďte doložený právní profil poplatníka.',422);
-            $assessment=$this->assessments->latest($supplier,(int)$period['id'],true);
-            if($assessment===null||$assessment['status']!=='confirmed')throw new TaxReturnException('nonprofit_dppo_assessment_required','DPPO 504 vyžaduje aktuální potvrzené posouzení J6.',422);
-            $this->fundingCapacity->assertCurrentReceipt($supplier,$assessment);
+            [$assessment,$j6Receipt]=$this->assessmentSource->current($supplier,$period,$snapshot);
             if($assessment['result']['profile']!==$legal['profile']['kind'])throw new TaxReturnException('nonprofit_dppo_profile_conflict','Posouzení J6 nesouhlasí s právním profilem období.',409);
-            $j6Receipt=NonprofitDppoJ6Receipt::capture($period,$snapshot,$assessment);
             $elections=$inputs['nonprofit']??[];if(!is_array($elections))$this->invalid();
             $bridge=(new NonprofitDppoClassificationBridge())->build($assessment['result'],$elections['documented_lines']??[]);
             $adjustments=$this->adjustments($supplier,$period,$assessment,$elections['adjustments']??[]);
@@ -47,8 +45,7 @@ final class NonprofitDppoDataProvider
                     'legal_profile'=>$legal,'assessment_id'=>$assessment['id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'j6_receipt_hash'=>$j6Receipt['receipt_hash'],'nonprofit_proof_hash'=>$context['proof_hash'],'saving_due'=>$savingDue,'adjustments'=>$adjustments]];
             $balance=$this->statements->balanceSheet($supplier,(int)$period['id'],$period['ends_on'],'full');
             $income=$this->statements->incomeStatement($supplier,(int)$period['id'],$period['ends_on'],'full');
-            $incomeRows=array_column($income['rows'],null,'adis_row');
-            if((int)round(($incomeRows[62]['total']??INF)*100)!==$snapshot['accounting_result_cents'])throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Výsledek J6 nesouhlasí s nativní výsledovkou 504 před zdaněním.',422);
+            self::assertStatementResult($income,$snapshot['accounting_result_cents']);
             $result['statements']=['balance_sheet'=>$balance,'income_statement'=>$income,'epo_rows'=>(new NonprofitDppoStatementRows())->build($balance,$income)];
             $result['source_manifest']['statements_hash']=NonprofitTaxRules::hash($result['statements']);
             $criteria=$this->statements504->criteria($supplier,$period,$period['ends_on']);
@@ -56,6 +53,22 @@ final class NonprofitDppoDataProvider
             $result['source_manifest']['net_turnover']=['legal_basis'=>'zou_1d_5_2','annual_kc'=>$result['net_turnover_annual_kc'],'ledger_hash'=>NonprofitTaxRules::hash($snapshot['ledger'])];
             NonprofitDppoComputation::validate($result,$inputs);return$result;
         });
+    }
+
+    /**
+     * Výsledek J6 musí souhlasit s řádkem 62 (výsledek před zdaněním) nativní výsledovky 504.
+     * Chybějící nebo nečíselný řádek je chyba výkazu, nikoli nula.
+     */
+    public static function assertStatementResult(array $income,int $accountingResultCents):void
+    {
+        $rows=array_column(is_array($income['rows']??null)?$income['rows']:[],null,'adis_row');
+        $total=$rows[62]['total']??null;
+        if(!is_int($total)&&!is_float($total)&&!(is_string($total)&&is_numeric($total))){
+            throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Nativní výsledovka 504 neobsahuje řádek 62 výsledku hospodaření před zdaněním.',422);
+        }
+        if((int)round((float)$total*100)!==$accountingResultCents){
+            throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Výsledek J6 nesouhlasí s nativní výsledovkou 504 před zdaněním.',422);
+        }
     }
 
     private function adjustments(int $supplier,array $period,array $assessment,mixed $elections):array

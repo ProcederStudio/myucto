@@ -3,6 +3,7 @@
 declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Tax;
 
+use MyInvoice\Tests\Support\J6CalculatorFactory;
 use MyInvoice\Repository\Property\Funds\FundingRepository;
 use MyInvoice\Service\Property\Payments\PaymentJournalProof;
 use MyInvoice\Service\Tax\Nonprofit\{NonprofitSvjSourceFacts,NonprofitTaxCalculator,NonprofitTaxAssessmentException};
@@ -32,27 +33,27 @@ final class NonprofitSvjFundingFactsTest extends TestCase
         $this->fundingIssue();$cost=$this->fundingCost('2026-09-01','518.200','10000.00');$op=$this->fundingApply($this->fundingDraw('2026-09-01','administration','500000',$cost,'issued'),'tax-native-management');
         $snapshot=$this->attach($this->snapshot($cost,[$op]));$facts=$snapshot['sources'][0]['svj_owner_facts']??[];
         self::assertSame(1000000,$facts['related_out_of_scope_cents']??null);self::assertSame(500000,$facts['covered_cost_cents']);
-        $out=(new NonprofitTaxCalculator())->calculate($snapshot,$this->assessment($snapshot));self::assertSame(0,$out['assessed_result_cents']);
+        $out=J6CalculatorFactory::legacy()->calculate($snapshot,$this->assessment($snapshot));self::assertSame(0,$out['assessed_result_cents']);
         foreach(array_slice($out['rows'],1)as$row)self::assertSame(['regime'=>'out_of_scope','method'=>'none','legal_basis'=>'zdp_18_2f_2'],$row['classification']);
-        $this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($snapshot,$this->assessment($snapshot,500000));
+        $this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($snapshot,$this->assessment($snapshot,500000));
     }
     public function testCanonicalAdoptedAdvanceProvesPurposeAndExactOpeningLineage():void
     {
         $this->fundingOpening();$cost=$this->fundingCost('2026-03-01','549.900','10000.00');$op=$this->fundingApply($this->fundingDraw('2026-03-01','repair','500000',$cost),'tax-adopted-management');$snapshot=$this->attach($this->snapshot($cost,[$op]));
         self::assertSame(1000000,$snapshot['sources'][0]['svj_owner_facts']['related_out_of_scope_cents']??null);
         $facts=$snapshot['sources'][1]['svj_owner_facts'];self::assertSame('opening',$facts['advance_sources'][0]['kind']);self::assertNotEmpty($facts['advance_sources'][0]['title_ref']);self::assertNotEmpty($facts['advance_sources'][0]['evidence_ref']);self::assertNotEmpty($facts['advance_sources'][0]['purpose_ref']);
-        self::assertSame(0,(new NonprofitTaxCalculator())->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
+        self::assertSame(0,J6CalculatorFactory::legacy()->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
     }
     public function testUnownedBalanceAndUnrelatedCostCannotInventContributionProof():void
     {
         $cost=$this->fundingCost('2026-03-01','549.900','10000.00');$snapshot=$this->attach($this->snapshot($cost,[]));self::assertArrayNotHasKey('svj_owner_facts',$snapshot['sources'][0]);
         $snapshot['sources'][]=['id'=>'manual-income','kind'=>'revenue','line_id'=>999999999,'origin'=>['line_id'=>999999999],'amount_cents'=>500000,'activity_kind_id'=>1];$a=$this->assessment($snapshot);
-        $this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($snapshot,$a);
+        $this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($snapshot,$a);
     }
     public function testSameYearDrawReversalDoesNotChangeExpenseLegalPurpose():void
     {
         $this->fundingIssue();$cost=$this->fundingCost('2026-09-01','518.200','10000.00');$op=$this->fundingApply($this->fundingDraw('2026-09-01','administration','500000',$cost,'issued'),'tax-sameyear');$reverse=$this->reverse($op,'2026-10-01');$snapshot=$this->attach($this->snapshot($cost,[$op,$reverse]));
-        self::assertSame(1000000,$snapshot['sources'][0]['svj_owner_facts']['related_out_of_scope_cents']??null);self::assertSame(0,$snapshot['sources'][0]['svj_owner_facts']['covered_cost_cents']);self::assertSame(0,(new NonprofitTaxCalculator())->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
+        self::assertSame(1000000,$snapshot['sources'][0]['svj_owner_facts']['related_out_of_scope_cents']??null);self::assertSame(0,$snapshot['sources'][0]['svj_owner_facts']['covered_cost_cents']);self::assertSame(0,J6CalculatorFactory::legacy()->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
     }
     public function testFutureReversalDoesNotRewriteEarlierFiscalFacts():void
     {
@@ -62,7 +63,7 @@ final class NonprofitSvjFundingFactsTest extends TestCase
     public function testMultipleDrawsDoNotDoubleExcludeTheDirectManagementCost():void
     {
         $this->fundingOpening();$cost=$this->fundingCost('2026-03-01','549.900','10000.00');$one=$this->fundingApply($this->fundingDraw('2026-03-01','repair','200000',$cost),'tax-first');$two=$this->fundingApply($this->fundingDraw('2026-03-02','repair','300000',$cost),'tax-second');$snapshot=$this->attach($this->snapshot($cost,[$one,$two]));
-        self::assertSame(1000000,$snapshot['sources'][0]['svj_owner_facts']['related_out_of_scope_cents']??null);self::assertSame(500000,$snapshot['sources'][0]['svj_owner_facts']['covered_cost_cents']);self::assertCount(2,$snapshot['sources'][0]['svj_owner_facts']['funding_sources']);self::assertSame(0,(new NonprofitTaxCalculator())->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
+        self::assertSame(1000000,$snapshot['sources'][0]['svj_owner_facts']['related_out_of_scope_cents']??null);self::assertSame(500000,$snapshot['sources'][0]['svj_owner_facts']['covered_cost_cents']);self::assertCount(2,$snapshot['sources'][0]['svj_owner_facts']['funding_sources']);self::assertSame(0,J6CalculatorFactory::legacy()->calculate($snapshot,$this->assessment($snapshot))['assessed_result_cents']);
     }
     public function testReversedDrawStillRejectsChangedPhysicalOriginalCost():void
     {
@@ -76,7 +77,7 @@ final class NonprofitSvjFundingFactsTest extends TestCase
     }
     public function testNativeSeparatelyDocumentedTaxableCostRemainsDeductibleWithoutDoubleExclusion():void
     {
-        $this->fundingIssue();$cost=$this->fundingCost('2026-09-01','518.200','7000.00');$op=$this->fundingApply($this->fundingDraw('2026-09-01','administration','500000',$cost,'issued'),'tax-separated');$other=$this->fundingCost('2026-09-01','518','3000.00');$snapshot=$this->snapshot($cost,[$op]);$extra=$this->snapshot($other,[])['sources'][0];$extra['activity_kind_id']=2;$snapshot['sources'][]=$extra;$snapshot=$this->attach($snapshot);$a=$this->assessment($snapshot);$a['activities'][2]=['evidence'=>'Synthetic separately recorded work for own taxable income'];$a['decisions'][$extra['id']]=['title'=>'cost','deductible_cents'=>300000,'legal_basis'=>'zdp_24_1','evidence'=>'Synthetic separately invoiced taxable collection work'];$out=(new NonprofitTaxCalculator())->calculate($snapshot,$a);
+        $this->fundingIssue();$cost=$this->fundingCost('2026-09-01','518.200','7000.00');$op=$this->fundingApply($this->fundingDraw('2026-09-01','administration','500000',$cost,'issued'),'tax-separated');$other=$this->fundingCost('2026-09-01','518','3000.00');$snapshot=$this->snapshot($cost,[$op]);$extra=$this->snapshot($other,[])['sources'][0];$extra['activity_kind_id']=2;$snapshot['sources'][]=$extra;$snapshot=$this->attach($snapshot);$a=$this->assessment($snapshot);$a['activities'][2]=['evidence'=>'Synthetic separately recorded work for own taxable income'];$a['decisions'][$extra['id']]=['title'=>'cost','deductible_cents'=>300000,'legal_basis'=>'zdp_24_1','evidence'=>'Synthetic separately invoiced taxable collection work'];$out=J6CalculatorFactory::legacy()->calculate($snapshot,$a);
         self::assertSame(-300000,$out['assessed_result_cents']);$rows=array_column($out['rows'],null,'id');self::assertSame(300000,$rows[$extra['id']]['deductible_cents']);self::assertSame(0,$rows['line:'.$cost]['deductible_cents']);self::assertSame(0,$rows['line:'.$cost]['funded_excluded_cents']);
     }
     public function testForeignTenantCannotAttachOwnerProofFromMatchingForeignLineIds():void
@@ -92,7 +93,7 @@ final class NonprofitSvjFundingFactsTest extends TestCase
     public function testCrossFiscalReversalRemainsAnExcludedNegativeContribution():void
     {
         $this->fundingIssue();$cost=$this->fundingCost('2026-09-01','518.200','10000.00');$op=$this->fundingApply($this->fundingDraw('2026-09-01','administration','500000',$cost,'issued'),'tax-fiscal');$s=$this->f['supplier'];$this->db->pdo()->prepare("UPDATE accounting_periods SET ends_on='2026-09-30' WHERE supplier_id=? AND fiscal_year=2026")->execute([$s]);(new \MyInvoice\Repository\AccountingPeriodRepository($this->db))->create($s,2027,'2026-10-01','2027-09-30');$before=$this->attach($this->snapshot($cost,[$op],'2026-09-30'));$reverse=$this->reverse($op,'2026-10-01');self::assertSame($before,$this->attach($this->snapshot($cost,[$op],'2026-09-30')));
-        $snapshot=$this->snapshot($cost,[$reverse],'2027-09-30');$snapshot['period']['starts_on']='2026-10-01';array_shift($snapshot['sources']);$snapshot=$this->attach($snapshot);$a=$this->assessment($snapshot);$a['profile']=['kind'=>'documented','entity_kind'=>'svj','evidence'=>'Synthetic SVJ identity'];$a['method']=['mode'=>'documented_manual','valid_from'=>'2026-10-01','valid_to'=>'2027-09-30','legal_basis'=>'Synthetic documented law in this fiscal period','evidence'=>'Synthetic signed historical review'];foreach($a['decisions']as&$decision)$decision+=['final_regime'=>'out_of_scope','final_method'=>'none','legal_basis'=>'zdp_18_2f_2'];unset($decision);$out=(new NonprofitTaxCalculator())->calculate($snapshot,$a);self::assertSame(0,$out['assessed_result_cents']);self::assertLessThan(0,$out['accounting_result_cents']);foreach($out['rows']as$row)self::assertSame('out_of_scope',$row['classification']['regime']);
+        $snapshot=$this->snapshot($cost,[$reverse],'2027-09-30');$snapshot['period']['starts_on']='2026-10-01';array_shift($snapshot['sources']);$snapshot=$this->attach($snapshot);$a=$this->assessment($snapshot);$a['profile']=['kind'=>'documented','entity_kind'=>'svj','evidence'=>'Synthetic SVJ identity'];$a['method']=['mode'=>'documented_manual','valid_from'=>'2026-10-01','valid_to'=>'2027-09-30','legal_basis'=>'Synthetic documented law in this fiscal period','evidence'=>'Synthetic signed historical review'];foreach($a['decisions']as&$decision)$decision+=['final_regime'=>'out_of_scope','final_method'=>'none','legal_basis'=>'zdp_18_2f_2'];unset($decision);$out=J6CalculatorFactory::legacy()->calculate($snapshot,$a);self::assertSame(0,$out['assessed_result_cents']);self::assertLessThan(0,$out['accounting_result_cents']);foreach($out['rows']as$row)self::assertSame('out_of_scope',$row['classification']['regime']);
     }
 
 }

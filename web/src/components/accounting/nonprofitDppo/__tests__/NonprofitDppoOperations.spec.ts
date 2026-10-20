@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import Workspace from '../NonprofitDppoWorkspace.vue'
-const api = vi.hoisted(() => ({ periods: vi.fn(), profile: vi.fn(), savings: vi.fn(), native: vi.fn(), saveReduction: vi.fn() }))
+const api = vi.hoisted(() => ({ periods: vi.fn(), profile: vi.fn(), savings: vi.fn(), native: vi.fn(), saveReduction: vi.fn(), readiness: vi.fn(), acceptance: vi.fn(), changeAcceptance: vi.fn() }))
 vi.mock('@/api/nonprofitDppo', () => ({ nonprofitDppoApi: api }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${JSON.stringify(params)}` : key, locale: ref('cs') }) }))
 const period = { id: 7, supplier_id: 1, fiscal_year: 2026, starts_on: '2026-01-01', ends_on: '2026-12-31', status: 'open', closed_at: null, created_at: '' }
@@ -13,7 +13,7 @@ function legal(caps: Record<string, unknown> = {}) { return { period, latest: nu
 function nativeState(over: Record<string, unknown> = {}) { return { return: { type: 'po', year: 2026, inputs: {}, status: 'draft', row_version: 4 }, podklady: { accounting_decree: '504', period }, nonprofit_filing_proof_hash: 'native-proof', computed: { nonprofit: { filing_obligation: { required: true, legal_basis: 'Synthetic law' }, saving: { saving_kc: 21000 } } }, ...over } }
 const ActionBar = { props: ['actions'], template: '<div><template v-for="a in actions" :key="a.key"><a v-if="a.show !== false && a.to" :data-action="a.key" :data-to="JSON.stringify(a.to)">{{a.label}}</a><button v-else-if="a.show !== false" :data-action="a.key" :disabled="a.disabled" @click="a.run">{{a.label}}</button></template></div>' }
 function render(canEditReturn = true) { return mount(Workspace, { props: { supplier: 1, canManage: true, canEditReturn }, global: { stubs: { ActionBar, DateInput: true } } }) }
-beforeEach(() => { vi.resetAllMocks(); api.periods.mockResolvedValue([period]); api.savings.mockResolvedValue({ capabilities: { can_confirm: true, session_only: true }, sources: [] }) })
+beforeEach(() => { vi.resetAllMocks(); api.periods.mockResolvedValue([period]); api.savings.mockResolvedValue({ capabilities: { can_confirm: true, session_only: true }, sources: [] }); api.acceptance.mockResolvedValue(null) })
 describe('Nonprofit DPPO operation-specific capabilities', () => {
  it('loads the native result for compute-only state, edits the reduction with a matching proof and offers no filing action', async () => {
   api.profile.mockResolvedValue(legal()); api.native.mockResolvedValue(nativeState())

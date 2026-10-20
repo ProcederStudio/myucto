@@ -16,6 +16,7 @@ final class NonprofitDppoNativeWorkflowTest extends TestCase
         $this->fixture=new NonprofitDppoDataProviderTest('testCanonicalJ6AndNativeStatementsUseTrueFiscalInterval');(new \ReflectionMethod($this->fixture,'setUp'))->invoke($this->fixture);
         foreach(['db','container','supplier','period','actor']as$key)$this->$key=(new \ReflectionProperty($this->fixture,$key))->getValue($this->fixture);
         $this->invoke('profile');$this->invoke('post','602','800000.00');$this->invoke('confirm');
+        \MyInvoice\Tests\Support\NonprofitDppoAcceptanceFixture::accept($this->db,$this->supplier,$this->actor);
         $notes=$this->container->get(\MyInvoice\Service\Accounting\Reports\StatementNotesService::class);$read=$notes->build($this->supplier,$this->period);foreach($read['sections']as$section)$notes->saveSection($this->supplier,2026,$section['key'],'Synthetic reviewed statutory disclosure',$this->actor);
     }
     protected function tearDown():void
@@ -78,6 +79,17 @@ final class NonprofitDppoNativeWorkflowTest extends TestCase
         $built=$service->buildXml($this->supplier,2026,'po');$dom=new \DOMDocument();$dom->loadXML($built['xml']);$xp=new \DOMXPath($dom);self::assertSame('504',$xp->evaluate('string(/Pisemnost/DPPDP9/VetaD/@uv_vyhl)'));self::assertSame('3',$xp->evaluate('string(/Pisemnost/DPPDP9/VetaD/@typ_popldpp)'));self::assertSame(0,$xp->query('//VetaUA|//VetaUB|//VetaUD|//VetaUZ')->length);self::assertGreaterThan(0,$xp->query('//VetaUR')->length);self::assertGreaterThan(0,$xp->query('//VetaUS')->length);self::assertGreaterThan(0,$xp->query('//VetaUT')->length);
         $gate=(new NonprofitDppoFilingGate($this->db))->submission($this->supplier,['form_code'=>'dppdp9','period_year'=>2026,'xml_content'=>$built['xml']],true);self::assertSame($draft['nonprofit_filing_proof_hash'],$gate['filing_proof_hash']);
         $savings=(new NonprofitTaxSavingsService($this->db))->context($this->supplier);self::assertCount(1,$savings['sources']);self::assertSame('6300000',$savings['sources'][0]['source']['saving_cents']);self::assertSame('6300000',$savings['sources'][0]['remaining_cents']);
+    }
+    public function testFinalizationXmlAndSubmissionAreRejectedAfterAcceptanceIsRevoked():void
+    {
+        $draft=$this->draft();$service=$this->container->get(TaxReturnService::class);$final=$service->finalize($this->supplier,2026,'po',$draft['return']['row_version'],$this->actor,expectedNonprofitFilingProofHash:$draft['nonprofit_filing_proof_hash']);$built=$service->buildXml($this->supplier,2026,'po');
+        $acceptance=new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAcceptanceService($this->db);$head=$acceptance->state($this->supplier)['head'];
+        $acceptance->change($this->supplier,\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAcceptanceService::REVOKE,false,'','Synthetic withdrawn verification','synthetic-revoke-'.$this->supplier,$head['id'],$this->actor);
+        self::assertFalse($acceptance->isAccepted($this->supplier));
+        foreach([fn()=>$service->buildXml($this->supplier,2026,'po'),fn()=>(new \MyInvoice\Service\Tax\Return\AccountingDecreeService($this->db))->assertDppoSubmissionSupported($this->supplier,['form_code'=>'dppdp9','period_year'=>2026,'xml_content'=>$built['xml']],true)]as$blocked){
+            try{$blocked();self::fail('DPPO 504 XML or submission passed without accepted calculation.');}catch(TaxReturnException $e){self::assertSame('nonprofit_dppo_calculation_not_accepted',$e->errorCode);}
+        }
+        self::assertSame('final',$final['return']['status']);
     }
     public function testQueuedArtifactResolverRechecksCurrentProofBeforeDispatch():void
     {

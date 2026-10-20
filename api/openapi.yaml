@@ -1310,27 +1310,6 @@ paths:
           description: Nativní podklady se nepodařilo ověřit.
         '422':
           description: Neplatný filtr nebo kurzor.
-  /api/v1/accounting/periods/{id}/nonprofit-legal-profile:
-    get:
-      tags: [Accounting]
-      summary: Potvrzený právní profil504 a připravenost nativníhoDPPO
-      description: Pouze čtení. Potvrzení právního profilu je interní session operace s CAS a neměnnou historií.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitLegalProfileRead' } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/accounting/nonprofit-tax-savings:
-    get:
-      tags: [Accounting]
-      summary: Skutečné daňové úspory§20(7), historie a způsobilé náklady
-      description: Pouze čtení. Čerpání i odvolání vyžaduje interní session, přesný serverový preview, head CAS a idempotency token. Stejný náklad nelze financovat opakovaně jiným vlastníkem.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitTaxSavingsRead' } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/accounting/periods/{id}/nonprofit-tax:
     get:
       tags:
@@ -1355,18 +1334,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NonprofitTaxRead'
-  /api/v1/accounting/periods/{id}/nonprofit-tax/history:
+  /api/v1/accounting/periods/{periodId}/nonprofit-tax/summary:
     get:
       tags:
       - Accounting
-      summary: Historie daňových posouzení činností
-      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Klasifikační most 504 před obecnými
-        úpravami základu daně; nejde o konečné DPPO ani podání. Potvrzení a odvolání jsou pouze interní session operace.
-        Částky s příponou _cents jsou přesné celé haléře. Historické revize se nemění; aktuálnost určuje current_confirmed
-        v exportu.
+      summary: Souhrn podkladů a poslední revize daňového posouzení
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Vrací počty a otisk aktuálních účetních
+        podkladů bez celého seznamu řádků a souhrn poslední revize. Revize uložená ve starším formátu má
+        conversion_required=true; převést ji může jen oprávněný uživatel výslovnou interní operací, čtení nic nezapisuje.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
-      - name: id
+      - name: periodId
         in: path
         required: true
         schema:
@@ -1378,18 +1356,79 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/NonprofitTaxRevision'
-  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export:
+                $ref: '#/components/schemas/NonprofitTaxPeriodSummary'
+        '404':
+          description: Účetní období nebylo nalezeno.
+  /api/v1/accounting/periods/{periodId}/nonprofit-tax/source:
     get:
       tags:
       - Accounting
-      summary: Strukturovaný export konkrétní revize
-      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Klasifikační most 504 před obecnými
-        úpravami základu daně; nejde o konečné DPPO ani podání. Potvrzení a odvolání jsou pouze interní session operace.
-        Částky s příponou _cents jsou přesné celé haléře. Historické revize se nemění; aktuálnost určuje current_confirmed
-        v exportu.
+      summary: Hlavička aktuálních účetních podkladů daňového posouzení
+      description: Pouze čtení. Počty řádků a zjištění a otisk aktuálních podkladů období; jednotlivé řádky jsou dostupné
+        jen v interním konceptu posouzení.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: periodId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitTaxSourceHeader'
+  /api/v1/accounting/periods/{id}/nonprofit-tax/history:
+    get:
+      tags:
+      - Accounting
+      summary: Historie daňových posouzení činností po stránkách
+      description: Pouze čtení. Neměnné potvrzené a odvolané revize vzestupně podle čísla revize. Kurzor after je vázaný
+        na firmu, uživatele, velikost stránky a hlavu historie; po vzniku nové revize vrátí 409 a historii je nutné
+        načíst od začátku.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 8192
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitTaxHistoryPage'
+        '400':
+          description: Neplatný kurzor nebo velikost stránky.
+        '409':
+          description: Kurzor patří k jiné hlavě historie (nonprofit_tax_cursor_stale).
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}:
+    get:
+      tags:
+      - Accounting
+      summary: Souhrn konkrétní revize daňového posouzení
+      description: Pouze čtení. Klasifikační most před obecnými úpravami základu daně v celých haléřích a otisky
+        zmrazených podkladů. Revize ve starším formátu vrací 409 nonprofit_tax_legacy_history_requires_migration.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - name: assessmentId
@@ -1404,7 +1443,132 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NonprofitTaxExport'
+                $ref: '#/components/schemas/NonprofitTaxPagedAssessment'
+        '404':
+          description: Revize nebyla nalezena.
+        '409':
+          description: Revize ve starším formátu vyžaduje výslovný převod.
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/{kind}:
+    get:
+      tags:
+      - Accounting
+      summary: Stránka zmrazených podkladů revize
+      description: Pouze čtení. Ověřená stránka zdrojových řádků, rozhodnutí, výsledků, pokrytí nebo čerpání financování.
+        Kurzor after je vázaný na revizi, část a velikost stránky.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - source
+          - decision
+          - result
+          - coverage
+          - usage
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 8192
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitTaxAssessmentPage'
+        '400':
+          description: Neplatný kurzor nebo velikost stránky.
+        '409':
+          description: Kurzor nepatří k této revizi nebo revize vyžaduje převod.
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export:
+    get:
+      tags:
+      - Accounting
+      summary: Úplný proudový export revize (NDJSON)
+      description: Pouze čtení. Každý řádek je samostatný JSON záznam s polem kind (header, source, decision, result,
+        coverage, usage, funding_reference, funding_history). Export se generuje po stránkách z ověřeného neměnného grafu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Soubor NDJSON
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        '409':
+          description: Revize ve starším formátu vyžaduje výslovný převod.
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/summary.pdf:
+    get:
+      tags:
+      - Accounting
+      summary: Souhrn revize daňového posouzení PDF
+      description: Omezený souhrn klasifikačního mostu konkrétní revize s označením aktuálnosti. Úplné podklady obsahuje
+        NDJSON export.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Soubor
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/summary.xlsx:
+    get:
+      tags:
+      - Accounting
+      summary: Souhrn revize daňového posouzení XLSX
+      description: Omezený souhrn klasifikačního mostu konkrétní revize s označením aktuálnosti. Úplné podklady obsahuje
+        NDJSON export.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Soubor
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
   /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export.pdf:
     get:
       tags:
@@ -35854,6 +36018,199 @@ components:
           $ref: '#/components/schemas/NonprofitTaxClosingCheck'
         revision:
           $ref: '#/components/schemas/NonprofitTaxRevision'
+    NonprofitTaxSourceHeader:
+      type: object
+      description: Hlavička aktuálních účetních podkladů období bez jednotlivých řádků.
+      required:
+      - header
+      - row_count
+      - finding_count
+      properties:
+        header:
+          type: object
+          additionalProperties: true
+          properties:
+            period:
+              type: object
+              properties:
+                id:
+                  type: integer
+                starts_on:
+                  type: string
+                  format: date
+                ends_on:
+                  type: string
+                  format: date
+            ruleset:
+              type: string
+        row_count:
+          type: integer
+          minimum: 0
+        finding_count:
+          type: integer
+          minimum: 0
+        input_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    NonprofitTaxBridgeSummary:
+      type: object
+      description: Klasifikační most před obecnými úpravami základu daně v celých haléřích.
+      additionalProperties: true
+      properties:
+        schema:
+          const: nonprofit-j6-summary.v2
+        ruleset:
+          type: string
+        profile:
+          type: string
+        assessment_method:
+          type: string
+          enum:
+          - ruleset
+          - documented_manual
+        source_row_count:
+          type: integer
+        accounting_result_cents:
+          type: integer
+        excluded_revenue_cents:
+          type: integer
+        cost_addbacks_cents:
+          type: integer
+        assessed_result_cents:
+          type: integer
+        dppo_supported:
+          const: false
+    NonprofitTaxPagedAssessment:
+      type: object
+      required:
+      - id
+      - supplier_id
+      - period_id
+      - revision_no
+      - previous_id
+      - status
+      - reason
+      - ruleset
+      - storage_version
+      - created_by
+      - created_at
+      - summary
+      properties:
+        id:
+          type: integer
+        supplier_id:
+          type: integer
+        period_id:
+          type: integer
+        revision_no:
+          type: integer
+        previous_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        status:
+          type: string
+          enum:
+          - confirmed
+          - withdrawn
+        reason:
+          type: string
+        ruleset:
+          type: string
+        storage_version:
+          type: string
+          description: paged_v2 = ověřený stránkovaný graf; starší formát vyžaduje výslovný převod.
+        created_by:
+          type: integer
+        created_at:
+          type: string
+        summary:
+          anyOf:
+          - $ref: '#/components/schemas/NonprofitTaxBridgeSummary'
+          - type: 'null'
+        source_input_hash:
+          anyOf:
+          - type: string
+          - type: 'null'
+        snapshot_input_hash:
+          anyOf:
+          - type: string
+          - type: 'null'
+        receipt_hash:
+          anyOf:
+          - type: string
+          - type: 'null'
+        conversion_required:
+          type: boolean
+    NonprofitTaxPeriodSummary:
+      type: object
+      required:
+      - source
+      - latest
+      properties:
+        source:
+          $ref: '#/components/schemas/NonprofitTaxSourceHeader'
+        latest:
+          anyOf:
+          - $ref: '#/components/schemas/NonprofitTaxPagedAssessment'
+          - type: 'null'
+    NonprofitTaxHistoryPage:
+      type: object
+      required:
+      - head
+      - rows
+      - after
+      properties:
+        head:
+          type: object
+          properties:
+            assessment_id:
+              anyOf:
+              - type: integer
+              - type: 'null'
+            revision_no:
+              type: integer
+            status:
+              anyOf:
+              - type: string
+              - type: 'null'
+        rows:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/NonprofitTaxPagedAssessment'
+        after:
+          anyOf:
+          - type: string
+          - type: 'null'
+    NonprofitTaxAssessmentPage:
+      type: object
+      required:
+      - rows
+      - after
+      properties:
+        kind:
+          type: string
+          enum:
+          - decision
+          - result
+          - coverage
+          - usage
+        rows:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: true
+        findings:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        after:
+          anyOf:
+          - type: string
+          - type: 'null'
     NonprofitTaxAssessmentMethod:
       type: object
       description: Explicit user-documented basis for the entire assessment period. Does not claim automatic verification

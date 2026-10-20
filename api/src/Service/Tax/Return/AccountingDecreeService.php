@@ -57,7 +57,9 @@ final class AccountingDecreeService
             foreach (array_unique($dates) as $date) if ((new AccountingModeRepository($this->db))->forDate($supplierId, $date) !== 'double_entry') throw new TaxReturnException('nonprofit_dppo_accounting_mode_required', 'Nativní504 vyžaduje podvojné účetnictví v celém skutečném období.',422);
             $q=$this->db->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on=? AND ends_on=?');$q->execute([$supplierId,$startsOn,$endsOn]);
             if ($q->fetchColumn() === false) throw new TaxReturnException('nonprofit_dppo_period_required', 'DPPO504 vyžaduje celé skutečné účetní období.',422);
-            (new Dppo504CapabilityService())->assert($operation, $startsOn, $endsOn, $returnType);
+            $accepted = $operation !== Dppo504CapabilityService::COMPUTE
+                && (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAcceptanceService($this->db))->isAccepted($supplierId);
+            (new Dppo504CapabilityService())->assert($operation, $startsOn, $endsOn, $returnType, $accepted);
         } else self::assertSupportedDecree($decree);
         return $decree;
     }
