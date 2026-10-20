@@ -32580,6 +32580,7 @@
         "title": "Recommendation based on legal form"
       },
       "baseline": "Initial state",
+      "conversion_required_link": "Convert through the controlled conversion",
       "current": "Framework effective today",
       "cz_500": "Businesses (Decree 500)",
       "cz_504": "Nonprofit organisations (Decree 504)",

@@ -41,7 +41,7 @@ Správa opakovaně používaných fakturačních položek je kvůli návaznosti 
 
 Nastavení globálních položek smí měnit jen superadministrátor nebo administrátor; viz [§ 96.4](#964-krok-za-krokem-uzivatele-role-a-pristup-k-firmam).
 
-V **Nastavení / Účetní rámec** lze pro testování zvolit **Nevýdělečné organizace (vyhláška 504)**. Zadejte první den existujícího účetního období a použijte **Uložit účetní rámec samostatně**. Změna vyžaduje příslušné oprávnění a v dotčeném intervalu nesmějí být zaúčtované zápisy. Platnost změn je vidět v historii rámce.
+V **Nastavení / Účetní rámec** lze pro testování zvolit **Nevýdělečné organizace (vyhláška 504)**. Zadejte první den existujícího účetního období a použijte **Uložit účetní rámec samostatně**. Změna vyžaduje příslušné oprávnění a v dotčeném intervalu nesmějí být zaúčtované zápisy. Přímo zde lze rámec 504 zapnout jen firmě bez účetní historie, tedy bez jediného zápisu v deníku a bez účtové osnovy. Firmě, která už účtuje, aplikace změnu odmítne a nabídne odkaz na **Převod účetního rámce**. Platnost změn je vidět v historii rámce.
 
 U rozpoznané právní formy spolku, nadace, ústavu nebo SVJ se zobrazí doporučení rámce 504. Tlačítko **Zvolit doporučený rámec** pouze připraví výběr. Nic neukládá a nenahrazuje datum účinnosti ani samostatné potvrzení změny. Právní forma sama nepotvrzuje veřejnou prospěšnost ani osvobození příjmů. Existující účetnictví se převádí řízeně na hranici období přes **Převod účetního rámce**.
 

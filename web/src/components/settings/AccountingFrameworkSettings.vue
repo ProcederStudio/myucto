@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { settingsApi, type AccountingFramework, type AccountingFrameworkState } from '@/api/settings'
-import { apiErrorMessage } from '@/api/errors'
+import { apiErrorCode, apiErrorMessage } from '@/api/errors'
 import { useDemoMode } from '@/composables/useDemoMode'
 import { useAuthStore } from '@/stores/auth'
 import { formatDate } from '@/composables/useFormat'
@@ -19,6 +19,7 @@ const effectiveFrom = ref('')
 const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
+const conversionRequired = ref(false)
 
 const recommendedProfile = computed(() => {
   const recommendation = props.supplier.accounting_profile_recommendation
@@ -32,6 +33,7 @@ watch(() => [props.supplier.id, props.supplier.accounting_framework] as const, (
   framework.value = props.supplier.accounting_framework ?? 'cz_500'
   effectiveFrom.value = ''
   error.value = ''
+  conversionRequired.value = false
   saved.value = false
 }, { immediate: true })
 
@@ -42,6 +44,7 @@ async function save() {
   const supplierId = props.supplier.id
   saving.value = true
   error.value = ''
+  conversionRequired.value = false
   saved.value = false
   try {
     const state = await settingsApi.updateAccountingFramework(supplierId, framework.value, effectiveFrom.value)
@@ -56,7 +59,10 @@ async function save() {
     })
     saved.value = true
   } catch (e) {
-    if (props.supplier.id === supplierId) error.value = apiErrorMessage(e, t('settings.accounting_framework.save_error'))
+    if (props.supplier.id === supplierId) {
+      error.value = apiErrorMessage(e, t('settings.accounting_framework.save_error'))
+      conversionRequired.value = apiErrorCode(e) === 'accounting_framework_conversion_required'
+    }
   } finally {
     saving.value = false
   }
@@ -111,6 +117,12 @@ async function save() {
       <p v-if="saved" class="text-sm text-success-700" role="status">{{ t('settings.accounting_framework.saved') }}</p>
     </div>
     <p v-if="error" class="mt-3 text-sm text-danger-700" role="alert">{{ error }}</p>
+    <div v-if="conversionRequired && auth.can('accounting')" class="mt-2 flex flex-wrap items-center gap-3">
+      <RouterLink :to="{ name: 'accounting-framework-conversion' }" :class="[btnOutline('primary'), 'whitespace-nowrap']" data-test="framework-conversion-required-link">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.swap" /></svg>
+        {{ t('settings.accounting_framework.conversion_required_link') }}
+      </RouterLink>
+    </div>
     <h3 class="text-xs font-semibold text-neutral-700 mt-5 mb-2">{{ t('settings.accounting_framework.history') }}</h3>
     <ul v-if="supplier.accounting_framework_history?.length" class="space-y-1 text-sm">
       <li v-for="item in supplier.accounting_framework_history" :key="item.id">

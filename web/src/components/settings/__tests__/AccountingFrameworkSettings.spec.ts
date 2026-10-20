@@ -101,6 +101,31 @@ describe('AccountingFrameworkSettings', () => {
     expect(wrapper.emitted('updated')).toBeUndefined()
   })
 
+  it('offers the controlled conversion when the backend refuses a company with history', async () => {
+    m.save.mockRejectedValue({ response: { data: { error: {
+      code: 'accounting_framework_conversion_required',
+      message: 'History requires conversion.',
+      conversion_url: '/accounting/framework-conversion',
+    } } } })
+    const wrapper = render()
+    expect(wrapper.find('[data-test="framework-conversion-required-link"]').exists()).toBe(false)
+    await wrapper.get('select').setValue('cz_504')
+    await wrapper.get('input').setValue('2027-01-01')
+    await wrapper.get('[data-test="save-framework"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('History requires conversion.')
+    const link = wrapper.get('[data-test="framework-conversion-required-link"]')
+    expect(link.text()).toContain('settings.accounting_framework.conversion_required_link')
+    expect(wrapper.findAllComponents(routerLinkStub).at(-1)?.props('to')).toEqual({ name: 'accounting-framework-conversion' })
+    expect(cs.settings.accounting_framework.conversion_required_link).toBeTruthy()
+    expect(en.settings.accounting_framework.conversion_required_link).toBeTruthy()
+
+    m.save.mockRejectedValue({ response: { data: { error: { code: 'accounting_framework_period_start_required', message: 'Period start.' } } } })
+    await wrapper.get('[data-test="save-framework"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="framework-conversion-required-link"]').exists()).toBe(false)
+  })
+
   it('does not apply a delayed response after switching company', async () => {
     let resolve!: (value: AccountingFrameworkState) => void
     m.save.mockReturnValue(new Promise<AccountingFrameworkState>(r => { resolve = r }))

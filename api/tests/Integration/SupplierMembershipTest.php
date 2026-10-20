@@ -334,6 +334,42 @@ final class SupplierMembershipTest extends TestCase
         self::assertSame('2098-01-01', $payload['effective_from'] ?? null);
     }
 
+    public function testFrameworkUpdateTo504WithAccountingHistoryRequiresControlledConversion(): void
+    {
+        $userId = $this->mkUser('admin');
+        $token = $this->mkToken($userId);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'INSERT INTO supplier_accounting_frameworks
+                (supplier_id, effective_from, accounting_framework, created_by)
+             VALUES (?, ?, ?, ?)'
+        )->execute([$this->supplierB, '1900-01-01', 'cz_500', $userId]);
+        $pdo->prepare(
+            "INSERT INTO accounting_periods (supplier_id, fiscal_year, starts_on, ends_on, status)
+             VALUES (?, 2098, '2098-01-01', '2098-12-31', 'open')"
+        )->execute([$this->supplierB]);
+        $pdo->prepare(
+            "INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+             VALUES (?, '221', 'Syntetický bankovní účet', 'asset', 'debit', 1, 1)"
+        )->execute([$this->supplierB]);
+        $originalName = (string) $pdo->query('SELECT company_name FROM supplier WHERE id = ' . $this->supplierB)->fetchColumn();
+
+        $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
+            'company_name' => '__TEST framework conversion required',
+            'accounting_framework' => 'cz_504',
+            'accounting_framework_effective_from' => '2098-01-01',
+        ]);
+
+        self::assertSame(409, $response->getStatusCode(), (string) $response->getBody());
+        $error = $this->json($response)['error'] ?? [];
+        self::assertSame('accounting_framework_conversion_required', $error['code'] ?? null);
+        self::assertSame('/accounting/framework-conversion', $error['conversion_url'] ?? null);
+        self::assertSame(1, (int) $pdo->query(
+            'SELECT COUNT(*) FROM supplier_accounting_frameworks WHERE supplier_id = ' . $this->supplierB
+        )->fetchColumn());
+        self::assertSame($originalName, (string) $pdo->query('SELECT company_name FROM supplier WHERE id = ' . $this->supplierB)->fetchColumn());
+    }
+
     public function testHistoricalForeignDefaultCurrencyDoesNotHideSupplierOrExposeCurrency(): void
     {
         $pdo = $this->db->pdo();

@@ -6735,7 +6735,10 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: Změnu blokuje stav účetního období, zaúčtované zápisy nebo dočasně probíhající zápis
+          description: |
+            Změnu blokuje stav účetního období, zaúčtované zápisy nebo dočasně probíhající zápis.
+            `accounting_framework_conversion_required`: firma s účetní historií nesmí přejít
+            na rámec 504 přímo; `error.conversion_url` odkazuje na řízený převod rámce.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -45357,7 +45360,7 @@ components:
         accounting_framework:
           type: string
           enum: [cz_500, cz_504]
-          description: "Účetní rámec. Pro zápis musí být přítomen společně s accounting_framework_effective_from; cz_504 zatím backend odmítá kódem accounting_framework_not_available (409)."
+          description: "Účetní rámec. Pro zápis musí být přítomen společně s accounting_framework_effective_from. Přechod na cz_504 přímo je povolen jen firmě bez účetní historie (bez zápisů v deníku a bez účtové osnovy); jinak 409 accounting_framework_conversion_required s odkazem conversion_url na řízený převod rámce."
         accounting_framework_effective_from:
           type: string
           format: date
