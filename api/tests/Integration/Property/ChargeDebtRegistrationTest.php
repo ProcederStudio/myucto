@@ -102,6 +102,36 @@ final class ChargeDebtRegistrationTest extends TestCase
         self::assertSame([$debts[0]],array_values(array_unique(array_column($preview['snapshot']['allocations'],'debt_id'))));
     }
 
+    public function testPartialPaymentSplitsPrincipalProportionallyUnlessDeclared(): void
+    {
+        $this->f=$this->issuanceFixture($this->db);
+        $charge=$this->postFixture(ChargeDebtRegistrar::MODE_AUTOMATIC);
+        $debtor=$charge['snapshot']['liability_groups'][0]['members'][0];
+        $debts=array_map('intval',$this->column('SELECT id FROM unit_payment_debts WHERE supplier_id=? AND charge_id=?',[$this->f['supplier'],$charge['id']]));
+        $lines=[];
+        foreach($this->db->pdo()->query('SELECT id,amount_cents FROM unit_charge_lines WHERE supplier_id='.$this->f['supplier'].' AND charge_id='.$charge['id'].' AND amount_cents>0 ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC) as $row) $lines[(int)$row['id']]=$row['amount_cents'];
+        self::assertGreaterThan(1,count($lines));
+
+        // Bez určení dlužníkem se částečná úhrada jistiny rozdělí poměrně mezi řádky předpisu.
+        $amount='1001';
+        $preview=$this->correctionPayments()->preview($this->f['supplier'],$this->statutoryPayment($debtor,$debts,$amount));
+        $parts=[];
+        foreach($preview['snapshot']['allocations'] as $allocation) {
+            self::assertSame('principal',$allocation['component']);
+            $parts[$allocation['charge_line_id']]=$allocation['amount_cents'];
+        }
+        ksort($parts);
+        self::assertSame(\MyInvoice\Service\Property\Payments\ClaimPortionAllocator::distribute($amount,$lines,null,true),$parts);
+        self::assertSame($amount,array_reduce($parts,fn($sum,$value)=>bcadd($sum,$value,0),'0'));
+
+        // Deklarované rozdělení má přednost.
+        $first=array_key_first($lines);
+        $declared=$this->statutoryPayment($debtor,$debts,$amount);
+        $declared['payment']['principal_distribution']=[$debts[0]=>['evidence'=>'Synthetic debtor designation with creditor consent','lines'=>[['line_id'=>$first,'amount_cents'=>$amount]]]];
+        $preview=$this->correctionPayments()->preview($this->f['supplier'],$declared);
+        self::assertSame([[$first,$amount]],array_map(fn($a)=>[$a['charge_line_id'],$a['amount_cents']],$preview['snapshot']['allocations']));
+    }
+
     public function testManualModeKeepsExceptionPathAndInventoryGuard(): void
     {
         $this->f=$this->issuanceFixture($this->db);
