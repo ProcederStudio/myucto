@@ -39,7 +39,7 @@ final class SettlementApplicationRepository
             (new SettlementHistory($this->db))->assertOriginAvailable($supplier,$source);
         }
         foreach($live['allocations'] as $allocation)$references[]='allocation:'.$allocation['id'];
-        (new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($this->db))->assertReferencesMutable($supplier,$references);
+        (new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($this->db))->assertReferencesMutable($supplier,self::mutatedPartyReferences($request,$sourceByKey));
         $references=array_values(array_unique($references));sort($references,SORT_STRING);$partyReceipt=['supplier_id'=>$supplier,'references'=>$references];$partyHead=PropertyInput::hash($partyReceipt);foreach($currentOrigins as &$origin)$origin['party_head']=$partyHead;unset($origin);
         foreach(SettlementEvidence::costSources($facts['cost']) as $part)(new SettlementHistory($this->db))->assertCostAvailable($supplier,$part['source_id']);
         $current=['supplier_id'=>$supplier,'segment_key'=>$facts['segment_key'],'as_of'=>max($facts['known_at'],$facts['cutoff_at'],$request['accounting_date'].'T23:59:59+01:00'),'revision'=>$expected+1,'application_id'=>null,'origins'=>$currentOrigins,'allocations'=>array_map(fn($a)=>['id'=>$a['id'],'origin_key'=>$a['origin_key'],'source_hash'=>$a['source_hash'],'amount_cents'=>$a['amount_cents'],'operation_version'=>$a['operation_version'],'financial_head'=>$a['current_source_hash'],'relieved_cents'=>'0','active'=>$a['active'],'accounting_date'=>$a['accounting_date']],$live['allocations']),'cost'=>['source'=>$facts['cost'],'version'=>1,'available_cents'=>$facts['actual_cents']],'parties'=>array_map(fn($p)=>['id'=>$p['id'],'supplier_id'=>$supplier],array_values($parties))];
@@ -51,6 +51,30 @@ final class SettlementApplicationRepository
         $snapshot=['document_id'=>$document,'document_hash'=>$doc['document_hash'],'expected_version'=>$expected,'request'=>$request,'current_origin_hash'=>$live['current_hash'],'origin_receipt'=>$live,'party_receipt'=>$partyReceipt,'plan'=>$plan,'parties'=>array_values($parties),'header'=>$header,'claim_title'=>$title];
         if($dimensions)(new SystemDimensionWritePolicy($this->db))->assertPropertyServiceSettlementJournal($header,$plan['lines'],\MyInvoice\Service\Property\Services\Settlement\SettlementHistoricalCarrierProof::fromCurrent($this->db,$this,$supplier,$document,$request,$expected));
         return $snapshot+['preview_hash'=>PropertyInput::hash($snapshot)];
+    }
+    /**
+     * Zdroje, které vyúčtování skutečně mění: úhrady uvolněné do kreditu a pohledávky, jejichž
+     * jistinu snižuje nevyužitá záloha. Jen ty nesmí být připnuté k právní historii osob.
+     * Samotné použití zálohy převedenou pohledávku nemění, takže vyúčtování segmentu
+     * s dluhem přešlým na nabyvatele (§ 1186 OZ) zůstává možné a dluh trvá beze změny.
+     */
+    private static function mutatedPartyReferences(array $request,array $sourceByKey):array
+    {
+        $out=[];
+        foreach($request['reliefs'] as $part)$out[]='allocation:'.PropertyInput::id($part['allocation_id']??null,'allocation_id');
+        $credited=[];
+        foreach($request['opening_credits'] as $part){
+            $key=(string)($part['origin_key']??'');
+            $credited[$key]=bcadd($credited[$key]??'0',SettlementEvidence::cents($part['amount_cents']??null),0);
+        }
+        foreach($request['advances'] as $part){
+            $key=(string)($part['origin_key']??'');
+            $source=$sourceByKey[$key]??null;
+            if($source===null||$source['debt_id']===null)continue;
+            $reduction=bcsub(bcsub($source['prescribed_cents'],SettlementEvidence::cents($part['applied_cents']??null),0),$credited[$key]??'0',0);
+            if(bccomp($reduction,'0',0)>0)$out[]='claim:'.$source['debt_id'];
+        }
+        return array_values(array_unique($out));
     }
     /**
      * Tvar požadavku se ověří dřív, než se z něj čte: chybějící pole nebo jiný typ je
