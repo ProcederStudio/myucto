@@ -51,6 +51,23 @@ final class LogbookSourcePermissionTest extends TestCase
         self::assertSame(0, $this->fuelingCount($this->supplierA));
     }
 
+    /**
+     * `cash` a `accounting` jsou v katalogu práv jen pro zaměstnanecké role. Klientská role,
+     * která je má uložené, je přes RequestAuthorization::allows nedostane, ani u kandidátů
+     * zdroje knihy jízd.
+     */
+    public function testClientRoleWithStaffOnlyGrantIsRejected(): void
+    {
+        $action = $this->container->get(FuelingsAction::class);
+        foreach (['cash_document' => 'cash', 'journal_entry' => 'accounting'] as $type => $permission) {
+            $query = ['type' => $type, 'date' => '2099-03-05'];
+            $client = $this->request([$permission => 1], 'client')->withQueryParams($query);
+            self::assertSame(403, $action->linkCandidates($client, new Response())->getStatusCode(), $permission);
+            $staff = $this->request([$permission => 1], 'staff')->withQueryParams($query);
+            self::assertSame(200, $action->linkCandidates($staff, new Response())->getStatusCode(), $permission);
+        }
+    }
+
     public function testGrantedCashLinkStillRequiresOwnTenantAndRevocationPreservesStoredLink(): void
     {
         $own = $this->cashDocument($this->supplierA, 'Syntetická účtenka', 1000);
