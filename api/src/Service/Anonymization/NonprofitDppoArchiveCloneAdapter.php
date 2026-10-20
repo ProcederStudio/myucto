@@ -172,10 +172,14 @@ final class NonprofitDppoArchiveCloneAdapter
             foreach (['accounting_decree', 'period'] as $key) {
                 $podklady[$key] = $snapshot['podklady'][$key];
             }
-            $podklady['nonprofit'] = $rebased['data']['nonprofit'];
-            $podklady['statements'] = $rebased['data']['statements'];
+            // Kopie částí záznamu v podkladech se přepíší jen tam, kde je snapshot měl.
+            $copies = ['nonprofit' => $rebased['data']['nonprofit'], 'statements' => $rebased['data']['statements'], 'source_manifest' => $newManifest];
+            foreach ($copies as $key => $value) {
+                if (array_key_exists($key, $snapshot['podklady'])) {
+                    $podklady[$key] = $value;
+                }
+            }
             $podklady['nonprofit_calculation'] = $rebased;
-            $podklady['source_manifest'] = $newManifest;
             $rest = $snapshot;
             unset($rest['podklady'], $rest['computed']);
             $newSnapshot = $this->text($rest) + ['computed' => $computed, 'podklady' => $podklady];

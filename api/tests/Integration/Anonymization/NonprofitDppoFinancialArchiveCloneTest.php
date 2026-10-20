@@ -18,6 +18,7 @@ use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof;
 use MyInvoice\Service\Tax\Return\TaxReturnService;
 use MyInvoice\Tests\Integration\Tax\NonprofitDppoNativeWorkflowTest;
 use MyInvoice\Tests\Support\OwnedTestDatabaseCleanup;
+use MyInvoice\Tests\Support\OwnedTestDatabaseSessions;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -262,6 +263,7 @@ final class NonprofitDppoFinancialArchiveCloneTest extends TestCase
             $test(Config::load(Bootstrap::rootDir()), $source, $target, $server);
         } finally {
             $this->select($previous);
+            OwnedTestDatabaseSessions::close($server, [$source, $target]);
             foreach ([$source, $target] as $name) {
                 OwnedTestDatabaseCleanup::drop($server, $name, [$source, $target]);
             }

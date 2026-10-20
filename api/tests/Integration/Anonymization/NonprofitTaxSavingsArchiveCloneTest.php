@@ -19,6 +19,7 @@ use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService;
 use MyInvoice\Tests\Integration\Tax\NonprofitDppoStoredArchiveGuardTest;
 use MyInvoice\Tests\Support\OwnedTestDatabaseCleanup;
+use MyInvoice\Tests\Support\OwnedTestDatabaseSessions;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -198,6 +199,7 @@ final class NonprofitTaxSavingsArchiveCloneTest extends TestCase
             $test(Config::load(Bootstrap::rootDir()), $source, $target, $server);
         } finally {
             $this->select($previous);
+            OwnedTestDatabaseSessions::close($server, [$source, $target]);
             foreach ([$source, $target] as $name) {
                 OwnedTestDatabaseCleanup::drop($server, $name, [$source, $target]);
             }
