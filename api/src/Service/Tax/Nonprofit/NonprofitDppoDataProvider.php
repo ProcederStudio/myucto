@@ -47,8 +47,7 @@ final class NonprofitDppoDataProvider
                     'legal_profile'=>$legal,'assessment_id'=>$assessment['id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'j6_receipt_hash'=>$j6Receipt['receipt_hash'],'nonprofit_proof_hash'=>$context['proof_hash'],'saving_due'=>$savingDue,'adjustments'=>$adjustments]];
             $balance=$this->statements->balanceSheet($supplier,(int)$period['id'],$period['ends_on'],'full');
             $income=$this->statements->incomeStatement($supplier,(int)$period['id'],$period['ends_on'],'full');
-            $incomeRows=array_column($income['rows'],null,'adis_row');
-            if((int)round(($incomeRows[62]['total']??INF)*100)!==$snapshot['accounting_result_cents'])throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Výsledek J6 nesouhlasí s nativní výsledovkou 504 před zdaněním.',422);
+            self::assertStatementResult($income,$snapshot['accounting_result_cents']);
             $result['statements']=['balance_sheet'=>$balance,'income_statement'=>$income,'epo_rows'=>(new NonprofitDppoStatementRows())->build($balance,$income)];
             $result['source_manifest']['statements_hash']=NonprofitTaxRules::hash($result['statements']);
             $criteria=$this->statements504->criteria($supplier,$period,$period['ends_on']);
@@ -56,6 +55,22 @@ final class NonprofitDppoDataProvider
             $result['source_manifest']['net_turnover']=['legal_basis'=>'zou_1d_5_2','annual_kc'=>$result['net_turnover_annual_kc'],'ledger_hash'=>NonprofitTaxRules::hash($snapshot['ledger'])];
             NonprofitDppoComputation::validate($result,$inputs);return$result;
         });
+    }
+
+    /**
+     * Výsledek J6 musí souhlasit s řádkem 62 (výsledek před zdaněním) nativní výsledovky 504.
+     * Chybějící nebo nečíselný řádek je chyba výkazu, nikoli nula.
+     */
+    public static function assertStatementResult(array $income,int $accountingResultCents):void
+    {
+        $rows=array_column(is_array($income['rows']??null)?$income['rows']:[],null,'adis_row');
+        $total=$rows[62]['total']??null;
+        if(!is_int($total)&&!is_float($total)&&!(is_string($total)&&is_numeric($total))){
+            throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Nativní výsledovka 504 neobsahuje řádek 62 výsledku hospodaření před zdaněním.',422);
+        }
+        if((int)round((float)$total*100)!==$accountingResultCents){
+            throw new TaxReturnException('nonprofit_dppo_statement_reconciliation_failed','Výsledek J6 nesouhlasí s nativní výsledovkou 504 před zdaněním.',422);
+        }
     }
 
     private function adjustments(int $supplier,array $period,array $assessment,mixed $elections):array
