@@ -29,10 +29,10 @@ final class NonprofitTaxSavingUseGuard
         return true;
     }
     public function assertEntriesMutable(int $supplier,array $entries):void
-    {if(!$this->supplierHasActiveUse($supplier))return;foreach(array_unique(array_map('intval',$entries))as$entry)$this->assertEntryChange($supplier,$entry,null,null);}
+    {if($entries===[]||!$this->supplierHasActiveUse($supplier))return;foreach(array_unique(array_map('intval',$entries))as$entry)$this->assertEntryChange($supplier,$entry,null,null);}
     public function assertLinesMutable(int $supplier,array $lines):void
     {
-        if(!$this->supplierHasActiveUse($supplier))return;
+        if($lines===[]||!$this->supplierHasActiveUse($supplier))return;
         (new DimensionPeriodGuard($this->db))->lockPeriods($supplier);
         foreach(array_unique(array_map('intval',$lines))as$line){$q=$this->db->pdo()->prepare('SELECT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id=? FOR UPDATE');$q->execute([$supplier,$line]);$entry=$q->fetchColumn();if($entry!==false)$this->assertEntriesMutable($supplier,[(int)$entry]);}
     }
