@@ -61,8 +61,14 @@ final class IssuancePreviewService
         $configured=array_column($request['accounts'],null,'component_id');
         $container=\MyInvoice\Bootstrap::buildContainer();$container->set(Connection::class,$this->db);$redirects=$container->get(\MyInvoice\Service\Accounting\PostingService::class)->singleAnalyticRedirects($supplier, $request['accounting_date'], $current);
         foreach($configured as &$selection)foreach(['receivable_account','counter_account'] as $accountField)$selection[$accountField]=$redirects[$selection[$accountField]]??$selection[$accountField];unset($selection);
-        $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,v.id value_id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id WHERE (t.supplier_id=? OR t.supplier_id IS NULL) AND (v.supplier_id=? OR v.supplier_id IS NULL) AND t.is_active=1 AND v.is_active=1 ORDER BY t.id,v.id".($current?' FOR UPDATE':''));
-        $stmt->execute([$supplier,$supplier]); $values=[];
+        // Jen dimenze firmy a její skupiny (SSOT DimensionRepository::visibleSql), ne dimenze cizích skupin.
+        // Dimenze firmy výhradně zamyká IssuanceLocks; skupinové sdílí více firem, proto jen sdílený
+        // zámek: výhradní by serializoval vydání předpisů všech firem skupiny.
+        $dimensions=new \MyInvoice\Repository\DimensionRepository($this->db);
+        [$typeScope,$typeParams]=$dimensions->visibleSql($supplier,'t');
+        [$valueScope,$valueParams]=$dimensions->visibleSql($supplier,'v');
+        $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,v.id value_id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id WHERE {$typeScope} AND {$valueScope} AND t.is_active=1 AND v.is_active=1 ORDER BY t.id,v.id".($current?' LOCK IN SHARE MODE':''));
+        $stmt->execute([...$typeParams,...$valueParams]); $values=[];
         foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $values[(int)$row['value_id']]=['type_id'=>(int)$row['type_id'],'system_key'=>$row['system_key']];
         $calculations=[];
         foreach($version['preview']['calculation']['rates'] as $key=>$rate) $calculations[$key]=array_column($rate['calculation']['lines'],null,'unit_id');

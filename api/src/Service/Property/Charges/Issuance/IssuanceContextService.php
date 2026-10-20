@@ -29,14 +29,17 @@ final class IssuanceContextService
         }
         $stmt=$this->db->pdo()->prepare('SELECT account_code,name,account_type FROM chart_of_accounts WHERE supplier_id=? AND is_active=1 ORDER BY account_code'); $stmt->execute([$supplier]);
         $accounts=$stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,t.name type_name,t.system_key,v.id value_id,v.name value_name FROM dimension_types t JOIN dimension_values v ON v.type_id=t.id WHERE (t.supplier_id=? OR t.supplier_id IS NULL) AND (v.supplier_id=? OR v.supplier_id IS NULL) AND t.is_active=1 AND v.is_active=1 AND (t.system_key IS NULL OR t.system_key NOT IN ('unit','service')) ORDER BY t.id,v.id");
-        $stmt->execute([$supplier,$supplier]); $dimensions=[];
+        $visibility=new \MyInvoice\Repository\DimensionRepository($this->db);
+        [$typeScope,$typeParams]=$visibility->visibleSql($supplier,'t');
+        [$valueScope,$valueParams]=$visibility->visibleSql($supplier,'v');
+        $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,t.name type_name,t.system_key,v.id value_id,v.name value_name FROM dimension_types t JOIN dimension_values v ON v.type_id=t.id WHERE {$typeScope} AND {$valueScope} AND t.is_active=1 AND v.is_active=1 AND (t.system_key IS NULL OR t.system_key NOT IN ('unit','service')) ORDER BY t.id,v.id");
+        $stmt->execute([...$typeParams,...$valueParams]); $dimensions=[];
         foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $id=(int)$row['type_id'];
             $dimensions[$id]??=['id'=>$id,'name'=>$row['type_name'],'system_key'=>$row['system_key'],'values'=>[]];
             $dimensions[$id]['values'][]=['id'=>(int)$row['value_id'],'name'=>$row['value_name']];
         }
-        $history=array_values(array_filter((new IssuanceReadRepository($this->db))->charges($supplier),fn($charge)=>isset($unitIds[$charge['unit_id']])));
+        $history=$unitIds===[]?[]:(new IssuanceReadRepository($this->db))->forUnits($supplier,array_keys($unitIds));
         return ['as_of'=>$at,'version'=>$version,'units'=>$units,'parties'=>$registry->parties($supplier,array_keys($ids)),
             'accounts'=>$accounts,'dimensions'=>array_values($dimensions),'history'=>$history,'case_families'=>IssuanceCaseIdentity::context(IssuanceCaseIdentity::families($history))];
     }
