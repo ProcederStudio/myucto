@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Property\Payments;
 use MyInvoice\Service\Property\PropertyInstant;
 
-final class UnitPaymentResolver
+final class StatutoryClaimSelector
 {
     public static function preview(array $payment,array $claims): array
     {

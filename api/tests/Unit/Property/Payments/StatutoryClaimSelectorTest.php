@@ -3,11 +3,11 @@
 declare(strict_types=1);
 namespace MyInvoice\Tests\Unit\Property\Payments;
 use MyInvoice\Service\Property\Payments\StatutoryAllocationPolicy;
-use MyInvoice\Service\Property\Payments\UnitPaymentResolver;
+use MyInvoice\Service\Property\Payments\StatutoryClaimSelector;
 use MyInvoice\Service\Property\Payments\CreditReservationState;
 use PHPUnit\Framework\TestCase;
 
-final class UnitPaymentResolverTest extends TestCase
+final class StatutoryClaimSelectorTest extends TestCase
 {
     private function debt(int $id, string $due = '2026-01-10'): array
     {
@@ -25,11 +25,11 @@ final class UnitPaymentResolverTest extends TestCase
     public function testGeneralAndConsumerAllocateOneClaimOnlyDespiteTwoSjmMembers(): void
     {
         $debt=$this->debt(1);
-        $general=UnitPaymentResolver::preview($this->payment(),[$debt]);
+        $general=StatutoryClaimSelector::preview($this->payment(),[$debt]);
         self::assertSame('8500',$general['allocations'][0]['components']['principal']);
         self::assertSame('10000',$general['allocated_cents']);
         $debt['legal']['regime']='consumer_in_default';
-        $consumer=UnitPaymentResolver::preview($this->payment(),[$debt]);
+        $consumer=StatutoryClaimSelector::preview($this->payment(),[$debt]);
         self::assertSame('9500',$consumer['allocations'][0]['components']['principal']);
         self::assertSame('0',$consumer['allocations'][0]['components']['default_interest']);
         self::assertCount(1,$consumer['allocations']);
@@ -37,7 +37,7 @@ final class UnitPaymentResolverTest extends TestCase
     public function testTransitionDependsOnPriorLegalActRatherThanJustReceiptDate(): void
     {
         $debt=$this->debt(1); $debt['legal']=['basis'=>'legal_act','legal_act_date'=>'2020-06-01','evidence'=>'Pre-amendment agreement','regime'=>'consumer_in_default'];
-        $plan=UnitPaymentResolver::preview($this->payment(),[$debt]);
+        $plan=StatutoryClaimSelector::preview($this->payment(),[$debt]);
         self::assertSame('8500',$plan['allocations'][0]['components']['principal']);
         self::assertSame('cz_1932_before_2021_07_01',$plan['allocations'][0]['ruleset']);
     }
@@ -45,45 +45,45 @@ final class UnitPaymentResolverTest extends TestCase
     {
         $a=$this->debt(8,'2026-01-01'); $b=$this->debt(2,'2026-02-01');
         $b['reminder_at']='2026-02-28T10:00:00+01:00';
-        self::assertSame(2,UnitPaymentResolver::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
+        self::assertSame(2,StatutoryClaimSelector::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
         $b['reminder_at']='2026-03-02T10:00:00+01:00';
-        self::assertSame(8,UnitPaymentResolver::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
+        self::assertSame(8,StatutoryClaimSelector::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
         $p=$this->payment(); $p['choice']=['claim_ids'=>[2],'evidence'=>'Debtor designation at payment'];
-        self::assertSame(2,UnitPaymentResolver::preview($p,[$a,$b])['allocations'][0]['claim_id']);
+        self::assertSame(2,StatutoryClaimSelector::preview($p,[$a,$b])['allocations'][0]['claim_id']);
     }
     public function testEqualLegalPriorityIsReviewNotInternalIdOrder(): void
     {
-        $plan=UnitPaymentResolver::preview($this->payment(),[$this->debt(8),$this->debt(2)]);
+        $plan=StatutoryClaimSelector::preview($this->payment(),[$this->debt(8),$this->debt(2)]);
         self::assertSame('review_required',$plan['status']); self::assertSame('ambiguous_priority',$plan['reason']); self::assertSame([],$plan['allocations']);
     }
     public function testUnprovenThirdPartyAndSecurityCannotAuthorizeAllocation(): void
     {
         $p=$this->payment(); $p['third_party']=null;
-        self::assertSame('third_party_unproven',UnitPaymentResolver::preview($p,[$this->debt(1)])['reason']);
+        self::assertSame('third_party_unproven',StatutoryClaimSelector::preview($p,[$this->debt(1)])['reason']);
         $a=$this->debt(1);$b=$this->debt(2);$b['security']=['kind'=>'secured','rank'=>10,'evidence'=>'Rank alone'];
-        self::assertSame('security_comparison_required',UnitPaymentResolver::preview($this->payment(),[$a,$b])['reason']);
+        self::assertSame('security_comparison_required',StatutoryClaimSelector::preview($this->payment(),[$a,$b])['reason']);
     }
     public function testExcessCreditBelongsToProvenPersonsNotThirdPartyPayer(): void
     {
-        $plan=UnitPaymentResolver::preview($this->payment('12000'),[$this->debt(1)]);
+        $plan=StatutoryClaimSelector::preview($this->payment('12000'),[$this->debt(1)]);
         self::assertSame('11500',$plan['allocated_cents']);self::assertSame('500',$plan['credit_cents']);self::assertSame([11,12],$plan['credit_entitlement']['party_ids']);
         $p=$this->payment('12000');$p['credit_entitlement']=null;
-        self::assertSame('credit_entitlement_required',UnitPaymentResolver::preview($p,[$this->debt(1)])['reason']);
+        self::assertSame('credit_entitlement_required',StatutoryClaimSelector::preview($p,[$this->debt(1)])['reason']);
     }
     public function testDamagesWaitForUnderlyingClaimUnlessExpresslyDesignated(): void
     {
         $a=$this->debt(1,'2026-02-01');$b=$this->debt(2,'2026-01-01');$b['damages_for']=1;
-        self::assertSame(1,UnitPaymentResolver::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
+        self::assertSame(1,StatutoryClaimSelector::preview($this->payment(),[$a,$b])['allocations'][0]['claim_id']);
     }
     public function testAClaimJoinedTwiceThroughPersonsIsRejectedRatherThanMultiplied(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        UnitPaymentResolver::preview($this->payment(),[$this->debt(1),$this->debt(1)]);
+        StatutoryClaimSelector::preview($this->payment(),[$this->debt(1),$this->debt(1)]);
     }
     public function testExactLargeAmountsNeverCrossFloat(): void
     {
         $d=$this->debt(1);$d['components']=['determined_cost'=>'0','default_interest'=>'0','interest'=>'0','principal'=>'9007199254740993'];$d['eligible_cents']='9007199254740993';
-        self::assertSame('9007199254740992',UnitPaymentResolver::preview($this->payment('9007199254740992'),[$d])['allocated_cents']);
+        self::assertSame('9007199254740992',StatutoryClaimSelector::preview($this->payment('9007199254740992'),[$d])['allocated_cents']);
     }
     public function testReservationDoesNotExtinguishCreditAndCasBlocksConcurrentUse(): void
     {
@@ -113,7 +113,7 @@ final class UnitPaymentResolverTest extends TestCase
     public function testPartialLiabilityCapDoesNotPretendTheUnderlyingWholeClaimWasPaid(): void
     {
         $a=$this->debt(1);$a['eligible_cents']='1000';$b=$this->debt(2);$b['damages_for']=1;
-        $result=UnitPaymentResolver::preview($this->payment('2000'),[$a,$b]);
+        $result=StatutoryClaimSelector::preview($this->payment('2000'),[$a,$b]);
         self::assertSame('review_required',$result['status']);
         self::assertSame('underlying_claim_unresolved',$result['reason']);
         self::assertSame([],$result['allocations']);
@@ -123,8 +123,8 @@ final class UnitPaymentResolverTest extends TestCase
     {
         $a=$this->debt(1);$b=$this->debt(2);$a['security']=['kind'=>'secured','evidence'=>'Synthetic first mortgage'];$b['security']=['kind'=>'secured','evidence'=>'Synthetic subordinated security'];
         $p=$this->payment();$p['security_comparison']=['tiers'=>[[2],[1]],'facts'=>[1=>$a['security'],2=>$b['security']],'evidence'=>'Documented enforceability and proceeds comparison'];
-        $result=UnitPaymentResolver::preview($p,[$a,$b]);self::assertSame('ready',$result['status']);self::assertSame(2,$result['allocations'][0]['claim_id']);
-        $p['security_comparison']['facts'][2]['evidence']='Different security';self::assertSame('security_comparison_required',UnitPaymentResolver::preview($p,[$a,$b])['reason']);
+        $result=StatutoryClaimSelector::preview($p,[$a,$b]);self::assertSame('ready',$result['status']);self::assertSame(2,$result['allocations'][0]['claim_id']);
+        $p['security_comparison']['facts'][2]['evidence']='Different security';self::assertSame('security_comparison_required',StatutoryClaimSelector::preview($p,[$a,$b])['reason']);
     }
     public function testOldDebtorDispositionHasDocumentedInterestEffectAndModernGeneralNeedsConsent(): void
     {

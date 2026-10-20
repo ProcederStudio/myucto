@@ -3,7 +3,7 @@
 declare(strict_types=1);
 namespace MyInvoice\Service\Property\Payments;
 use MyInvoice\Infrastructure\Database\Connection;
-use MyInvoice\Repository\Property\Payments\DebtRepository;
+use MyInvoice\Repository\Property\Payments\{ChargeReminderRepository,DebtRepository};
 use MyInvoice\Repository\Property\PropertyReadRepository;
 use MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository;
 use MyInvoice\Service\Property\PropertyInput;
@@ -20,8 +20,7 @@ final class ClaimAllocationPlanner
         if(isset($payment['choice'])){if(!is_array($payment['choice']))PropertyInput::invalid('choice');PropertyInput::fields($payment['choice'],['claim_ids','evidence']);PropertyInput::text($payment['choice']['evidence']??null,'choice.evidence',4000);foreach(PropertyInput::list($payment['choice']['claim_ids']??null,'claim_ids') as $id)PropertyInput::id($id,'claim_id');}
         if(isset($payment['security_comparison'])){if(!is_array($payment['security_comparison']))PropertyInput::invalid('security_comparison');PropertyInput::fields($payment['security_comparison'],['tiers','facts','evidence']);PropertyInput::text($payment['security_comparison']['evidence']??null,'security_comparison.evidence',4000);foreach($payment['security_comparison']['facts']??[] as $fact){if(!is_array($fact))PropertyInput::invalid('security_fact');PropertyInput::fields($fact,['kind','evidence']);PropertyInput::text($fact['evidence']??null,'security_fact.evidence',4000);}}
         foreach($payment['reminders']??[] as $notice){if(!is_array($notice))PropertyInput::invalid('reminder');PropertyInput::fields($notice,['debt_id','evidence','recipient_ids','delivered_at']);PropertyInput::id($notice['debt_id']??null,'debt_id');foreach(PropertyInput::list($notice['recipient_ids']??null,'recipient_ids') as $id)PropertyInput::id($id,'recipient_id');}
-        foreach($payment['principal_distribution']??[] as $distribution){if(!is_array($distribution))PropertyInput::invalid('principal_distribution');PropertyInput::fields($distribution,['lines','evidence']);PropertyInput::text($distribution['evidence']??null,'principal_distribution.evidence',4000);foreach(PropertyInput::list($distribution['lines']??null,'lines') as $part){if(!is_array($part))PropertyInput::invalid('line');PropertyInput::fields($part,['line_id','amount_cents']);}}
-        foreach($payment['accessory_distribution']??[] as $components){if(!is_array($components))PropertyInput::invalid('accessory_distribution');PropertyInput::fields($components,['determined_cost','default_interest','interest']);foreach($components as $distribution){if(!is_array($distribution))PropertyInput::invalid('accessory_distribution');PropertyInput::fields($distribution,['parts','evidence']);PropertyInput::text($distribution['evidence']??null,'accessory_distribution.evidence',4000);foreach(PropertyInput::list($distribution['parts']??null,'parts') as $part){if(!is_array($part))PropertyInput::invalid('part');PropertyInput::fields($part,['id','amount_cents']);PropertyInput::id($part['id']??null,'accessory_id');StatutoryAllocationPolicy::cents($part['amount_cents']??null);}}}
+        self::assertDistributions($payment);
         $debtor=PropertyInput::id($payment['debtor_id']??null,'debtor_id');$payer=PropertyInput::id($payment['payer_id']??null,'payer_id');
         $parties=(new PropertyReadRepository($this->db))->parties($supplier,array_values(array_unique([$debtor,$payer])),true);
         if(count($parties)!==count(array_unique([$debtor,$payer])))PaymentException::reject('foreign_party');
@@ -42,6 +41,7 @@ final class ClaimAllocationPlanner
         }
         catch(\MyInvoice\Service\Property\PropertyException $e){PaymentException::reject('liability_review',['reason'=>$e->errorCode]+$e->details);}
         $claims=[];$details=[];$bound=[];
+        $recordedReminders=$this->recordedReminders($supplier,$all,$wanted,$debtor);
         foreach($all as $debt) {
             $fact=$debt['snapshot'];if($fact['charge_id']!==null)foreach($fact['lines'] as $line)$bound[$line['id']]=true;
             if(!$debt['active']){if(in_array($debt['id'],$wanted,true))PaymentException::reject('inactive_debt');continue;}
@@ -75,6 +75,9 @@ final class ClaimAllocationPlanner
                 if(!in_array($debtor,$notice['recipient_ids']??[],true))PaymentException::reject('reminder_recipient_unproven');
                 $time=PropertyInstant::normalize($notice['delivered_at']??null);if($time<$at&&($reminder===null||$time<$reminder))$reminder=$time;
             }
+            foreach($recordedReminders[$debt['id']]??[] as $time) {
+                if($time<$at&&($reminder===null||$time<$reminder)) $reminder=$time;
+            }
             $claims[]=['id'=>$debt['id'],'unit_id'=>$fact['unit_id'],'debtor_ids'=>$group['members'],'eligible_cents'=>$cap,'due_date'=>$fact['due_date'],'reminder_at'=>$reminder,
                 'security'=>$fact['security'],'damages_for'=>$fact['damages_for'],'legal'=>$fact['legal'],'components'=>$components];
             $details[$debt['id']]=['debt'=>$debt,'group'=>$group,'lines'=>$lines,'accessories'=>$accessories];
@@ -88,7 +91,7 @@ final class ClaimAllocationPlanner
             foreach($q->fetchAll(PDO::FETCH_COLUMN) as $id)if(!isset($bound[$id]))PaymentException::reject('debt_inventory_incomplete',['charge_id'=>$charge['id'],'charge_line_id'=>(int)$id]);
         }
         $payment['amount_cents']=$request['amount_cents'];$payment['payment_date']=$source['receipt']['date'];$payment['credit_entitlement']=$request['credit_entitlement']??null;
-        $resolution=UnitPaymentResolver::preview($payment,$claims);if($resolution['status']!=='ready')PaymentException::reject('legal_review',['reason'=>$resolution['reason']]);
+        $resolution=StatutoryClaimSelector::preview($payment,$claims);if($resolution['status']!=='ready')PaymentException::reject('legal_review',['reason'=>$resolution['reason']]);
         $allocations=[];$journal=[];
         foreach($resolution['allocations'] as $allocation){
             $id=$allocation['claim_id'];$detail=$details[$id];$principal=$allocation['components']['principal'];$remaining=array_reduce($detail['lines'],fn($sum,$line)=>bcadd($sum,$line['remaining_cents'],0),'0');
@@ -114,5 +117,73 @@ final class ClaimAllocationPlanner
             }
         }
         return ['resolution'=>$resolution,'allocations'=>$allocations,'lines'=>$journal,'debt_receipts'=>array_values($details),'payment_parties'=>$parties];
+    }
+
+    /**
+     * Neplatné rozdělení jistiny nebo příslušenství je chyba vstupu (4xx), ne chyba serveru.
+     */
+    private static function assertDistributions(array $payment): void
+    {
+        foreach ($payment['principal_distribution'] ?? [] as $distribution) {
+            if (!is_array($distribution)) PropertyInput::invalid('principal_distribution');
+            PropertyInput::fields($distribution, ['lines', 'evidence']);
+            PropertyInput::text($distribution['evidence'] ?? null, 'principal_distribution.evidence', 4000);
+            foreach (PropertyInput::list($distribution['lines'] ?? null, 'lines') as $part) {
+                if (!is_array($part)) PropertyInput::invalid('line');
+                PropertyInput::fields($part, ['line_id', 'amount_cents']);
+                PropertyInput::id($part['line_id'] ?? null, 'line_id');
+                self::cents($part['amount_cents'] ?? null, 'principal_distribution.amount_cents');
+            }
+        }
+        foreach ($payment['accessory_distribution'] ?? [] as $components) {
+            if (!is_array($components)) PropertyInput::invalid('accessory_distribution');
+            PropertyInput::fields($components, ['determined_cost', 'default_interest', 'interest']);
+            foreach ($components as $distribution) {
+                if (!is_array($distribution)) PropertyInput::invalid('accessory_distribution');
+                PropertyInput::fields($distribution, ['parts', 'evidence']);
+                PropertyInput::text($distribution['evidence'] ?? null, 'accessory_distribution.evidence', 4000);
+                foreach (PropertyInput::list($distribution['parts'] ?? null, 'parts') as $part) {
+                    if (!is_array($part)) PropertyInput::invalid('part');
+                    PropertyInput::fields($part, ['id', 'amount_cents']);
+                    PropertyInput::id($part['id'] ?? null, 'accessory_id');
+                    self::cents($part['amount_cents'] ?? null, 'accessory_distribution.amount_cents');
+                }
+            }
+        }
+    }
+
+    private static function cents(mixed $value, string $field): string
+    {
+        try {
+            return StatutoryAllocationPolicy::cents($value);
+        } catch (\InvalidArgumentException) {
+            PropertyInput::invalid($field);
+        }
+    }
+
+    /**
+     * Upomenutí zaznamenaná u předpisu (`unit_charge_evidence_events`, druh reminder) mají pro
+     * pořadí § 1933 stejnou váhu jako upomenutí převzaté při otevření nebo doložené v požadavku.
+     * Upomínka předpisu se vztahuje ke všem dluhům z jeho řádků; účinná je jen vůči osobě,
+     * kterou doručení zastupovalo, a jen pokud bylo doručeno před přijetím platby (porovnává volající).
+     *
+     * @return array<int,list<string>> id dluhu => okamžiky doručení
+     */
+    private function recordedReminders(int $supplier, array $debts, array $wanted, int $debtor): array
+    {
+        $byCharge = [];
+        foreach ($debts as $debt) {
+            $charge = $debt['snapshot']['charge_id'] ?? null;
+            if ($charge !== null && in_array($debt['id'], $wanted, true)) $byCharge[(int) $charge][] = $debt['id'];
+        }
+        if ($byCharge === []) return [];
+        $out = [];
+        foreach ((new ChargeReminderRepository($this->db))->forCharges($supplier, array_keys($byCharge)) as $chargeId => $reminders) {
+            foreach ($reminders as $reminder) {
+                if (!in_array($debtor, $reminder['represented_ids'], true)) continue;
+                foreach ($byCharge[$chargeId] as $debtId) $out[$debtId][] = $reminder['delivered_at'];
+            }
+        }
+        return $out;
     }
 }

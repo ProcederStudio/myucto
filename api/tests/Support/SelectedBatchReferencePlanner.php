@@ -79,7 +79,7 @@ final class SelectedBatchReferencePlanner
             foreach($q->fetchAll(PDO::FETCH_COLUMN) as $id)if(!isset($bound[$id]))PaymentException::reject('debt_inventory_incomplete',['charge_id'=>$charge['id'],'charge_line_id'=>(int)$id]);
         }
         $payment['amount_cents']=$request['amount_cents'];$payment['payment_date']=$source['receipt']['date'];$payment['credit_entitlement']=$request['credit_entitlement']??null;
-        $resolution=UnitPaymentResolver::preview($payment,$claims);if($resolution['status']!=='ready')PaymentException::reject('legal_review',['reason'=>$resolution['reason']]);
+        $resolution=StatutoryClaimSelector::preview($payment,$claims);if($resolution['status']!=='ready')PaymentException::reject('legal_review',['reason'=>$resolution['reason']]);
         $allocations=[];$journal=[];
         foreach($resolution['allocations'] as $allocation){
             $id=$allocation['claim_id'];$detail=$details[$id];$principal=$allocation['components']['principal'];$remaining=array_reduce($detail['lines'],fn($sum,$line)=>bcadd($sum,$line['remaining_cents'],0),'0');
