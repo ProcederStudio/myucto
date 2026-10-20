@@ -37908,6 +37908,7 @@ components:
         default_branding_profile_id: { type: [integer, "null"], readOnly: true }
         auto_send_reminders: { type: boolean, description: "Automatické odesílání upomínek; u nově založené firmy je výchozí hodnota false." }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365 }
+        payment_thanks_max_age_days: { type: integer, minimum: 0, maximum: 365, default: 30, description: "Automatické poděkování za úhradu jen k platbě ne starší než N dní; 0 = bez omezení (migrace 2073)." }
         epo_taxpayer_code:
           type: [string, "null"]
           enum: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", null]
@@ -38079,6 +38080,7 @@ components:
         has_email_logo: { type: boolean }
         auto_send_reminders: { type: boolean }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365, default: 3, description: "Per-dodavatel práh: po kolika dnech po splatnosti poslat první automatickou upomínku (migrace 0089). CLI --days ho přebije." }
+        payment_thanks_max_age_days: { type: integer, minimum: 0, maximum: 365, default: 30, description: "Automatické poděkování za úhradu jen k platbě ne starší než N dní; 0 = bez omezení (migrace 2073)." }
         self_copy:
           type: [object, "null"]
           description: |

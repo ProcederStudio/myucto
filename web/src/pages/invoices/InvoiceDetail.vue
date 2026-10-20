@@ -749,12 +749,20 @@ function actionLabel(a: string): string {
     'invoice.public_isdoc_downloaded': 'invoice.actions.public_isdoc_downloaded',
     'invoice.public_attachment_downloaded': 'invoice.actions.public_attachment_downloaded',
     'proforma.final_issued':          'invoice.actions.proforma_final_issued',
+    'invoice.payment_matched':        'invoice.actions.payment_matched',
+    'invoice.bank_payment_released':  'invoice.actions.bank_payment_released',
+    'invoice.payment_thanks_sent':    'invoice.actions.payment_thanks_sent',
+    'invoice.payment_thanks_queued':  'invoice.actions.payment_thanks_queued',
+    'invoice.payment_thanks_failed':  'invoice.actions.payment_thanks_failed',
+    'invoice.payment_thanks_skipped': 'invoice.actions.payment_thanks_skipped',
   }
   return map[a] ? (t(map[a]) as string) : a
 }
 
 function actionColor(a: string): string {
   if (a.includes('reminder')) return 'bg-warning-50 text-warning-600'
+  if (a.includes('payment_thanks_failed')) return 'bg-danger-50 text-danger-500'
+  if (a.includes('bank_payment_released')) return 'bg-warning-50 text-warning-600'
   if (a.includes('approval_approved')) return 'bg-success-50 text-success-600'
   if (a.includes('approval_rejected')) return 'bg-danger-50 text-danger-500'
   if (a.includes('approval')) return 'bg-primary-100 text-primary-700'
@@ -777,6 +785,12 @@ function payloadText(payload: any): string {
           return label === key ? String(f) : label
         })
         return `${t('invoice.changed_label')}: ${names.join(', ')}`
+      }
+      // Důvod nevyřízeného poděkování za úhradu (PaymentThanksMailer skip reasons).
+      if (k === 'reason' && typeof v === 'string') {
+        const key = `invoice.payment_thanks_reasons.${v}`
+        const label = t(key) as string
+        if (label !== key) return `${k}=${label}`
       }
       return k + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v))
     })

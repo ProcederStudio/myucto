@@ -291,6 +291,7 @@ export interface Supplier {
   payment_thanks_auto_send: boolean
   payment_thanks_default_checked: boolean
   payment_thanks_attach_paid_pdf: boolean
+  payment_thanks_max_age_days: number // 0 = bez omezení stáří platby (migrace 2073)
   // Kopie odchozích e-mailů dodavateli (migrace 0102). Klíč chybí / objekt null
   // = typ jede dle cfg fallbacku (cfg_self_copy_fallback níže).
   self_copy?: Partial<Record<SelfCopyType, SelfCopyMode>> | null
