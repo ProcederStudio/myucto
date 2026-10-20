@@ -82,6 +82,89 @@ final class CapitalService
             return $results;
         });
     }
+    /**
+     * Vyřazení vlastního majetku z investičního zdroje: dosud nerozpuštěný zbytek zdroje
+     * se ve stejné transakci zúčtuje 901/649 proti zůstatkové ceně v zápisu vyřazení.
+     * Volá vyřazení v modulu majetku až po zaúčtování odpisu roku a zápisu vyřazení.
+     */
+    public function onDisposal(int $supplier,int $asset,int $disposalEntry,?int $actor):array
+    {
+        return $this->transaction($supplier,function()use($supplier,$asset,$disposalEntry,$actor):array{
+            if(!$this->hasAssetSources($supplier,$asset))return [];
+            $events=$this->canonicalEvents($supplier);
+            $residual=null;
+            $results=[];
+            foreach($this->owner->sources($supplier)as$source){
+                if($source['kind']!=='investment'||$source['asset_id']!==$asset)continue;
+                $remaining=$source['amount_cents']-$this->used($events,$source['id']);
+                if($remaining<0)CapitalPolicy::changed();
+                if($remaining===0)continue;
+                $residual??=$this->disposalResidualLine($supplier,$asset,$disposalEntry);
+                $intent=['action'=>'release','source_id'=>$source['id'],'cost_line_id'=>$residual['id'],'depreciation_id'=>null,'amount_cents'=>$remaining,'date'=>$residual['date'],'original_id'=>null,'closing'=>false];
+                $plan=$this->plan($supplier,$intent);
+                $results[]=$this->execute($supplier,$intent,CapitalPolicy::hash($plan),'Zúčtování zbytku investičního zdroje při vyřazení majetku','disposal:'.$disposalEntry.':'.$source['id'],$actor);
+            }
+            return $results;
+        });
+    }
+    /**
+     * Vrácení vyřazení: řízeně stornuje zúčtování zbytku zdroje k tomuto vyřazení
+     * i rozpuštění k odpisu roku vyřazení, který vrácení vyřazení také stornuje.
+     */
+    public function onDisposalRevert(int $supplier,int $asset,?int $disposalEntry,?int $depreciation,string $date,?int $actor):array
+    {
+        return $this->transaction($supplier,function()use($supplier,$asset,$disposalEntry,$depreciation,$date,$actor):array{
+            if(!$this->hasAssetSources($supplier,$asset))return [];
+            $sources=$this->owner->sources($supplier);
+            $results=[];
+            foreach(array_reverse($this->canonicalEvents($supplier),true)as$event){
+                $source=$sources[$event['source_id']];
+                if(!$event['active']||$source['kind']!=='investment'||$source['asset_id']!==$asset)continue;
+                $ofDisposal=$disposalEntry!==null&&$event['depreciation_id']===null&&$event['snapshot']['cost']['entry_id']===$disposalEntry;
+                $ofDisposalYear=$depreciation!==null&&$event['depreciation_id']===$depreciation;
+                if(!$ofDisposal&&!$ofDisposalYear)continue;
+                $intent=['action'=>'reverse','source_id'=>$event['source_id'],'cost_line_id'=>null,'depreciation_id'=>null,'amount_cents'=>$event['amount_cents'],'date'=>$date,'original_id'=>$event['id'],'closing'=>false];
+                $plan=$this->plan($supplier,$intent);
+                $results[]=$this->execute($supplier,$intent,CapitalPolicy::hash($plan),'Storno čerpání investičního zdroje při vrácení vyřazení majetku','disposal-revert:'.$event['id'],$actor);
+            }
+            return $results;
+        });
+    }
+    /** Řádek odpisu, na který odkazuje neměnná kapitálová historie, nelze fyzicky smazat. */
+    public function retainsDepreciation(int $supplier,int $depreciation):bool
+    {
+        $q=$this->db->pdo()->prepare('SELECT 1 FROM nonprofit_capital_events WHERE supplier_id=? AND depreciation_id=? LIMIT 1');
+        $q->execute([$supplier,$depreciation]);
+        return $q->fetchColumn()!==false;
+    }
+    /** Investiční zdroj s nerozpuštěným zbytkem, který vyřazení musí zúčtovat. */
+    public function hasRemainingAssetSource(int $supplier,int $asset):bool
+    {
+        return $this->transaction($supplier,function()use($supplier,$asset):bool{
+            if(!$this->hasAssetSources($supplier,$asset))return false;
+            $events=$this->canonicalEvents($supplier);
+            foreach($this->owner->sources($supplier)as$source)if($source['kind']==='investment'&&$source['asset_id']===$asset&&$source['amount_cents']>$this->used($events,$source['id']))return true;
+            return false;
+        });
+    }
+    private function disposalResidualLine(int $supplier,int $asset,int $entry):array
+    {
+        $found=null;
+        foreach($this->ledger->entry($supplier,$entry)as$line){
+            if($line['source_type']!=='asset_disposal'||$line['source_id']!==$asset)CapitalPolicy::changed();
+            if($line['side']!=='debit'||$line['account_type']!=='expense'||!str_starts_with($line['account_code'],'5'))continue;
+            if($found!==null)CapitalPolicy::changed();
+            $found=$line;
+        }
+        if($found===null)CapitalPolicy::invalid('Vyřazení majetku s nerozpuštěným investičním zdrojem vyžaduje zaúčtovanou zůstatkovou cenu.','nonprofit_capital_disposal_residual_missing');
+        return $found;
+    }
+    private function disposalCost(int $supplier,array $source,int $line):array
+    {
+        $cost=$this->ledger->cost($supplier,$line);
+        if($cost['source_type']!=='asset_disposal'||$cost['source_id']!==$source['asset_id'])CapitalPolicy::invalid('Zbytek investičního zdroje se zúčtuje jen proti zůstatkové ceně ve vyřazení vlastního majetku.');
+        return $cost;
+    }
     private function execute(int $supplier,array $intent,string $inputHash,string $reason,string $token,?int $actor):array
     {
         $base=['action'=>$intent['action'],'source_id'=>$intent['source_id'],'intent'=>$intent,'input_hash'=>$inputHash,'reason'=>$reason,'actor'=>$actor];
@@ -125,7 +208,12 @@ final class CapitalService
             $original=$events[$intent['original_id']]??null;if(!$original||!$original['active']||$original['source_id']!==$source['id']||$original['amount_cents']!==$intent['amount_cents']||$intent['date']<$original['receipt']['entry']['entry_date']||$period!==$original['receipt']['entry']['period_id'])CapitalPolicy::changed();
             $lines=array_map(JournalLineAmount::reversal(...),$original['receipt']['lines']);foreach($lines as&$line){unset($line['id']);$q=$this->db->pdo()->prepare('SELECT id FROM chart_of_accounts WHERE supplier_id=? AND account_code=? FOR UPDATE');$q->execute([$supplier,$line['account_code']]);$account=$q->fetchColumn();if($account===false)CapitalPolicy::changed();$line['account_id']=(int)$account;}unset($line);$sourceEntry=$original['entry_id'];
         }else{
-            if($source['kind']==='investment'){
+            $disposal=$source['kind']==='investment'&&$intent['depreciation_id']===null&&$intent['cost_line_id']!==null;
+            if($disposal){
+                $cost=$this->disposalCost($supplier,$source,$intent['cost_line_id']);
+                $expected=$source['amount_cents']-$this->used($events,$source['id']);
+                if($intent['amount_cents']!==$expected||$intent['date']!==$cost['date'])CapitalPolicy::changed();
+            }elseif($source['kind']==='investment'){
                 if($intent['depreciation_id']===null||$intent['cost_line_id']!==null)CapitalPolicy::invalid('Investiční zdroj se rozpouští výhradně se skutečným odpisem.');
                 $dep=$this->depreciation($supplier,$source,$intent['depreciation_id']);$cost=$dep['cost'];$expected=CapitalPolicy::proportional($dep['cumulative_cents'],$source['amount_cents'],$source['basis']['asset']['valuation_cents'])-$this->used($events,$source['id']);
                 $previousTarget=CapitalPolicy::proportional($dep['cumulative_cents']-$cost['amount_cents'],$source['amount_cents'],$source['basis']['asset']['valuation_cents']);if($this->used($events,$source['id'])!==$previousTarget)CapitalPolicy::invalid('Dřívější investiční čerpání musí být nejprve obnoveno ke skutečnému původnímu odpisu.','nonprofit_capital_depreciation_sequence');
@@ -139,7 +227,9 @@ final class CapitalService
             $capacity=(new \MyInvoice\Service\Accounting\Funding\CostCoverage($this->db))->capacity($supplier,$cost['id']);$claimed=$capacity['claimed_cents'];
             if(bccomp((string)$intent['amount_cents'],(string)$capacity['available_cents'],0)>0)CapitalPolicy::invalid('Čerpání převyšuje dosud nekrytou část skutečného nákladu.','nonprofit_capital_cost_overcovered');
             if($intent['date']<$source['basis']['source']['date'])CapitalPolicy::invalid('Čerpání nemůže předcházet doloženému vzniku vlastního zdroje.');
-            CapitalPolicy::assertCost($source['policy'],$cost);
+            // Vyřazením majetek zaniká, proto se zbytek zdroje zúčtuje bez ohledu na
+            // způsobilé účty a období čerpání sjednané pro roční odpisy.
+            if(!$disposal)CapitalPolicy::assertCost($source['policy'],$cost);
             if($this->used($events,$source['id'])+$intent['amount_cents']>$source['amount_cents'])CapitalPolicy::invalid('Čerpání převyšuje doložený zůstatek zdroje.','nonprofit_capital_source_overdrawn');
             $dims=$cost['dimensions'];$q=$this->db->pdo()->prepare("SELECT id FROM dimension_types WHERE supplier_id=? AND system_key='tax_regime' FOR UPDATE");$q->execute([$supplier]);$taxType=$q->fetchColumn();if($taxType===false)CapitalPolicy::changed();$dims[(int)$taxType]=$source['policy']['revenue_tax_regime_id'];ksort($dims,SORT_NUMERIC);
             foreach($source['basis']['source']['dimensions']as$type=>$value)if((int)$type!==(int)$taxType&&($dims[$type]??null)!==$value)CapitalPolicy::invalid('Náklad neodpovídá doloženým dimenzím vlastního zdroje.');
@@ -222,7 +312,10 @@ final class CapitalService
         foreach($events as$event){
             $source=$sources[$event['source_id']]??null;if(!$source)CapitalPolicy::changed();$this->assertSource($supplier,$source);
             if($event['operation']==='release'&&!isset($reversals[$event['id']])){
-                if($source['kind']==='investment'){if($event['depreciation_id']===null||CapitalPolicy::hash($this->depreciation($supplier,$source,$event['depreciation_id'],false))!==CapitalPolicy::hash($event['snapshot']['depreciation']))CapitalPolicy::changed();}
+                if($source['kind']==='investment'&&$event['depreciation_id']===null){
+                    if($event['cost_line_id']===null||CapitalPolicy::hash($this->disposalCost($supplier,$source,$event['cost_line_id']))!==CapitalPolicy::hash($event['snapshot']['cost']))CapitalPolicy::changed();
+                }
+                elseif($source['kind']==='investment'){if(CapitalPolicy::hash($this->depreciation($supplier,$source,$event['depreciation_id'],false))!==CapitalPolicy::hash($event['snapshot']['depreciation']))CapitalPolicy::changed();}
                 else{if($event['cost_line_id']===null)CapitalPolicy::changed();$cost=$this->ledger->cost($supplier,$event['cost_line_id']);$cost['direct_coverage']=(new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->forCost($supplier,$event['cost_line_id']);if(CapitalPolicy::hash($cost)!==CapitalPolicy::hash($event['snapshot']['cost']))CapitalPolicy::changed();}
             }
             $native=(new PaymentJournalProof($this->db))->current($supplier,$event['entry_id']);$expected=$event['receipt'];$expected['entry']['reversed_by']=$reversals[$event['id']]['entry_id']??null;
