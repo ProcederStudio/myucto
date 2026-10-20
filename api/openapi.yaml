@@ -36483,6 +36483,29 @@ components:
           type: string
         dppo_supported:
           const: false
+        svj_precheck:
+          description: >-
+            Jen u SVJ. Test výjimky z podání přiznání podle § 38mb písm. b) ZDP podle druhů
+            všech příjmů, ne podle výsledné daně. Bez potvrzeného posouzení nebo s nezařazeným
+            příjmem je stav unassessed a uzavření knih je blokované.
+          type: object
+          required:
+          - status
+          - reason
+          - legal_basis
+          - taxable_source_count
+          properties:
+            status:
+              type: string
+              enum: [filing_required, filing_not_required, unassessed]
+            reason:
+              type: string
+              enum: [other_taxable_income, only_exempt_or_withheld_income, assessment_incomplete, income_unclassified]
+            legal_basis:
+              const: zdp_38mb_b
+            taxable_source_count:
+              type: integer
+              minimum: 0
     NonprofitTaxExport:
       type: object
       required:

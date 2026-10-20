@@ -5626,6 +5626,20 @@
     "open_list": "Otevřít v seznamu",
     "partner": "Protistrana",
     "showing_capped": "Zobrazeno {shown} z {total} nálezů",
+    "svj_precheck": {
+      "label": "Přiznání SVJ (§ 38mb písm. b) ZDP)",
+      "status": {
+        "filing_required": "přiznání je nutné podat",
+        "filing_not_required": "přiznání se nepodává",
+        "unassessed": "neposouzeno, závěr nelze udělat"
+      },
+      "reason": {
+        "other_taxable_income": "SVJ má jiný zdanitelný příjem ({count}), a to i při nulové dani",
+        "only_exempt_or_withheld_income": "jen příjmy mimo předmět daně, osvobozené nebo zdaněné srážkou",
+        "assessment_incomplete": "chybí aktuální potvrzené posouzení příjmů",
+        "income_unclassified": "některý příjem nemá doloženou daňovou kategorii"
+      }
+    },
     "value": {
       "completed": "dokončeno",
       "pending": "chybí aktuální posouzení",

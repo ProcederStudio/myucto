@@ -339,6 +339,12 @@ Kontrola služeb porovnává předpisy záloh, doložené počáteční stavy, d
 
 Účetní tvorba a rozpuštění rezervy na opravy s ověřeným aktivním zdrojem se nezahrnují do skutečných nákladů služeb. Systém ověří původní rozhodnutí, částky a účetní návaznosti; nesoulad podkladů kontrolu zastaví.
 
+### Daňová předkontrola SVJ
+
+Kontrola daňového posouzení činností v uzávěrce u SVJ ukazuje, zda je nutné podat přiznání k dani z příjmů právnických osob. Výjimka podle § 38mb písm. b) ZDP závisí na druzích všech příjmů období, ne na výsledné dani. Příspěvky na správu a úhrady služeb jsou mimo předmět daně a bankovní úrok je zdaněný srážkou. Jakýkoli jiný zdanitelný příjem, například nájem společných částí, úrok z prodlení vlastníka nebo náhrada nákladů, znamená výsledek „přiznání je nutné podat“, i když daň vyjde nula.
+
+Dokud není posouzení příjmů aktuálně potvrzené, nebo když některý příjem nemá doloženou daňovou kategorii, je výsledek „neposouzeno“ a uzavření knih je blokované. Uzávěrka nikdy sama nedoplní nepodání ani nulovou daň. Přiznání se připravuje samostatně v daňové agendě.
+
 ### Historické právní role přes API a MCP
 
 Katalog právních rolí jednotek nabízí stránkované čtení se dvěma povinnými okamžiky: `as_of` určuje účinnost a `known_at` stav tehdejší znalosti. Dostupný je seznam i detail jednotky. Oba vracejí stejnou obálku; stránka obsahuje nejvýše 100 jednotek a pokračovací kurzor je vázaný na firmu a oba okamžiky.

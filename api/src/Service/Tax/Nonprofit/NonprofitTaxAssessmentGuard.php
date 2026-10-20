@@ -16,9 +16,34 @@ final class NonprofitTaxAssessmentGuard
         private readonly AccountingFrameworkService $frameworks,
         private readonly \MyInvoice\Service\Tax\Nonprofit\Authoritative\J6CurrentProviderFactory $current,
         private readonly \MyInvoice\Infrastructure\Database\Connection $db,
+        private readonly NonprofitLegalProfileService $legalProfiles,
+        private readonly J6FundingProjection $results,
     ) {}
 
+    /**
+     * U SVJ přidá předkontrolu povinnosti podat přiznání (§ 38mb písm. b) ZDP). Nezařazený
+     * příjem posouzení znovu otevře, takže uzavření knih zůstane blokované.
+     */
     public function closingCheck(int $supplierId, int $periodId, bool $currentRead = false): array
+    {
+        $check = $this->assessmentCheck($supplierId, $periodId, $currentRead);
+        if (!$check['applicable'] || !$this->isSvj($supplierId, $periodId, $currentRead)) return $check;
+        $latest = $check['complete'] ? $this->assessments->latest($supplierId, $periodId, $currentRead) : null;
+        $precheck = NonprofitSvjFilingPrecheck::evaluate($latest !== null, $latest !== null ? $this->results->resultPages($latest) : []);
+        if ($precheck['reason'] === 'income_unclassified') {
+            $check['findings'][] = ['code' => 'svj_income_unclassified'];
+            $check['complete'] = false;
+        }
+        return $check + ['svj_precheck' => $precheck];
+    }
+
+    private function isSvj(int $supplierId, int $periodId, bool $currentRead): bool
+    {
+        $context = $this->legalProfiles->assessmentContext($supplierId, $periodId, $currentRead);
+        return ($context['legal_profile']['profile']['kind'] ?? null) === 'svj' || ($context['svj_module_proof'] ?? []) !== [];
+    }
+
+    private function assessmentCheck(int $supplierId, int $periodId, bool $currentRead): array
     {
         $period = $this->sources->period($supplierId, $periodId, $currentRead);
         $frameworks = array_values(array_unique($this->frameworks->forInterval($supplierId, $period['starts_on'], $period['ends_on'], $currentRead)));
