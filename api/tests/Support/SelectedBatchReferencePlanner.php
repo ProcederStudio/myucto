@@ -85,7 +85,7 @@ final class SelectedBatchReferencePlanner
             $id=$allocation['claim_id'];$detail=$details[$id];$principal=$allocation['components']['principal'];$remaining=array_reduce($detail['lines'],fn($sum,$line)=>bcadd($sum,$line['remaining_cents'],0),'0');
             $declared=$payment['principal_distribution'][$id]??null;
             if($declared!==null)$declared=['evidence'=>$declared['evidence'],'parts'=>array_map(fn($p)=>['id'=>$p['line_id'],'amount_cents'=>$p['amount_cents']],$declared['lines'])];
-            try{$distribution=ClaimPortionAllocator::distribute($principal,array_column($detail['lines'],'remaining_cents','id'),$declared);}catch(\DomainException $e){PaymentException::reject('principal_'.$e->getMessage(),['debt_id'=>$id,'principal_cents'=>$principal]);}
+            try{$distribution=ClaimPortionAllocator::distribute($principal,array_column($detail['lines'],'remaining_cents','id'),$declared,true);}catch(\DomainException $e){PaymentException::reject('principal_'.$e->getMessage(),['debt_id'=>$id,'principal_cents'=>$principal]);}
             $seen=[];
             foreach($detail['lines'] as $sourceLine){$lineId=$sourceLine['id'];$value=$distribution[$lineId]??'0';$seen[$lineId]=true;if(bccomp($value,$sourceLine['remaining_cents'],0)>0)PaymentException::reject('principal_distribution_capacity');if($value==='0')continue;
                 $fact=$sourceLine['line'];$origins=[];foreach($fact['dimensions'] as $type=>$dimension)$origins[$type]=['origin'=>'module','ref'=>'unit_charge:'.$detail['debt']['snapshot']['charge_id']];

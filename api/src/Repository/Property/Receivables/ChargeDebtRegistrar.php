@@ -41,6 +41,36 @@ final class ChargeDebtRegistrar
     }
 
     /**
+     * Právní údaje automaticky registrovaného dluhu. Bez doloženého vstupu platí výchozí hodnoty
+     * zákonného vztahu vlastníka k SVJ, odchylku nese ruční registrace.
+     *
+     * - `basis = statutory`: povinnost přispívat na správu domu a platit zálohy na služby ukládá
+     *   vlastníkovi zákon (§ 1180 OZ, zákon č. 67/2013 Sb.), předpis ji jen vyčísluje.
+     *   Pro přechodné ustanovení § 1932 (čl. II bod 2 zákona č. 192/2021 Sb.) tím rozhoduje datum
+     *   plnění. V obecném režimu dávají obě znění § 1932 stejné pořadí, odlišný titul s datem
+     *   právního jednání se zadává ruční registrací.
+     * - `regime = general`: SVJ nesmí podnikat (§ 1194 odst. 1 OZ), vlastník proto v zákonném vztahu
+     *   k SVJ není spotřebitelem podle § 419 OZ jen proto, že je fyzická osoba. Spotřebitelský režim
+     *   § 1932 odst. 2 vyžaduje doloženou klasifikaci konkrétního vztahu, typ osoby (FO/PO) ho neurčuje.
+     */
+    public static function automaticLegal(array $charge): array
+    {
+        return ['basis' => 'statutory', 'evidence' => 'Zaúčtovaný předpis P-'.$charge['id'].' (dávka '.$charge['batch_id'].')', 'regime' => 'general'];
+    }
+
+    /**
+     * Zajištění automaticky registrovaného dluhu. Zákonné zástavní právo SVJ k jednotce znal jen
+     * zrušený § 15 zákona č. 72/1994 Sb., občanský zákoník je nepřevzal. Míru zajištění pro § 1933 OZ
+     * lze porovnat jen u strukturovaně doloženého zajištění (druh, rozsah, pořadí, účinnost),
+     * samotný předpis žádné nedokládá. Smluvní zástavní právo nebo
+     * ručení se zadává ruční registrací s doloženým rozsahem, pořadím a účinností.
+     */
+    public static function automaticSecurity(): array
+    {
+        return ['kind' => 'unsecured', 'evidence' => 'Předpis neeviduje zajištění dluhu.'];
+    }
+
+    /**
      * @param list<array> $charges zaúčtované předpisy (stav po zaúčtování: journal_entry_id a row_version)
      * @return array<int,int> charge_id => debt_id nově registrovaných dluhů
      */
@@ -107,8 +137,8 @@ final class ChargeDebtRegistrar
                 'principal_line_ids' => $lineIds,
                 'title_ref' => 'Předpis P-'.$id.' za období '.$charge['period_from'].' až '.$charge['period_to'],
                 'due_date' => $charge['due_date'],
-                'legal' => ['basis' => 'statutory', 'evidence' => 'Zaúčtovaný předpis P-'.$id.' (dávka '.$charge['batch_id'].')', 'regime' => 'general'],
-                'security' => ['kind' => 'unsecured', 'evidence' => 'Předpis neeviduje zajištění dluhu.'],
+                'legal' => self::automaticLegal($charge),
+                'security' => self::automaticSecurity(),
                 'damages_for' => null,
             ];
             $token = self::token($id);
