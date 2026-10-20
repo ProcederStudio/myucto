@@ -161,6 +161,51 @@ final class ClosingPrepaidExpenseAccrualTest extends TestCase
         self::assertEqualsWithDelta(22459.02, (float) $preview['total'], 0.001);
     }
 
+    public function testPreviewDefersInvoicePostedToExpenseOnce(): void
+    {
+        $pi = $this->purchase('PF-2091-ALLIANZ', 36600.00, self::YEAR . '-11-15');
+        $this->item($pi, 36600.00, '2091-07-01', '2092-06-30', '548');
+        $this->postPurchaseExpense($pi, '548', 36600.00, self::YEAR . '-11-15');
+
+        $preview = $this->closing->prepaidExpenseAccrualPreview($this->supplierId, $this->periodId);
+        self::assertCount(1, $preview['items']);
+        self::assertEqualsWithDelta(18200.00, (float) $preview['total'], 0.001);
+    }
+
+    /** Faktura rozúčtovaná rovnou na 381 nese odklad sama, uzávěrka ji neodkládá podruhé. */
+    public function testPreviewSkipsInvoiceAlreadyPostedTo381(): void
+    {
+        $pi = $this->purchase('PF-2091-SPLIT', 36600.00, self::YEAR . '-11-15');
+        $this->item($pi, 36600.00, '2091-07-01', '2092-06-30', '548');
+        $this->posting->postDocument($this->supplierId, 'purchase_invoice', $pi, [
+            ['account_code' => '548', 'side' => 'debit', 'amount' => 18400.00],
+            ['account_code' => '381', 'side' => 'debit', 'amount' => 18200.00],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 36600.00],
+        ], ['entry_date' => self::YEAR . '-11-15', 'posted' => true, 'posted_by' => $this->userId, 'user_id' => $this->userId]);
+
+        $preview = $this->closing->prepaidExpenseAccrualPreview($this->supplierId, $this->periodId);
+        self::assertSame([], $preview['items']);
+        self::assertEqualsWithDelta(0.0, (float) $preview['total'], 0.001);
+    }
+
+    /** Odklad ručním interním dokladem připojeným k faktuře se neodkládá podruhé. */
+    public function testPreviewSkipsInvoiceWithLinkedManualDeferral(): void
+    {
+        $pi = $this->purchase('PF-2091-MANUAL', 36600.00, self::YEAR . '-11-15');
+        $this->item($pi, 36600.00, '2091-07-01', '2092-06-30', '548');
+        $this->postPurchaseExpense($pi, '548', 36600.00, self::YEAR . '-11-15');
+        $manualId = $this->posting->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '381', 'side' => 'debit', 'amount' => 18200.00],
+            ['account_code' => '548', 'side' => 'credit', 'amount' => 18200.00],
+        ], ['entry_date' => self::ENDS_ON, 'description' => 'Náklady příštích období', 'posted' => true, 'posted_by' => $this->userId, 'user_id' => $this->userId]);
+        $this->db->pdo()->prepare(
+            'INSERT INTO journal_entry_document_links (supplier_id, entry_id, doc_type, doc_id) VALUES (?, ?, "purchase_invoice", ?)'
+        )->execute([$this->supplierId, $manualId, $pi]);
+
+        $preview = $this->closing->prepaidExpenseAccrualPreview($this->supplierId, $this->periodId);
+        self::assertSame([], $preview['items']);
+    }
+
     // ── zaúčtování — podvojnost, idempotence, mazání ───────────────────────────
 
     public function testRunPostsDoubleEntry381Over5xxAndIsIdempotent(): void
