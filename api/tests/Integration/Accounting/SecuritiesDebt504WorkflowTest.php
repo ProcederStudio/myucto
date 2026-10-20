@@ -36,7 +36,7 @@ final class SecuritiesDebt504WorkflowTest extends TestCase
         $catalog=(new SystemDimensionCatalog($this->db))->ensureForFramework($this->supplier,'2025-01-01');
         $p->prepare("INSERT INTO dimension_values(type_id,supplier_id,code,name) VALUES (?,?,'portfolio','Synthetic portfolio')")->execute([$catalog['activity_kind']['id'],$this->supplier]);
         $this->dims=[$catalog['activity']['id']=>$catalog['activity']['values']['main'],$catalog['activity_kind']['id']=>(int)$p->lastInsertId(),$catalog['tax_regime']['id']=>$catalog['tax_regime']['values']['subject']];
-        foreach(['644'=>'revenue','645'=>'revenue','649'=>'revenue','549'=>'expense','544'=>'expense','545'=>'expense'] as $code=>$type)$p->prepare('INSERT IGNORE INTO chart_of_accounts(supplier_id,account_code,name,account_type,is_active) VALUES(?,?,?,?,1)')->execute([$this->supplier,$code,'Synthetic '.$code,$type]);
+        foreach(['644'=>'revenue','645'=>'revenue','649'=>'revenue','549'=>'expense','544'=>'expense','545'=>'expense','653'=>'revenue','553'=>'expense'] as $code=>$type)$p->prepare('INSERT IGNORE INTO chart_of_accounts(supplier_id,account_code,name,account_type,is_active) VALUES(?,?,?,?,1)')->execute([$this->supplier,$code,'Synthetic '.$code,$type]);
         $this->posting=$c->get(PostingService::class);$this->service=$c->get(SecuritiesDebt504Workflow::class);
     }
     protected function tearDown(): void {if(isset($this->db)&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();}
@@ -181,18 +181,99 @@ final class SecuritiesDebt504WorkflowTest extends TestCase
         $state=$this->service->detail($this->supplier,$lot,'2026-01-01');self::assertSame('23760.25',$state['principal_book_czk']);self::assertSame('23760.25',$state['book_czk']);self::assertSame('50.41',$state['amortised']);
     }
 
-    public function testForeignCurrencySaleIsAnExplicitValidationError(): void
+    /**
+     * Částečný prodej 400 EUR z 1 000 EUR nominálu HTM diskontního dluhopisu (900 EUR po 24 Kč,
+     * splatnost 1. 7. 2027). Jistina 937,53 EUR v knihách za 23 432,09 Kč (po uzávěrce 2025 kurzem 25)
+     * se ke dni prodeje přepočte kurzem ČNB 24,50 na 22 969,49 Kč, kurzová ztráta 462,60 Kč jde na 545.
+     * Vyřadí se 0,4 jistiny = 375,01 EUR za 9 187,75 Kč na 553. Zbytek 562,52 EUR rozpouští diskont
+     * 37,48 EUR do splatnosti a uzávěrka 2026 ho přecení kurzem 25,50.
+     */
+    public function testForeignPartialSaleRevaluesAtSaleDateRateAndRemainderIsRevaluedAtBalanceSheetDate(): void
     {
-        $lot = $this->foreignAcquisition();
-        $command = ['operation' => 'sale', 'lot_id' => $lot, 'accounting_date' => '2026-03-31', 'evidence' => 'Synthetic EUR sale', 'entry_id' => 1, 'line_id' => 1];
-        try {
-            $this->service->preview($this->supplier, $command, $this->actor);
-            self::fail('Foreign currency sale must be rejected.');
-        } catch (ClosingException $e) {
-            self::assertSame('debt_sale_currency_unsupported', $e->errorCode);
-            self::assertSame(422, $e->httpStatus);
-            self::assertStringContainsString('cizí měně', $e->getMessage());
-        }
+        $terms=$this->discount('900.00');$terms['lot_reference']='SYN-EUR-HTM-2Y';$terms['maturity_on']='2027-07-01';$terms['clean_cost_czk']='21600.00';
+        $p=$this->db->pdo();$p->prepare("INSERT IGNORE INTO chart_of_accounts(supplier_id,account_code,name,account_type,is_active) VALUES (?,'901','Synthetic capital','equity',1)")->execute([$this->supplier]);
+        $entry=$this->posting->postDocument($this->supplier,'manual',null,[['account_code'=>'063','side'=>'debit','amount'=>'21600.00','currency_code'=>'EUR','amount_foreign'=>'900.00','fx_rate'=>'24.000000','dimensions'=>$this->dims],['account_code'=>'901','side'=>'credit','amount'=>'21600.00','dimensions'=>$this->dims]],['entry_date'=>'2025-07-01','posted'=>true]);
+        $lot=$this->applyCommand(['operation'=>'register','terms'=>$terms,'entry_id'=>$entry,'line_id'=>$this->line($entry,'063')])['lot_id'];
+        foreach(['2025-12-31'=>'25','2026-03-31'=>'24.5','2026-12-31'=>'25.5'] as $day=>$rate)$p->prepare("INSERT INTO exchange_rates(rate_date,currency_code,rate) VALUES(?,'EUR',?) ON DUPLICATE KEY UPDATE rate=VALUES(rate)")->execute([$day,$rate]);
+        self::assertSame('25.21',$this->service->preview($this->supplier,['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2025-12-31','evidence'=>'Synthetic EUR year-end accretion'],$this->actor)['plan']['amount']);
+        $this->applyCommand(['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2025-12-31','evidence'=>'Synthetic EUR year-end accretion']);
+        $this->runFx($this->periods[2025]);
+        self::assertSame('23130.25',$this->service->detail($this->supplier,$lot,'2026-01-01')['book_czk']);
+        self::assertSame('12.32',$this->service->preview($this->supplier,['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR sale-date accretion'],$this->actor)['plan']['amount']);
+        $this->applyCommand(['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR sale-date accretion']);
+        self::assertSame('23432.09',$this->service->detail($this->supplier,$lot,'2026-03-31')['principal_book_czk']);
+
+        $sale=['operation'=>'sale','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR partial sale','nominal_amount'=>'400.00']+$this->foreignProceeds('380.00','24.600000','2026-03-31');
+        $preview=$this->service->preview($this->supplier,$sale,$this->actor);
+        $sides=array_map(fn(array $l)=>[$l['account_code'],$l['side'],$l['amount'],$l['amount_foreign']??null],$preview['plan']['lines']);sort($sides);
+        self::assertSame([['063','credit','462.60','0.00'],['063','credit','9187.75','375.01'],['545','debit','462.60',null],['553','debit','9187.75',null]],$sides);
+        self::assertSame('380.00',$preview['plan']['amount']);
+        self::assertSame('24.500000',$preview['plan']['rate']['rate']);
+        self::assertSame(['principal'=>'400.00','interest'=>'0.00','principal_czk'=>'9187.75','interest_czk'=>'0.00','principal_native'=>'375.01','fx_principal_czk'=>'-462.60','fx_interest_czk'=>'0.00'],$preview['plan']['sold']);
+        $this->applyCommand($sale);
+
+        $state=$this->service->detail($this->supplier,$lot,'2026-03-31');
+        self::assertNull($state['sold_on']);
+        self::assertSame('600.00',$state['principal_balance']);
+        self::assertSame('562.52',$state['principal_book_native']);
+        self::assertSame('13781.74',$state['principal_book_czk']);
+        self::assertSame('13781.74',$state['book_czk']);
+
+        self::assertSame('22.60',$this->service->preview($this->supplier,['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-12-31','evidence'=>'Synthetic EUR remainder accretion'],$this->actor)['plan']['amount']);
+        $this->applyCommand(['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-12-31','evidence'=>'Synthetic EUR remainder accretion']);
+        self::assertSame('14358.04',$this->service->detail($this->supplier,$lot,'2026-12-31')['book_czk']);
+        $this->runFx($this->periods[2026]);
+        $state=$this->service->detail($this->supplier,$lot,'2026-12-31');
+        self::assertSame('14920.56',$state['book_czk']);
+        self::assertSame('585.12',$state['principal_book_native']);
+        self::assertCount(2,$state['fx_carries']);
+    }
+
+    public function testForeignWholeSaleRevaluesAndDerecognisesAtSaleDateRate(): void
+    {
+        $lot=$this->foreignFx(true);
+        $p=$this->db->pdo();foreach(['2026-03-31'=>'24.5','2026-12-31'=>'25.5'] as $day=>$rate)$p->prepare("INSERT INTO exchange_rates(rate_date,currency_code,rate) VALUES(?,'EUR',?) ON DUPLICATE KEY UPDATE rate=VALUES(rate)")->execute([$day,$rate]);
+        self::assertSame('24.66',$this->service->preview($this->supplier,['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR sale-date accretion'],$this->actor)['plan']['amount']);
+        $this->applyCommand(['operation'=>'amortisation','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR sale-date accretion']);
+        $sale=['operation'=>'sale','lot_id'=>$lot,'accounting_date'=>'2026-03-31','evidence'=>'Synthetic EUR whole sale']+$this->foreignProceeds('980.00','24.600000','2026-03-31');
+        $preview=$this->service->preview($this->supplier,$sale,$this->actor);
+        $sides=array_map(fn(array $l)=>[$l['account_code'],$l['side'],$l['amount'],$l['amount_foreign']??null],$preview['plan']['lines']);sort($sides);
+        self::assertSame([['063','credit','475.20','0.00'],['063','credit','23889.22','975.07'],['545','debit','475.20',null],['553','debit','23889.22',null]],$sides);
+        self::assertSame(['principal'=>'1000.00','interest'=>'0.00','principal_czk'=>'23889.22','interest_czk'=>'0.00','principal_native'=>'975.07','fx_principal_czk'=>'-475.20','fx_interest_czk'=>'0.00'],$preview['plan']['sold']);
+        $this->applyCommand($sale);
+        $state=$this->service->detail($this->supplier,$lot,'2026-03-31');
+        self::assertSame('2026-03-31',$state['sold_on']);
+        self::assertSame('0.00',$state['book_czk']);
+        self::assertSame('0.00',$state['principal_book_native']);
+        self::assertSame('0.00',bcsub($this->turnover('063','debit'),$this->turnover('063','credit'),2));
+        $this->runFx($this->periods[2026]);
+        self::assertCount(1,$this->service->detail($this->supplier,$lot,'2026-12-31')['fx_carries']);
+    }
+
+    private function turnover(string $account,string $side): string
+    {
+        $q=$this->db->pdo()->prepare('SELECT COALESCE(SUM(l.amount),0) FROM journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id JOIN journal_entries e ON e.id=l.entry_id AND e.supplier_id=l.supplier_id WHERE l.supplier_id=? AND a.account_code=? AND l.side=? AND e.posted_at IS NOT NULL');
+        $q->execute([$this->supplier,$account,$side]);
+        return number_format((float)$q->fetchColumn(),2,'.','');
+    }
+
+    private function runFx(int $period): void
+    {
+        $p=$this->db->pdo();$fx=$this->container->get(\MyInvoice\Service\Accounting\Closing\Fx504Service::class);
+        $preview=$fx->preview($this->supplier,$period);self::assertTrue($preview['complete'],json_encode($preview['securities']['findings']));
+        $p->prepare("UPDATE accounting_periods SET status='closing' WHERE supplier_id=? AND id=?")->execute([$this->supplier,$period]);
+        $version=(int)$p->query('SELECT row_version FROM accounting_periods WHERE id='.$period)->fetchColumn();
+        $fx->run($this->supplier,$period,['snapshot_hash'=>$preview['snapshot_hash']],$version);
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504FxCarryRegistrar($this->db))->synchronize($this->supplier,$period);
+    }
+
+    private function foreignProceeds(string $foreign,string $rate,string $date): array
+    {
+        $p=$this->db->pdo();$czk=\MyInvoice\Service\Accounting\JournalLineAmount::decimal(bcmul($foreign,$rate,16));
+        $p->prepare("INSERT INTO bank_statements(supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date,source) VALUES (?,'Synthetic EUR proceeds',?,'1000000005','0100','EUR',?,'gpc')")->execute([$this->supplier,hash('sha256',random_bytes(20)),$date]);$statement=(int)$p->lastInsertId();
+        $p->prepare("INSERT INTO bank_transactions(statement_id,posted_at,amount,currency,counterparty_name) VALUES (?,?,?,'EUR','Synthetic buyer')")->execute([$statement,$date,$foreign]);$bank=(int)$p->lastInsertId();
+        $entry=$this->posting->postDocument($this->supplier,'bank',$bank,[['account_code'=>'221','side'=>'debit','amount'=>$czk,'currency_code'=>'EUR','amount_foreign'=>$foreign,'fx_rate'=>$rate,'dimensions'=>$this->dims],['account_code'=>'653','side'=>'credit','amount'=>$czk,'currency_code'=>'EUR','amount_foreign'=>$foreign,'fx_rate'=>$rate,'dimensions'=>$this->dims]],['entry_date'=>$date,'posted'=>true,'posted_by'=>$this->actor]);
+        return ['entry_id'=>$entry,'line_id'=>$this->line($entry,'653')];
     }
 
     public function testFxOwnerWorkflowRegistersNativeCarryBoundary(): void

@@ -80,17 +80,22 @@ describe('Debt securities workspace', () => {
   w.unmount()
  })
 
- it('states that a sale covers the whole holding and explains why a foreign lot cannot be sold', async () => {
+ it('sends the sold nominal for a partial sale and offers a sale of a foreign lot', async () => {
   const w = mounted()
   await choose(w)
   await w.get('[data-field="operation"]').setValue('sale')
-  expect(w.get('[data-field="sale-scope"]').text()).toBe(cs.securitiesDebt.saleWholeHolding)
+  expect(w.get('[data-field="sale-scope"]').text()).toBe(cs.securitiesDebt.saleScope)
+  await w.get('[data-field="nominal_amount"]').setValue('400.00')
+  await w.get('[data-action="sources"]').trigger('click')
+  await flushPromises()
+  await w.get('[data-field="source"]').setValue('31:41')
+  await review(w)
+  expect(mocks.preview.mock.calls[0]?.[1]).toMatchObject({ operation: 'sale', nominal_amount: '400.00', entry_id: 31, line_id: 41 })
   w.unmount()
   mocks.detail.mockResolvedValue({ ...structuredClone(state), facts: { terms, currency: 'EUR' } })
   const foreign = mounted()
   await choose(foreign)
-  expect(foreign.get('[data-field="operation"]').text()).not.toContain(cs.securitiesDebt.sale)
-  expect(foreign.get('[data-field="sale-currency"]').text()).toBe(cs.securitiesDebt.saleCurrencyUnsupported)
+  expect(foreign.get('[data-field="operation"]').text()).toContain(cs.securitiesDebt.sale)
   foreign.unmount()
  })
 

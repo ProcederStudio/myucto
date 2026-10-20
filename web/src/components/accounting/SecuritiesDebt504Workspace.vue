@@ -52,7 +52,7 @@ const command = computed<DebtCommand | null>(() => {
  if (payment.value) {
   if (!selected) return null
   Object.assign(base, { entry_id: Number(selected.id), line_id: Number(selected.line_id) })
-  if (operation.value === 'principal_redemption') base.nominal_amount = nominal.value
+  if (operation.value === 'principal_redemption' || operation.value === 'sale') base.nominal_amount = nominal.value
  }
  if (operation.value === 'reverse') { if (!reverseEvent.value) return null; base.event_id = reverseEvent.value }
  if (operation.value === 'valuation') { base.profile = profile.value; base.quote = quote.value }
@@ -181,7 +181,7 @@ const operations = computed(() => {
   ...(kind.debt_type === 'coupon' ? ['accrual', 'coupon_receipt'] : []),
   ...(kind.classification === 'held_to_maturity' ? ['amortisation'] : ['valuation']),
   'principal_redemption',
-  ...(state.facts.currency === 'CZK' ? ['sale'] : []),
+  'sale',
   'reverse',
  ]
 })
@@ -284,9 +284,8 @@ onMounted(() => { void refresh() })
       </select>
      </label>
      <label class="sm:col-span-2">{{ t('securitiesDebt.evidence') }}<textarea v-model="evidence" required maxlength="4000" :class="input" data-field="evidence" /></label>
-     <p v-if="operation === 'sale'" class="text-sm text-neutral-500 sm:col-span-2" data-field="sale-scope">{{ t('securitiesDebt.saleWholeHolding') }}</p>
-     <p v-else-if="!detail.sold_on && detail.facts.currency !== 'CZK'" class="text-sm text-neutral-500 sm:col-span-2" data-field="sale-currency">{{ t('securitiesDebt.saleCurrencyUnsupported') }}</p>
-     <label v-if="operation === 'principal_redemption'">{{ t('securitiesDebt.nominal_amount') }}<input v-model="nominal" required inputmode="decimal" :class="input" data-field="nominal_amount" /></label>
+     <label v-if="operation === 'principal_redemption' || operation === 'sale'">{{ t(operation === 'sale' ? 'securitiesDebt.sale_nominal_amount' : 'securitiesDebt.nominal_amount') }}<input v-model="nominal" required inputmode="decimal" :class="input" data-field="nominal_amount" /></label>
+     <p v-if="operation === 'sale'" class="text-sm text-neutral-500 sm:col-span-2" data-field="sale-scope">{{ t('securitiesDebt.saleScope') }}</p>
      <label v-if="operation === 'reverse'" class="sm:col-span-2">{{ t('securitiesDebt.reverse_event') }}
       <select v-model.number="reverseEvent" required :class="input" data-field="reverse_event">
        <option :value="0">{{ t('securities504.choose') }}</option>
@@ -358,7 +357,7 @@ onMounted(() => { void refresh() })
     <h2 class="font-semibold">{{ t(`securitiesDebt.${preview.plan.operation}`) }}</h2>
     <p class="text-sm text-neutral-500">{{ t('securitiesDebt.previewOnly') }}</p>
     <p v-if="preview.plan.amount" class="flex flex-wrap gap-x-4 gap-y-1">
-     <span>{{ t('securitiesDebt.operation_amount') }}: <strong class="whitespace-nowrap tabular-nums">{{ money(preview.plan.amount, preview.plan.operation === 'sale' ? 'CZK' : currency) }}</strong></span>
+     <span>{{ t('securitiesDebt.operation_amount') }}: <strong class="whitespace-nowrap tabular-nums">{{ money(preview.plan.amount, currency) }}</strong></span>
      <span>{{ t('securitiesDebt.book_change') }}: <strong class="whitespace-nowrap tabular-nums">{{ money(preview.plan.book_change_czk) }}</strong></span>
     </p>
     <p v-if="preview.plan.facts">{{ preview.plan.facts.terms.lot_reference }} · {{ money(preview.plan.facts.terms.clean_cost, preview.plan.facts.currency) }}</p>
@@ -382,7 +381,7 @@ onMounted(() => { void refresh() })
     <ul class="divide-y divide-neutral-200 text-sm">
      <li v-for="event in detail.events" :key="event.id" class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-1">
       <span>{{ formatDate(event.request.accounting_date) }} · {{ t(`securitiesDebt.${event.request.operation}`) }}</span>
-      <span class="whitespace-nowrap tabular-nums">{{ money(event.receipt.amount, event.request.operation === 'sale' ? 'CZK' : currency) }}</span>
+      <span class="whitespace-nowrap tabular-nums">{{ money(event.receipt.amount, currency) }}</span>
       <span class="w-full text-neutral-500">{{ event.request.evidence }}</span>
      </li>
     </ul>

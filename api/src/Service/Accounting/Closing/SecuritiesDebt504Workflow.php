@@ -78,7 +78,7 @@ final class SecuritiesDebt504Workflow
             if($op==='coupon_receipt')SecuritiesDebt504Terms::need(bccomp($amount,$state['unpaid_interest'],2)<=0 && bccomp($payment['line']['amount'],$state['interest_book_czk'],2)<=0,'debt_coupon_overpaid');
             else {
                 SecuritiesDebt504Terms::need($date>=$terms['maturity_on'] && bccomp($amount,$state['principal_balance'],2)<=0 && bccomp($payment['amount'],$state['principal_book_native'],2)<=0 && bccomp($payment['line']['amount'],$state['principal_book_czk'],2)<=0,'debt_principal_redemption_invalid');
-                SecuritiesDebt504Terms::need($state['earned']===SecuritiesDebt504Terms::earned($terms,$date) && ($terms['classification']!=='held_to_maturity'||$state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date)),'debt_maturity_accrual_required');
+                SecuritiesDebt504Terms::need($state['earned']===SecuritiesDebt504Terms::earned($terms,$date,$state['sale_basis']) && ($terms['classification']!=='held_to_maturity'||$state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date,$state['sale_basis'])),'debt_maturity_accrual_required');
                 if($amount===$state['principal_balance'])SecuritiesDebt504Terms::need($payment['amount']===$state['principal_book_native'] && $payment['line']['amount']===$state['principal_book_czk'],'debt_principal_partition_required');
             }
             $this->lots->assertPaymentCapacity($supplier,$payment,$amount);
@@ -88,9 +88,9 @@ final class SecuritiesDebt504Workflow
         $rate=$this->rate($supplier,$facts['currency'],$date,$op==='valuation');$plan['rate']=$rate;
         if($op==='accrual'){
             SecuritiesDebt504Terms::need($terms['debt_type']==='coupon','debt_coupon_period_required');
-            $amount=bcsub(SecuritiesDebt504Terms::earned($terms,$date),$state['earned'],2);$counterpart=$this->role($supplier,$date,'interest.income');
+            $amount=bcsub(SecuritiesDebt504Terms::earned($terms,$date,$state['sale_basis']),$state['earned'],2);$counterpart=$this->role($supplier,$date,'interest.income');
         } elseif($op==='amortisation'){
-            $amount=bcsub(SecuritiesDebt504Terms::amortised($terms,$date),$state['amortised'],2);$counterpart=$this->role($supplier,$date,bccomp($amount,'0',2)<0?'interest.expense':'interest.income');
+            $amount=bcsub(SecuritiesDebt504Terms::amortised($terms,$date,$state['sale_basis']),$state['amortised'],2);$counterpart=$this->role($supplier,$date,bccomp($amount,'0',2)<0?'interest.expense':'interest.income');
         } else {
             SecuritiesDebt504Terms::need($op==='valuation' && $terms['classification']==='trading','debt_valuation_ineligible');
             $plan['category_hash']=$this->assertFairProfile($supplier,$date,$c['profile']);$quote=$c['quote'];
@@ -133,30 +133,23 @@ final class SecuritiesDebt504Workflow
     }
 
     /**
-     * Prodej celé zbývající držby před splatností. Úrok a rozpuštění rozdílu musí být
-     * zaúčtované ke dni prodeje, tržbu zaúčtuje účetní bankovním nebo pokladním dokladem
-     * na 653 a tady se jen naváže; vygenerovaný zápis vyřadí celou účetní hodnotu včetně
-     * naběhlého úroku na 553 (ČÚS 406 bod 3.2.1 a 3.4, směrná osnova vyhlášky 504/2002 Sb.).
+     * Prodej celé zbývající držby nebo její části před splatností. Úrok a rozpuštění rozdílu
+     * musí být zaúčtované ke dni prodeje, tržbu zaúčtuje účetní bankovním nebo pokladním
+     * dokladem na 653 a tady se jen naváže; vygenerovaný zápis vyřadí prodanou účetní hodnotu
+     * včetně prodaného naběhlého úroku na 553 (ČÚS 406 bod 3.2.1 a 3.4, směrná osnova vyhlášky
+     * 504/2002 Sb.). Rozpis prodeje počítá {@see SecuritiesDebt504Terms::sale()}.
      *
-     * Částečný prodej ani prodej v cizí měně podporovaný není. Úrok i rozpuštění rozdílu
-     * se počítají z celé jmenovité hodnoty lotu a stav po prodeji se už nevyvíjí; částečný
-     * prodej by vyžadoval poměrné rozdělení rozvrhu i ověření historie. U cizí měny by se
-     * účetní hodnota musela před vyřazením přepočíst kurzem dne prodeje s kurzovým rozdílem
-     * mimo 553/653 a navázat na kurzové saldo (FX carry) lotu.
+     * U cizí měny se účetní hodnota (včetně kurzového přecenění z rozvahového dne) nejprve
+     * přepočte kurzem ČNB ke dni prodeje; kurzový rozdíl jde ve stejném zápisu na 645 nebo 545
+     * (kurzové role rámce 504), aby výsledek prodeje 653 - 553 kurz nezkresloval. Zbytek držby
+     * pak pokračuje s přepočtenou hodnotou a další uzávěrka ho přecení od ní.
      */
     private function salePlan(int $supplier,array $state,array $c,array $plan): array
     {
-        $facts=$state['facts'];$terms=$facts['terms'];$date=$c['accounting_date'];
-        if($facts['currency']!=='CZK'){
-            throw new ClosingException(
-                'debt_sale_currency_unsupported',
-                'Prodej dluhového cenného papíru v cizí měně zatím není podporovaný. Vyřazení zaúčtujte ručním dokladem.',
-                422,
-            );
-        }
+        $facts=$state['facts'];$terms=$facts['terms'];$date=$c['accounting_date'];$currency=$facts['currency'];
         SecuritiesDebt504Terms::need($state['sold_on']===null && $date<$terms['maturity_on'] && bccomp($state['principal_balance'],'0',2)>0,'debt_sale_invalid');
-        $earnedComplete=$terms['debt_type']!=='coupon' || $state['earned']===SecuritiesDebt504Terms::earned($terms,$date);
-        $amortisedComplete=$terms['classification']!=='held_to_maturity' || $state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date);
+        $earnedComplete=$terms['debt_type']!=='coupon' || $state['earned']===SecuritiesDebt504Terms::earned($terms,$date,$state['sale_basis']);
+        $amortisedComplete=$terms['classification']!=='held_to_maturity' || $state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date,$state['sale_basis']);
         SecuritiesDebt504Terms::need($earnedComplete && $amortisedComplete,'debt_sale_accrual_required');
         $proceeds=(new SecuritiesDebt504PaymentProof($this->db))->current($supplier,$c['entry_id'],$c['line_id'],$facts['asset'],SecuritiesDebt504Policy::SALE_REVENUE_ACCOUNT);
         SecuritiesDebt504Terms::need($proceeds['date']===$date,'debt_payment_date_invalid');
@@ -165,12 +158,24 @@ final class SecuritiesDebt504Workflow
         $this->lots->account($supplier,SecuritiesDebt504Policy::SALE_COST_ACCOUNT,'expense');
         $book=bcadd($state['principal_book_czk'],$state['interest_book_czk'],2);
         SecuritiesDebt504Terms::need($book===$state['book_czk'] && bccomp($book,'0',2)>0,'debt_sale_invalid');
-        $sold=['principal'=>$state['principal_balance'],'interest'=>$state['unpaid_interest'],'principal_czk'=>$state['principal_book_czk'],'interest_czk'=>$state['interest_book_czk']];
-        $change=bcsub('0',$book,2);
+        $rate=$currency==='CZK'?['rate'=>'1.000000']:$this->rate($supplier,$currency,$date);
+        if($currency!=='CZK')$plan['rate']=$rate;
+        $sold=SecuritiesDebt504Terms::sale($terms,$state,$c['nominal_amount']??null,$currency,$rate['rate'],$date);
+        $lines=[];
+        $fx=bcadd($sold['fx_principal_czk']??'0.00',$sold['fx_interest_czk']??'0.00',2);
+        if($fx!=='0.00'){
+            $gain=bccomp($fx,'0',2)>0;$fxAccount=$this->role($supplier,$date,$gain?'fx.gain':'fx.loss');
+            $this->lots->account($supplier,$fxAccount,$gain?'revenue':'expense');
+            $lines=$this->lines($facts['asset'],$fxAccount,$fx,'0.00',$rate['rate']);
+        }
+        $derecognised=bcadd($sold['principal_czk'],$sold['interest_czk'],2);
+        SecuritiesDebt504Terms::need(bccomp($derecognised,'0',2)>0,'debt_sale_invalid');
+        $foreign=$currency==='CZK'?null:bcadd($sold['principal_native'],$sold['interest'],2);
+        $lines=[...$lines,...$this->lines($facts['asset'],SecuritiesDebt504Policy::SALE_COST_ACCOUNT,bcsub('0',$derecognised,2),$foreign,$rate['rate'])];
         return array_replace($plan,[
             'amount'=>$proceeds['amount'],
-            'book_change_czk'=>$change,
-            'lines'=>$this->lines($facts['asset'],SecuritiesDebt504Policy::SALE_COST_ACCOUNT,$change,null,'1.000000'),
+            'book_change_czk'=>bcsub($fx,$derecognised,2),
+            'lines'=>$lines,
             'payment'=>$proceeds,
             'sold'=>$sold,
         ]);
@@ -231,12 +236,12 @@ final class SecuritiesDebt504Workflow
         SecuritiesDebt504Terms::need(is_string($op)&&in_array($op,$ops,true),'debt_command_invalid');
         $keys=$op==='register'?['operation','terms','entry_id','line_id']:['operation','lot_id','accounting_date','evidence'];
         if(in_array($op,['coupon_receipt','principal_redemption','sale'],true))$keys=[...$keys,'entry_id','line_id'];
-        if($op==='principal_redemption')$keys[]='nominal_amount';
+        if($op==='principal_redemption'||($op==='sale'&&array_key_exists('nominal_amount',$c)))$keys[]='nominal_amount';
         if($op==='valuation')$keys=[...$keys,'profile','quote'];if($op==='reverse')$keys[]='event_id';
         foreach($keys as $key)SecuritiesDebt504Terms::need(array_key_exists($key,$c)&&$c[$key]!==null,'debt_command_invalid');
         SecuritiesDebt504Terms::need(array_diff(array_keys($c),$keys)===[],'debt_command_invalid');
         foreach(['lot_id','entry_id','line_id','event_id'] as $key)if(array_key_exists($key,$c))PropertyInput::id($c[$key],$key);
-        if($op==='principal_redemption'){SecuritiesDebt504Policy::decimal($c['nominal_amount']);$c['nominal_amount']=JournalLineAmount::decimal($c['nominal_amount']);SecuritiesDebt504Terms::need(bccomp($c['nominal_amount'],'0',2)>0,'debt_nominal_required');}
+        if(in_array('nominal_amount',$keys,true)){SecuritiesDebt504Policy::decimal($c['nominal_amount']);$c['nominal_amount']=JournalLineAmount::decimal($c['nominal_amount']);SecuritiesDebt504Terms::need(bccomp($c['nominal_amount'],'0',2)>0,'debt_nominal_required');}
         if($op==='register')SecuritiesDebt504Terms::need(is_array($c['terms']),'debt_command_invalid');
         else {SecuritiesDebt504Policy::date($c['accounting_date']);SecuritiesDebt504Terms::need(SecuritiesDebt504Policy::text($c['evidence']),'debt_contract_required');}
         if($op==='valuation'){
