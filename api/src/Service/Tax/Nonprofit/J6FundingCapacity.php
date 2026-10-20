@@ -10,41 +10,76 @@ use MyInvoice\Service\Accounting\Funding\NativeCostCoverage;
 use MyInvoice\Service\Accounting\PostingException;
 final class J6FundingCapacity
 {
-    public function __construct(private readonly Connection $db,private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources) {}
+    public function __construct(private readonly Connection $db,private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources,private readonly J6FundingProjection $funding) {}
     public function claimedCost(int $supplier,int $line,?int $excludePeriod=null):string
     {
         $total='0';foreach($this->costClaims($supplier,$line,$excludePeriod)as$claim)$total=bcadd($total,$claim['amount_cents'],0);return $total;
     }
+    /**
+     * Přímé krytí nákladu potvrzenými posouzeními ostatních období (legacy i stránkovanými).
+     * Čerpání se čte přes J6FundingProjection, takže stránkovaná revize se nevynechá.
+     */
     public function costClaims(int $supplier,int $line,?int $excludePeriod=null):array
     {
         $guard=new DimensionPeriodGuard($this->db);
         return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):array{
-            $guard->lockPeriods($supplier);$claims=[];
+            $guard->lockPeriods($supplier);
+            $claims=[];
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
                 if($row['status']!=='confirmed')continue;
-                $links=array_values(array_filter($row['assessment']['funding']??[],static fn(array $link):bool=>$link['cost_id']==='line:'.$line));
-                if($links===[])continue;$this->assertCurrentReceipt($supplier,$row);$total='0';
-                foreach($links as$link){if(!is_int($link['amount_cents'])||$link['amount_cents']<=0)self::changed();$total=bcadd($total,(string)$link['amount_cents'],0);}
-                $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
+                $links=$this->funding->links($row,[],['line:'.$line]);
+                if($links===[])continue;
+                $this->assertCurrentRevision($supplier,$row);
+                $total='0';
+                foreach($links as$link){
+                    if(!is_int($link['amount_cents']??null)||$link['amount_cents']<=0)self::changed();
+                    $total=bcadd($total,(string)$link['amount_cents'],0);
+                }
+                $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,
+                    'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
             }
             return $claims;
         });
     }
+
+    /** Deklarovaný fond nákladu (čistý náklad po opravách) z potvrzeného posouzení ostatních období. */
     public function costEnvelope(int $supplier,int $line,?int $excludePeriod=null):?array
     {
         $guard=new DimensionPeriodGuard($this->db);
         return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):?array{
-            $guard->lockPeriods($supplier);$found=null;
+            $guard->lockPeriods($supplier);
+            $found=null;
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
-                if($row['status']!=='confirmed')continue;$declared=null;
-                foreach($row['assessment']['funding_costs']??[]as$pool)if(in_array('line:'.$line,$pool['members']??[],true))$declared=$pool;
-                if($declared===null)continue;$this->assertCurrentReceipt($supplier,$row);if($found!==null)self::changed();
-                $rows=array_column($row['result']['rows'],null,'id');$pools=NonprofitTaxCalculator::forConnection($this->db)->fundingCostPools($row['result'],$row['assessment']);$pool=$pools[$declared['anchor']]??null;if($pool===null)self::changed();$amounts=[];
-                foreach($pool['members']as$id)$amounts[(int)$rows[$id]['line_id']]=$rows[$id]['amount_cents'];ksort($amounts,SORT_NUMERIC);
-                $found=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'anchor'=>(int)$rows[$pool['id']]['line_id'],'members'=>array_keys($amounts),'line_amounts'=>$amounts,'net_cents'=>$pool['amount_cents'],'proof'=>['input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'declared'=>$declared,'rows'=>array_intersect_key($rows,array_flip($pool['members']))]];
+                if($row['status']!=='confirmed')continue;
+                $pools=$this->funding->costPools($row,['line:'.$line]);
+                if($pools===[])continue;
+                $this->assertCurrentRevision($supplier,$row);
+                if($found!==null||count($pools)!==1)self::changed();
+                $pool=reset($pools);
+                $rows=$this->funding->rows($row,$pool['members']);
+                $amounts=[];$net=0;
+                foreach($pool['members']as$id){
+                    if(!isset($rows[$id]['line_id'],$rows[$id]['amount_cents']))self::changed();
+                    $amounts[(int)$rows[$id]['line_id']]=$rows[$id]['amount_cents'];
+                    $net+=$rows[$id]['amount_cents'];
+                }
+                ksort($amounts,SORT_NUMERIC);
+                $found=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'anchor'=>(int)$rows[$pool['anchor']]['line_id'],
+                    'members'=>array_keys($amounts),'line_amounts'=>$amounts,'net_cents'=>$net,
+                    'proof'=>['input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'declared'=>$pool['declared'],'rows'=>$rows]];
             }
             return $found;
         });
+    }
+
+    /** Potvrzená revize jiného období musí odpovídat dnešním podkladům, jinak se z ní krytí nečte. */
+    private function assertCurrentRevision(int $supplier,array $row):void
+    {
+        if(J6FundingProjection::isPaged($row)){
+            if(!$this->funding->pagedCurrent($row,true))self::changed();
+            return;
+        }
+        $this->assertCurrentReceipt($supplier,$row);
     }
     public function assertAssessment(int $supplier,array $snapshot,array $assessment,array $result):void
     {

@@ -8,11 +8,11 @@ use MyInvoice\Repository\NonprofitTaxAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxPagedAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxSourceRepository;
 use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6AssessmentGraphReceipt;
-use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6CurrentProviderFactory;
 use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6HistoricProviderFactory;
 use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6HistoricProviderSet;
 use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6ReadMode;
 use MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity;
+use MyInvoice\Service\Tax\Nonprofit\J6FundingProjection;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAssessmentSource;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
@@ -27,7 +27,6 @@ use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 final readonly class FundingAssessmentEvidence
 {
     public const int MAX_CHOICES = 500;
-    private const int MAX_POOL_MEMBERS = 1000;
     private const int MAX_COLLECTED = 20000;
     private const array CHOICE_TITLES = ['gift', 'public_operating_grant'];
     private const array ROW_FIELDS = ['id', 'line_id', 'entry_id', 'account_id', 'account_code', 'date', 'kind',
@@ -38,8 +37,8 @@ final readonly class FundingAssessmentEvidence
         private NonprofitTaxPagedAssessmentRepository $paged,
         private NonprofitTaxSourceRepository $sources,
         private J6FundingCapacity $capacity,
-        private J6CurrentProviderFactory $current,
         private J6HistoricProviderFactory $historic,
+        private J6FundingProjection $projection,
     ) {}
 
     /**
@@ -61,7 +60,7 @@ final readonly class FundingAssessmentEvidence
     }
 
     /**
-     * Omezená projekce potvrzeného posouzení pro vybrané zdroje.
+     * Omezená projekce potvrzeného posouzení pro vybrané zdroje (J6FundingProjection, legacy i stránkované).
      *
      * @param list<string> $anchors kotvy zdrojů
      * @param list<string> $members členové zdrojů (včetně kotev)
@@ -69,50 +68,8 @@ final readonly class FundingAssessmentEvidence
      */
     public function project(array $receipt, array $anchors, array $members): array
     {
-        $anchorSet = array_fill_keys($anchors, true);
-        $memberSet = array_fill_keys($members, true) + $anchorSet;
-        if ($receipt['storage'] === 'legacy') return self::legacyProjection($receipt['legacy'], $anchorSet, $memberSet);
-        $providers = $this->providers($receipt);
-
-        $pools = [];
-        foreach ($providers->decisions->fundingMemberPages(500) as $page) {
-            foreach ($page as $member) {
-                if ($member['pool_kind'] !== 'revenue' || !isset($anchorSet[$member['anchor']])) continue;
-                $pools[$member['anchor']][] = $member['member_id'];
-                if (count($pools[$member['anchor']]) > self::MAX_POOL_MEMBERS) self::tooLarge();
-            }
-        }
-        foreach ($pools as &$poolMembers) sort($poolMembers, SORT_STRING);
-        unset($poolMembers);
-
-        $links = [];
-        $needed = $memberSet;
-        foreach ($providers->decisions->fundingLinkPages(500) as $page) {
-            foreach ($page as $link) {
-                if (!isset($memberSet[$link['source_id']])) continue;
-                $links[] = ['source_id' => $link['source_id'], 'cost_id' => $link['cost_id'],
-                    'amount_cents' => $link['payload']['amount_cents'] ?? null, 'evidence' => $link['payload']['evidence'] ?? null];
-                $needed[$link['cost_id']] = true;
-                if (count($links) > self::MAX_COLLECTED) self::tooLarge();
-            }
-        }
-
-        $usage = [];
-        foreach ($providers->calculation->pages('usage', 500) as $page) {
-            foreach ($page as $row) {
-                if (!isset($anchorSet[$row['anchor']]) && !isset($memberSet[$row['member_id']])) continue;
-                $usage[$row['anchor']] ??= ['anchor' => $row['anchor'], 'members' => [],
-                    'net_source_cents' => $row['net_source_cents'], 'prior_drawdown_cents' => $row['prior_drawdown_cents'],
-                    'drawdown_cents' => $row['drawdown_cents'], 'remaining_cents' => $row['remaining_cents']];
-                $usage[$row['anchor']]['members'][] = $row['member_id'];
-                $needed[$row['member_id']] = true;
-                if (count($usage[$row['anchor']]['members']) > self::MAX_POOL_MEMBERS) self::tooLarge();
-            }
-        }
-        if (count($needed) > self::MAX_COLLECTED) self::tooLarge();
-
-        $rows = $this->rows($providers, $needed, static fn (): bool => false);
-        return ['rows' => $rows, 'pools' => $pools, 'links' => $links, 'usage' => array_values($usage)];
+        $revision = $receipt['storage'] === 'legacy' ? $receipt['legacy'] : $receipt['paged'];
+        return $this->projection->project($revision, $anchors, $members, [], self::ROW_FIELDS);
     }
 
     /**
@@ -158,13 +115,8 @@ final readonly class FundingAssessmentEvidence
         $paged = $this->paged->find($supplier, $row['id'], $lock);
         $graph = $paged['graph_receipt'];
         if (!$graph instanceof J6AssessmentGraphReceipt) self::changed();
-        $current = false;
-        if ($row['status'] === 'confirmed' && $graph->ruleset === NonprofitTaxRules::VERSION) {
-            $fingerprint = $this->current->fingerprint($supplier, $row['period_id'], $lock);
-            $current = $fingerprint->findingCount === 0 && hash_equals($fingerprint->inputHash, $graph->snapshotInputHash);
-        }
         return $base + ['storage' => 'paged', 'legacy' => null, 'paged' => $paged,
-            'usage_count' => (int) ($graph->counts['usage'] ?? 0), 'current' => $current];
+            'usage_count' => (int) ($graph->counts['usage'] ?? 0), 'current' => $this->projection->pagedCurrent($paged, $lock)];
     }
 
     private function legacyCurrent(int $supplier, array $row, bool $lock): bool
@@ -246,28 +198,6 @@ final readonly class FundingAssessmentEvidence
                 'evidence' => $base['decision']['evidence']];
         }
         return [$options, false];
-    }
-
-    /**
-     * @param array<string,true> $anchorSet
-     * @param array<string,true> $memberSet
-     */
-    private static function legacyProjection(array $row, array $anchorSet, array $memberSet): array
-    {
-        $catalog = array_column($row['result']['rows'], null, 'id') + ($row['snapshot']['funding_reference_sources'] ?? []);
-        $pools = [];
-        foreach ($row['assessment']['funding_sources'] ?? [] as $pool) {
-            if (!isset($anchorSet[$pool['anchor']])) continue;
-            $members = $pool['members'];
-            sort($members, SORT_STRING);
-            $pools[$pool['anchor']] = $members;
-        }
-        $links = array_values(array_filter($row['assessment']['funding'] ?? [],
-            static fn (array $link): bool => isset($memberSet[$link['source_id']])));
-        $usage = array_values(array_filter($row['result']['funding_usage'] ?? [],
-            static fn (array $usage): bool => isset($anchorSet[$usage['anchor']])
-                || array_intersect_key(array_flip($usage['members']), $memberSet) !== []));
-        return ['rows' => $catalog, 'pools' => $pools, 'links' => $links, 'usage' => $usage];
     }
 
     private static function tooLarge(): never

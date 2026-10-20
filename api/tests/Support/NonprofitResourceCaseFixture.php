@@ -39,8 +39,11 @@ trait NonprofitResourceCaseFixture
         if($use){$a=$this->assessment;$a['funding']=[['source_id'=>'line:'.$this->income,'cost_id'=>'line:'.$this->expense,'amount_cents'=>60000,'evidence'=>self::PRIVATE_SENTINEL]];$snapshot=$tax->read($this->supplier,$this->period)['snapshot'];$this->taxReceipt=$tax->confirm($this->supplier,$this->period,$a,$snapshot['input_hash'],self::PRIVATE_SENTINEL,'actual-use',$this->actor,$this->taxReceipt['id']);}
         return $source;
     }
-    /** Potvrdí období fixture stránkovanou cestou J6 se stejnými rozhodnutími a volitelným čerpáním daru. */
-    private function pagedFundingAssessment(int $drawdown): int
+    /**
+     * Potvrdí období fixture stránkovanou cestou J6 se stejnými rozhodnutími, volitelným čerpáním daru
+     * a volitelně deklarovaným fondem nákladu.
+     */
+    private function pagedFundingAssessment(int $drawdown, bool $costPool = false): int
     {
         $drafts = $this->container->get(J6AssessmentDraftService::class);
         $draft = $drafts->openCurrent($this->supplier, $this->period, $this->assessment['profile'], null, $this->actor);
@@ -55,6 +58,14 @@ trait NonprofitResourceCaseFixture
                 'source_id' => 'line:' . $this->income, 'cost_id' => 'line:' . $this->expense,
                 'payload' => ['amount_cents' => $drawdown, 'evidence' => self::PRIVATE_SENTINEL],
             ]], [], $this->actor);
+        }
+        if ($costPool) {
+            $anchor = 'line:' . $this->expense;
+            $draft = $drafts->patchFundingPools($this->supplier, $this->period, $draft['id'], $draft['revision_no'], [[
+                'pool_kind' => 'expense', 'anchor' => $anchor, 'payload' => ['evidence' => self::PRIVATE_SENTINEL],
+            ]], [], $this->actor);
+            $draft = $drafts->patchFundingMembers($this->supplier, $this->period, $draft['id'], $draft['revision_no'],
+                'expense', $anchor, [$anchor], [], $this->actor);
         }
         $context = new J6DraftContext($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $this->actor, $draft['source_input_hash']);
         return $this->container->get(J6AssessmentConfirmationService::class)

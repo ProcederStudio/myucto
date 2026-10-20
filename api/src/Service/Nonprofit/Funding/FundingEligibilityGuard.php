@@ -2,21 +2,32 @@
 declare(strict_types=1);
 namespace MyInvoice\Service\Nonprofit\Funding;
 use MyInvoice\Repository\Nonprofit\FundingRepository;
+use MyInvoice\Service\Tax\Nonprofit\J6FundingProjection;
 final class FundingEligibilityGuard
 {
-    public function __construct(private readonly FundingRepository $sources) {}
+    private const array ROW_FIELDS = ['id', 'line_id', 'account_code', 'date', 'kind', 'amount_cents', 'activity_kind_id', 'decision'];
+
+    public function __construct(private readonly FundingRepository $sources,private readonly J6FundingProjection $projection) {}
     public function assertAssessment(int $supplier,array $snapshot,array $assessment,array $result,bool $lock=false): void
     {
         $this->assertPolicies($this->sources->latest($supplier,$lock),$snapshot,$assessment,$result);
     }
     public function assertPolicies(array $policies,array $snapshot,array $assessment,array $result): void
     {
-        $catalog=array_column($result['rows'],null,'id')+($snapshot['funding_reference_sources']??[]);
-        $this->assertProjection($policies,['rows'=>$catalog,'links'=>$assessment['funding']??[],'usage'=>$result['funding_usage']??[]]);
+        $this->assertRevisionPolicies($policies,['snapshot'=>$snapshot,'assessment'=>$assessment,'result'=>$result]);
     }
 
     /**
-     * Ověří politiky zdrojů proti projekci potvrzeného posouzení (FundingAssessmentEvidence::project).
+     * Ověří politiky zdrojů proti uložené revizi posouzení J6 (legacy i stránkované),
+     * typicky hned po jejím potvrzení ve stejné transakci.
+     */
+    public function assertRevision(int $supplier,array $revision,bool $lock=false): void
+    {
+        $this->assertRevisionPolicies($this->sources->latest($supplier,$lock),$revision);
+    }
+
+    /**
+     * Ověří politiky zdrojů proti projekci potvrzeného posouzení (J6FundingProjection::project).
      * Projekce musí obsahovat všechny vazby a použití, které se dotýkají členů politik.
      */
     public function assertProjection(array $policies,array $projection): void
@@ -41,5 +52,16 @@ final class FundingEligibilityGuard
                 if($usage['prior_drawdown_cents']+$usage['drawdown_cents']>$policy['budget_cents'])FundingPolicy::invalid('Čerpání překračuje schválený rozpočet.','nonprofit_funding_budget_exceeded');
             }
         }
+    }
+
+    private function assertRevisionPolicies(array $policies,array $revision): void
+    {
+        if($policies===[])return;
+        $anchors=[];$members=[];
+        foreach($policies as $source){
+            $anchors[$source['policy']['source_anchor']]=true;
+            foreach($source['policy']['source_members'] as $id)$members[$id]=true;
+        }
+        $this->assertProjection($policies,$this->projection->project($revision,array_keys($anchors),array_keys($members),[],self::ROW_FIELDS));
     }
 }
