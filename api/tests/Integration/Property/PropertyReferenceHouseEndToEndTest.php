@@ -177,6 +177,33 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             self::assertTrue($unit['matches'], $code);
             self::assertSame(['receivable' => $receivable, 'credit' => $credit], $unit['subledger_cents'], $code);
         }
+        $this->assertPartySubledger($date, $house['subledger_cents']);
+    }
+
+    /**
+     * Osobní pohled: nárok patří právnímu dlužníkovi k datu, ručitel A se nepočítá, SJM i
+     * spoluvlastníci U02 tvoří jediný řádek a součet řádků se rovná hrubým zůstatkům domu.
+     */
+    private function assertPartySubledger(string $date, array $house): void
+    {
+        $service = new \MyInvoice\Service\Property\Receivables\PropertyPartyReconciliation($this->db);
+        $names = array_flip($this->people);
+        $rows = [];
+        $cursor = null;
+        do {
+            $page = $service->at($this->supplier, $date, 5, $cursor);
+            self::assertSame(['receivable' => $house['receivable'], 'credit' => $house['credit']], $page['totals']);
+            foreach ($page['items'] as $item) {
+                $key = implode('+', array_map(fn (int $id) => $names[$id], $item['party_ids']));
+                self::assertArrayNotHasKey($key, $rows, 'Stránkování vrátilo osobu dvakrát.');
+                $rows[$key] = [$item['receivable_cents'], $item['credit_cents']];
+            }
+            $cursor = $page['next_cursor'];
+        } while ($cursor !== null);
+        ksort($rows);
+        self::assertSame(['A' => ['0', '50000'], 'B' => ['50000', '0'], 'C' => ['500000', '0'], 'P01a+P01b' => ['0', '100000'],
+            'P02a+P02b+P02c' => ['350000', '0'], 'P03' => ['100000', '0'], 'P06' => ['200000', '0'], 'P07' => ['0', '50000'],
+            'P08' => ['200000', '0'], 'P10' => ['50000', '0'], 'P11' => ['0', '50000'], 'Q06' => ['0', '350000']], $rows);
     }
 
     // ---------------------------------------------------------------- vyúčtování vody 2027
@@ -191,8 +218,6 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         $this->pdo->prepare('INSERT INTO clients (supplier_id,company_name,street,city,zip,country_id,main_email,currency_default_id) VALUES (?,?,?,?,?,?,?,?)')
             ->execute([$this->supplier, 'Syntetická vodárna', 'Syntetická 1', 'Syntetické město', '10000', $country, 'voda@example.test', $currency]);
         $vendor = (int) $this->pdo->lastInsertId();
-        $this->container->get(\MyInvoice\Repository\PostingRuleRepository::class)
-            ->upsertOverride($this->supplier, 'invoice.services.received', '315.210', '321', 'Syntetická politika rozvahového profilu služeb');
         $rate = (int) $this->pdo->query('SELECT id FROM vat_rates WHERE rate_percent=0 ORDER BY id LIMIT 1')->fetchColumn();
         $invoices = $this->container->get(\MyInvoice\Repository\PurchaseInvoiceRepository::class);
         $posting = $this->container->get(PostingService::class);
@@ -202,11 +227,14 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
                 'due_date' => '2027-04-30', 'currency_id' => $currency, 'exchange_rate' => 1, 'status' => 'received', 'vat_deduction' => 'none',
                 'vendor_is_vat_payer' => false], $this->actor, $this->supplier);
             $invoices->replaceItems($invoice, [['description' => 'Syntetické vodné a stočné 2026 ' . $key, 'quantity' => 1, 'unit' => 'ks',
-                'unit_price_without_vat' => (int) $segment['invoice'], 'vat_rate_id' => $rate, 'expense_kind' => 'service', 'expense_account_code' => '315.210']]);
+                'unit_price_without_vat' => (int) $segment['invoice'], 'vat_rate_id' => $rate, 'expense_kind' => 'service']]);
             (new \MyInvoice\Service\Invoice\PurchaseInvoiceCalculator($this->db))->recompute($invoice);
             $this->container->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class)
                 ->saveDocument($this->supplier, 'purchase_invoice', $invoice, [], [1 => $this->serviceDimensions($key)]);
-            $entry = $posting->postDocument($this->supplier, 'purchase_invoice', $invoice, $posting->buildFromPurchaseInvoice($this->supplier, $invoice),
+            // Návrh zaúčtování bere účet z rozvahového profilu služby, ne z předkontace služeb 518.
+            $lines = $posting->buildFromPurchaseInvoice($this->supplier, $invoice);
+            self::assertSame(['315.210'], array_values(array_unique(array_column(array_filter($lines, fn ($l) => $l['side'] === 'debit'), 'account_code'))), $key);
+            $entry = $posting->postDocument($this->supplier, 'purchase_invoice', $invoice, $lines,
                 ['entry_date' => '2027-04-05', 'posted_by' => $this->actor]);
             $command = ['operation' => 'finalize', 'case_id' => $this->estimateCase[$key], 'accounting_date' => '2027-04-05', 'invoice_id' => $invoice,
                 'line_id' => $this->entryLine($entry, 'debit'), 'title' => 'Syntetické konečné rozúčtování dodávky vody 2026'];
@@ -347,6 +375,14 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             $closing->confirmStep($this->supplier, $period, $step, 'skipped', null, $this->periodVersion($period), $meta);
         }
         $closing->runStockValuation($this->supplier, $period, $this->periodVersion($period), $meta);
+        // Splatná daň SVJ je nulová (krok 591/341 se přeskakuje), ale daňová předkontrola
+        // příjmů 504 se přeskočit nedá: bez potvrzeného posouzení knihy neuzavře.
+        try {
+            $closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta);
+            self::fail('Uzávěrka SVJ prošla bez daňové předkontroly.');
+        } catch (\MyInvoice\Service\Accounting\Closing\ClosingException $e) {
+            self::assertSame('nonprofit_tax_assessment_required', $e->errorCode);
+        }
         \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($this->container, $this->supplier, $period, $this->actor);
         return $closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta);
     }

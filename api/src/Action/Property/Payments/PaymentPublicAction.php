@@ -17,6 +17,7 @@ use MyInvoice\Service\Property\Payments\PaymentPublicProjection;
 use MyInvoice\Service\Property\PropertyException;
 use MyInvoice\Service\Property\PropertyInput;
 use MyInvoice\Service\Property\PropertyInstant;
+use MyInvoice\Service\Property\Receivables\PropertyPartyReconciliation;
 use MyInvoice\Service\Property\Receivables\PropertyReconciliation;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -27,7 +28,7 @@ final class PaymentPublicAction
 
     public function __construct(private readonly PaymentOperationsReadRepository $read,
         private readonly PaymentWorkflowReadRepository $workflows, private readonly PropertyReadRepository $registry,
-        private readonly PropertyReconciliation $reconciliation) {}
+        private readonly PropertyReconciliation $reconciliation, private readonly PropertyPartyReconciliation $parties) {}
 
     public function card(Request $request, Response $response): Response
     {
@@ -77,6 +78,18 @@ final class PaymentPublicAction
             $date = PropertyInput::text($q['date'] ?? null, 'date', 10);
             $now = PartyEventRepository::now(); $this->unit($supplier, $unit, $now, $now);
             $result=$this->reconciliation->at($supplier, $date, $unit);unset($result['opening']['states']);return $result;
+        });
+    }
+
+    public function partyReconciliation(Request $request, Response $response): Response
+    {
+        return $this->run($request, $response, function (int $supplier) use ($request): array {
+            $q = $request->getQueryParams();
+            PropertyInput::fields($q, ['date', 'limit', 'after', 'supplier_id']);
+            $date = PropertyInput::text($q['date'] ?? null, 'date', 10);
+            $limit = $this->integer($q, 'limit', 50, 1, 100);
+            $after = array_key_exists('after', $q) ? PropertyInput::text($q['after'], 'after', 2000) : null;
+            return $this->parties->at($supplier, $date, $limit, $after);
         });
     }
 

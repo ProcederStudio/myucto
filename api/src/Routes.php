@@ -2501,6 +2501,7 @@ final class Routes
             $g->get('/catalog/payments/operations', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'operations']);
             $g->get('/catalog/payments/history', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'history']);
             $g->get('/catalog/payments/reconciliation', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'reconciliation']);
+            $g->get('/catalog/payments/reconciliation/parties', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'partyReconciliation']);
             $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'page']);
             $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}/{id:[0-9]+}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'detail']);
             $g->get('/payments/parties', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'parties']);

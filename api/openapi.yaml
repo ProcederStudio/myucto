@@ -781,6 +781,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/payments/reconciliation/parties:
+    get:
+      tags:
+      - Accounting
+      summary: Osobní saldo pohledávek a kreditů SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Hrubé pohledávky a kredity k účetnímu
+        datu po množinách osob napříč jednotkami. Nárok patří skupinám v roli dlužníka platným k datu (po potvrzeném
+        přechodu dluhu novému dlužníkovi), ručitel se nezapočítává. SJM a spoluvlastníci téhož nároku tvoří jeden
+        řádek, takže součet řádků se rovná hrubým zůstatkům domu. Pohledávky a kredity téže osoby se nezapočítávají.
+        Interně se načítá finanční historie celé firmy, stránkuje se výsledek.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Kurzor next_cursor z předchozí stránky.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyPartyReconciliation'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Neplatné datum, neúplná nebo poškozená historie; výsledek se nenahrazuje nulou.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný vstup nebo stránkování.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/charges/components:
     get:
       tags:
@@ -35153,6 +35206,93 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PropertyReceivableCredit'
+    PropertyPartyReconciliation:
+      type: object
+      additionalProperties: false
+      required:
+      - accounting_date
+      - knowledge_basis
+      - items
+      - next_cursor
+      - totals
+      properties:
+        accounting_date:
+          type: string
+          format: date
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - party_ids
+            - parties
+            - unit_ids
+            - group_keys
+            - receivable_cents
+            - credit_cents
+            - liability_review_required
+            properties:
+              party_ids:
+                type: array
+                description: Množina osob řádku (dlužníci nároku nebo věřitelé kreditu); prázdná u nároku bez doložených osob.
+                items:
+                  type: integer
+              parties:
+                type: array
+                description: Osoby řádku s označením ze současného adresáře.
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - id
+                  - label
+                  properties:
+                    id:
+                      type: integer
+                    label:
+                      type: string
+              unit_ids:
+                type: array
+                items:
+                  type: integer
+              group_keys:
+                type: array
+                description: Skupiny odpovědnosti v roli dlužníka, ze kterých řádek vznikl.
+                items:
+                  type: string
+              receivable_cents:
+                type: string
+                pattern: ^-?(?:0|[1-9][0-9]*)$
+              credit_cents:
+                type: string
+                pattern: ^-?(?:0|[1-9][0-9]*)$
+              liability_review_required:
+                type: boolean
+                description: Nárok nemá jedinou skupinu dlužníka nebo doložené osoby; osobní vymáhání vyžaduje posouzení.
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Hodnota pro parametr after další stránky.
+        totals:
+          type: object
+          additionalProperties: false
+          description: Součet všech řádků firmy (ne jen stránky); rovná se hrubým zůstatkům domu z rekonciliace.
+          required:
+          - receivable
+          - credit
+          properties:
+            receivable:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            credit:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
     PropertyReceivableReconciliation:
       type: object
       additionalProperties: false

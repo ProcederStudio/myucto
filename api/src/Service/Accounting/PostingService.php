@@ -1878,6 +1878,8 @@ final class PostingService
             PurchaseDiscountAllocation::withReturns($this->db->pdo(), $supplierId, $purchaseInvoiceId, $items),
         );
 
+        $serviceAccounts = $isFixedAsset ? [] : $this->serviceCostAccounts($supplierId, $purchaseInvoiceId, $entryDate);
+
         $anyClassified = false;
         $weights = [];
         $itemAccounts = [];
@@ -1896,6 +1898,12 @@ final class PostingService
                 $approvedAccount = trim((string) ($approved['expense_account_code'] ?? ''));
                 $override = $approvedAccount === '' ? null : $approvedAccount;
             }
+            // Služba SVJ v rozvahovém profilu jde na 315.2xx bez ohledu na druh výdaje i návrh
+            // klasifikátoru; přebije ji jen účet, který účetní zadala na položce sama.
+            $serviceAccount = $override === null ? ($serviceAccounts[(int) $row['id']] ?? null) : null;
+            if ($serviceAccount !== null) {
+                $override = $serviceAccount;
+            }
 
             // Náhled i samotné zaúčtování musí použít jistý návrh stejně jako auto-post,
             // ale bez zápisu do dokladu. Ruční volba účetní (účet i samotný druh) má vždy
@@ -1906,7 +1914,7 @@ final class PostingService
                 $override,
                 $row['expense_classification_source'] !== null ? (string) $row['expense_classification_source'] : null,
             );
-            if ($approved === null && !$manual && $suggestion !== null && !empty($suggestion['auto'])) {
+            if ($approved === null && $serviceAccount === null && !$manual && $suggestion !== null && !empty($suggestion['auto'])) {
                 $kindValue = (string) $suggestion['expense_kind'];
                 $suggestedAccount = trim((string) ($suggestion['expense_account_code'] ?? ''));
                 $override = $suggestedAccount === '' ? null : $suggestedAccount;
@@ -1932,7 +1940,7 @@ final class PostingService
                 ),
                 default => $defaultAccount,
             };
-            if (!$taxDeductible) {
+            if (!$taxDeductible && $serviceAccount === null) {
                 $account = $this->nonDeductibleExpenseAccount($supplierId, $account, $entryDate, $currentRead);
             }
 
@@ -1985,6 +1993,20 @@ final class PostingService
     }
 
     /** Účet pro druh výdaje — z `posting_rules` (tenant si ho může přesměrovat), ne natvrdo. */
+    /** @return array<int,string> id položky => účet 315.2xx služby SVJ v rozvahovém profilu */
+    private function serviceCostAccounts(int $supplierId, int $purchaseInvoiceId, string $entryDate): array
+    {
+        $policy = new \MyInvoice\Service\Property\Services\ServiceCostAccountPolicy($this->db);
+        if (!$policy->appliesTo($supplierId, $entryDate)) {
+            return [];
+        }
+        $dims = [];
+        foreach ($this->dimensionStamper()->itemDimensions($supplierId, 'purchase_invoice', $purchaseInvoiceId) as $itemId => $line) {
+            $dims[(int) $itemId] = (array) ($line['dimensions'] ?? []);
+        }
+        return $policy->forItems($supplierId, $entryDate, $dims);
+    }
+
     private function accountForExpenseKind(int $supplierId, ExpenseKind $kind): string
     {
         $rule = $this->rules->resolve($supplierId, $kind->ruleKey());

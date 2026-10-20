@@ -23,15 +23,16 @@ use Slim\Routing\RoutingResults;
 
 final class PaymentPublicContractTest extends TestCase
 {
-    public function testActualRoutesAndTokenPermissionsExposeOnlyFourReads(): void
+    public function testActualRoutesAndTokenPermissionsExposeOnlyReads(): void
     {
         $app = AppFactory::create(); Routes::register($app);
         $middleware = new ApiScopeMiddleware(new \Slim\Psr7\Factory\ResponseFactory()); $map = new RoutePermissionMap();
         $handler = new class implements RequestHandlerInterface {
             public function handle(ServerRequestInterface $request): ResponseInterface { return new Response(204); }
         };
-        foreach (['card', 'operations', 'history', 'reconciliation'] as $method) {
-            $path = '/api/property/catalog/payments/' . $method;
+        foreach (['card' => 'card', 'operations' => 'operations', 'history' => 'history', 'reconciliation' => 'reconciliation',
+            'reconciliation/parties' => 'partyReconciliation'] as $suffix => $method) {
+            $path = '/api/property/catalog/payments/' . $suffix;
             $result = $app->getRouteResolver()->computeRoutingResults($path, 'GET');
             self::assertSame(RoutingResults::FOUND, $result->getRouteStatus(), $path);
             $route = $app->getRouteResolver()->resolveRoute((string) $result->getRouteIdentifier());
@@ -53,7 +54,7 @@ final class PaymentPublicContractTest extends TestCase
         $action = (new \ReflectionClass(PaymentPublicAction::class))->newInstanceWithoutConstructor();
         $request = $this->request('GET', '/api/property/catalog/payments/card')
             ->withAttribute('auth.effective_role', new EffectiveRole(1, 'Synthetic denied', 'staff', true, []));
-        foreach (['card', 'operations', 'history', 'reconciliation'] as $method) {
+        foreach (['card', 'operations', 'history', 'reconciliation', 'partyReconciliation'] as $method) {
             self::assertSame(403, $action->$method($request, new Response())->getStatusCode());
         }
     }
@@ -67,7 +68,9 @@ final class PaymentPublicContractTest extends TestCase
         foreach ([['card', []], ['card', ['unit_id' => 0]], ['card', ['unit_id' => []]],
             ['operations', ['limit' => 101]], ['operations', ['after_id' => -1]], ['operations', ['unit_id' => 'bad']],
             ['operations', ['before_id' => 42]], ['card', ['client_id' => 1]],
-            ['history', ['after_id' => 42]], ['history', ['limit' => 0]], ['history', ['before_id' => -1]], ['history', ['limit' => null]]] as [$method, $query]) {
+            ['history', ['after_id' => 42]], ['history', ['limit' => 0]], ['history', ['before_id' => -1]], ['history', ['limit' => null]],
+            ['partyReconciliation', ['date' => '2027-01-01', 'limit' => 101]], ['partyReconciliation', ['date' => '2027-01-01', 'limit' => 0]],
+            ['partyReconciliation', ['date' => '2027-01-01', 'unit_id' => 1]], ['partyReconciliation', []]] as [$method, $query]) {
             $response = $action->$method($request->withQueryParams($query), new Response());
             self::assertSame(422, $response->getStatusCode(), $method . json_encode($query));
         }
