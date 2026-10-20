@@ -1058,7 +1058,7 @@ final class SettingsAction
         if (array_key_exists('reminder_days_after_due', $body)) {
             $body['reminder_days_after_due'] = max(1, min(365, (int) $body['reminder_days_after_due']));
         }
-        // 0 = auto poděkování bez omezení stáří platby (migrace 2059).
+        // 0 = auto poděkování bez omezení stáří platby (migrace 2073).
         if (array_key_exists('payment_thanks_max_age_days', $body)) {
             $body['payment_thanks_max_age_days'] = max(0, min(365, (int) $body['payment_thanks_max_age_days']));
         }

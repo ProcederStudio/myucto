@@ -274,6 +274,19 @@ final class BankMatchPaymentThanksTest extends TestCase
         self::assertSame('auto_disabled', $this->lastThanksReason());
     }
 
+    /** Firma bez poděkování nesmí mít přeskočení v aktivitě u každého párování z banky. */
+    public function testDisabledFeatureLeavesNoSkipOnBankMatch(): void
+    {
+        $this->db->pdo()->prepare('UPDATE supplier SET payment_thanks_enabled = 0 WHERE id = ?')->execute([$this->supplierId]);
+        $this->createFixture('CURDATE()');
+
+        $this->matcher->match($this->txId);
+
+        self::assertSame('paid', $this->db->pdo()
+            ->query("SELECT status FROM invoices WHERE id = {$this->invoiceId}")->fetchColumn());
+        self::assertNull($this->lastThanksReason());
+    }
+
     private function setMaxAgeDays(int $days): void
     {
         $pdo = $this->db->pdo();

@@ -67,6 +67,13 @@ final class PaymentThanksMailer
         if (!$invoice) {
             return ['status' => 'skipped', 'reason' => 'not_found'];
         }
+        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
+        $settings = $this->supplierSettings($supplierId);
+        // Párování z banky volá poděkování u každé firmy; bez zapnuté funkce
+        // nepatří přeskočení do aktivity faktury.
+        if ($trigger === 'bank_match' && !$settings['enabled']) {
+            return ['status' => 'skipped', 'reason' => 'disabled'];
+        }
         if (($invoice['invoice_type'] ?? '') === 'cancellation') {
             return $this->logSkip($invoiceId, $invoice, 'cancellation', $trigger, $userId, $ip, $userAgent);
         }
@@ -74,8 +81,6 @@ final class PaymentThanksMailer
             return $this->logSkip($invoiceId, $invoice, 'not_paid', $trigger, $userId, $ip, $userAgent);
         }
 
-        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
-        $settings = $this->supplierSettings($supplierId);
         if (!$settings['enabled']) {
             return $this->logSkip($invoiceId, $invoice, 'disabled', $trigger, $userId, $ip, $userAgent);
         }
