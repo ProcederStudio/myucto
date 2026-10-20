@@ -103,6 +103,54 @@ final class AccountingFrameworkService
     }
 
     /**
+     * Nová firma s právní formou, pro kterou je určena vyhláška 504: výchozí rámec
+     * se přepíše na 504 a nedotčená šablona 500 se vymění za šablonu 504.
+     * Firmu s jinou historií rámce, zápisy nebo použitou osnovou nechá být.
+     *
+     * @return bool true, pokud firma přešla na rámec 504
+     */
+    public function adoptCz504BaselineForNewSupplier(int $supplierId, ?int $userId = null): bool
+    {
+        $pdo = $this->db->pdo();
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        } else {
+            $pdo->exec('SAVEPOINT accounting_framework_change');
+        }
+        try {
+            $history = $this->frameworks->listForTenantForUpdate($supplierId);
+            $baselineOnly = $history === []
+                || (count($history) === 1
+                    && $history[0]['effective_from'] === '1900-01-01'
+                    && $history[0]['accounting_framework'] === self::CZ_500);
+            $pristine = new PristineChart500($this->db);
+            $chartEmpty = !$this->frameworks->hasAccountingHistoryForUpdate($supplierId);
+            if (!$baselineOnly || (!$chartEmpty && !$pristine->isPristineForUpdate($supplierId))) {
+                $this->finishTransaction($ownsTransaction);
+                return false;
+            }
+            $this->recordFramework($supplierId, '1900-01-01', self::CZ_504, $userId);
+            if (!$chartEmpty) {
+                $pristine->replaceWithFrameworkTemplate($supplierId, date('Y-m-d'));
+            }
+            $this->finishTransaction($ownsTransaction);
+            return true;
+        } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            } elseif (!$ownsTransaction && $pdo->inTransaction()) {
+                $pdo->exec('ROLLBACK TO SAVEPOINT accounting_framework_change');
+                $pdo->exec('RELEASE SAVEPOINT accounting_framework_change');
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * Změní rámec od prvního dne existujícího účetního období.
      *
      * Změna ovlivňuje interval od effectiveFrom do další uložené změny. Konzervativně zamyká chronologicky
@@ -188,16 +236,22 @@ final class AccountingFrameworkService
                 $this->finishTransaction($ownsTransaction);
                 return false;
             }
+            // Nedotčenou šablonu 500 nové firmy smí Nastavení vyměnit za šablonu 504;
+            // cokoli dalšího je účetní historie a patří do řízeného převodu.
+            $replaceSeededChart = false;
             if ($fromSettings
                 && $framework === self::CZ_504
                 && $this->frameworks->hasAccountingHistoryForUpdate($supplierId)
             ) {
-                throw new AccountingFrameworkException(
-                    self::CONVERSION_REQUIRED,
-                    'Firma už má účetní historii (zápisy v deníku nebo účtovou osnovu). '
-                        . 'Na rámec vyhlášky 504 ji převeďte řízeným převodem v Účetnictví → Převod rámce.',
-                    409,
-                );
+                $replaceSeededChart = (new PristineChart500($this->db))->isPristineForUpdate($supplierId);
+                if (!$replaceSeededChart) {
+                    throw new AccountingFrameworkException(
+                        self::CONVERSION_REQUIRED,
+                        'Firma už má účetní historii (zápisy v deníku nebo upravenou či použitou účtovou osnovu). '
+                            . 'Na rámec vyhlášky 504 ji převeďte řízeným převodem v Účetnictví → Převod rámce.',
+                        409,
+                    );
+                }
             }
 
             try {
@@ -228,6 +282,9 @@ final class AccountingFrameworkService
             }
 
             $this->recordFramework($supplierId, $effectiveFrom, $framework, $userId);
+            if ($replaceSeededChart) {
+                (new PristineChart500($this->db))->replaceWithFrameworkTemplate($supplierId, $effectiveFrom);
+            }
             $this->finishTransaction($ownsTransaction);
             return true;
         } catch (\Throwable $e) {
