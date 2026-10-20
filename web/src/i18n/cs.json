@@ -14107,6 +14107,7 @@
     "property_issuance": "Vydání předpisů",
     "framework_conversion": "Řízený převod 500 → 504",
     "framework_scope_denied": {
+      "conversion504": "Převod rámce na vyhlášku 504 je jen pro nevýdělečné organizace a společenství vlastníků jednotek.",
       "nonprofit504": "Tato agenda je jen pro nevýdělečné organizace a firmy účtující podle vyhlášky 504.",
       "svj": "Tato agenda je jen pro společenství vlastníků jednotek."
     },
@@ -37984,6 +37985,15 @@
     "pending_approval": "Výsledek běžného roku do schválení 931",
     "retainedRole": "Výsledky minulých let 932",
     "balance": "Rozvahový zůstatek",
-    "noManualIds": "Účty, období a zdrojové buňky vybíráte z ověřeného serverového podkladu."
+    "noManualIds": "Účty, období a zdrojové buňky vybíráte z ověřeného serverového podkladu.",
+    "svjGuide": {
+      "title": "Přechod SVJ na vyhlášku 504",
+      "why": "Společenství vlastníků jednotek nepřevádí zůstatky z hlavní knihy. Pohledávky a závazky SVJ patří ke konkrétním jednotkám a vlastníkům, proto se převádějí doloženými počátečními stavy.",
+      "how": "Jak postupovat",
+      "newSvj": "SVJ bez účetní historie (bez zápisů v deníku a s nedotčenou výchozí osnovou) přepněte na rámec 504 v Nastavení, sekce Účetní rámec. Nová SVJ dostane rámec 504 i osnovu 504 rovnou při založení.",
+      "existingSvj": "SVJ, které už účtuje, uzavře poslední rok podle vyhlášky 500, založí navazující období v rámci 504 a převezme počáteční stavy jednotek, vlastníků, dluhů, záloh na služby a dlouhodobých záloh odsouhlasené na každý zůstatek.",
+      "openingsLink": "Počáteční stavy SVJ",
+      "settingsLink": "Účetní rámec v Nastavení"
+    }
   }
 }

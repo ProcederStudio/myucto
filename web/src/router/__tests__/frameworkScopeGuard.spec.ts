@@ -43,7 +43,7 @@ describe('router guard agend NNO/504 a SVJ', () => {
   })
 
   it.each([
-    ['accounting-framework-conversion', 'nonprofit504'],
+    ['accounting-framework-conversion', 'conversion504'],
     ['accounting-nonprofit-capital', 'nonprofit504'],
     ['property-registry', 'svj'],
     ['property-payments', 'svj'],
@@ -60,6 +60,10 @@ describe('router guard agend NNO/504 a SVJ', () => {
     await expect(authorizationGuard(router.resolve({ name: 'accounting-framework-conversion' }) as never)).resolves.toBe(true)
     supplier('cz_504', 'svj')
     await expect(authorizationGuard(router.resolve({ name: 'property-registry' }) as never)).resolves.toBe(true)
+    supplier('cz_500', 'svj')
+    await expect(authorizationGuard(router.resolve({ name: 'accounting-framework-conversion' }) as never)).resolves.toBe(true)
+    await expect(authorizationGuard(router.resolve({ name: 'accounting-nonprofit-capital' }) as never)).resolves.toEqual({ name: 'home' })
+    useToast().toasts.value.splice(0)
     expect(useToast().toasts.value).toHaveLength(0)
   })
 })

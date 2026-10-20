@@ -14107,6 +14107,7 @@
     "property_issuance": "Charge issuance",
     "framework_conversion": "Controlled conversion 500 → 504",
     "framework_scope_denied": {
+      "conversion504": "Conversion to the Decree 504 framework is only for nonprofit organisations and owners' associations.",
       "nonprofit504": "This area is only for nonprofit organisations and companies keeping accounts under Decree 504.",
       "svj": "This area is only for owners' associations."
     },
@@ -37984,6 +37985,15 @@
     "pending_approval": "Current result pending approval 931",
     "retainedRole": "Prior results 932",
     "balance": "Balance sheet position",
-    "noManualIds": "Accounts, periods and source cells are selected from verified server evidence."
+    "noManualIds": "Accounts, periods and source cells are selected from verified server evidence.",
+    "svjGuide": {
+      "title": "Moving an owners' association to Decree 504",
+      "why": "An owners' association does not convert balances from the general ledger. Its receivables and liabilities belong to specific units and owners, so they are taken over through evidenced opening balances.",
+      "how": "How to proceed",
+      "newSvj": "An association without accounting history (no journal entries and an untouched default chart of accounts) switches to framework 504 in Settings, Accounting framework section. A newly created association gets framework 504 and the 504 chart of accounts right away.",
+      "existingSvj": "An association that already keeps accounts closes its last year under Decree 500, creates the following period under framework 504 and takes over the opening balances of units, owners, debts, service advances and long-term advances reconciled to every balance.",
+      "openingsLink": "Association opening balances",
+      "settingsLink": "Accounting framework in Settings"
+    }
   }
 }

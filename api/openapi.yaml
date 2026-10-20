@@ -45365,7 +45365,7 @@ components:
         accounting_framework:
           type: string
           enum: [cz_500, cz_504]
-          description: "Účetní rámec. Pro zápis musí být přítomen společně s accounting_framework_effective_from. Přechod na cz_504 přímo je povolen jen firmě bez účetní historie (bez zápisů v deníku a bez účtové osnovy); jinak 409 accounting_framework_conversion_required s odkazem conversion_url na řízený převod rámce."
+          description: "Účetní rámec. Pro zápis musí být přítomen společně s accounting_framework_effective_from. Přechod na cz_504 přímo je povolen jen firmě bez účetní historie (bez zápisů v deníku, s prázdnou nebo nedotčenou výchozí osnovou, kterou server v téže transakci nahradí osnovou 504); jinak 409 accounting_framework_conversion_required s odkazem conversion_url na řízený převod rámce."
         accounting_framework_effective_from:
           type: string
           format: date

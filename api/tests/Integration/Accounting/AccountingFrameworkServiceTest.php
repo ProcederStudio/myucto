@@ -10,6 +10,9 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingFrameworkRepository;
 use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\ChartOfAccountsTemplate;
+use MyInvoice\Service\Accounting\ChartOfAccountsTemplate504;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use MyInvoice\Tests\Support\WorkerLockWaitTrait;
 use PHPUnit\Framework\Attributes\Group;
@@ -168,6 +171,47 @@ final class AccountingFrameworkServiceTest extends TestCase
         $this->expectFrameworkError(AccountingFrameworkService::CONVERSION_REQUIRED, fn () =>
             $this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
         self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'));
+    }
+
+    public function testSettingsSwitchTo504ReplacesUntouchedSeededChart500(): void
+    {
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        (new ChartOfAccountsSeeder($this->db))->seedForSupplier($this->supplierId);
+        $other = (new ChartOfAccountsSeeder($this->db))->seedForSupplier($this->otherSupplierId);
+
+        self::assertTrue($this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+
+        self::assertSame(AccountingFrameworkService::CZ_504, $this->service->forDate($this->supplierId, '2098-01-01'));
+        self::assertSame(
+            $this->templateCodes(ChartOfAccountsTemplate504::ACCOUNTS),
+            $this->chartCodes($this->supplierId),
+            'nedotčená šablona 500 se nahradí šablonou 504',
+        );
+        self::assertSame(0, (int) $this->scalar('SELECT COUNT(*) FROM posting_rules WHERE supplier_id = ?', [$this->supplierId]));
+        self::assertCount($other, $this->chartCodes($this->otherSupplierId), 'osnova jiné firmy zůstává');
+    }
+
+    public function testSettingsSwitchTo504RejectsChangedOrUsedSeededChart(): void
+    {
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        $seeder = new ChartOfAccountsSeeder($this->db);
+        $seeder->seedForSupplier($this->supplierId);
+        $pdo = $this->db->pdo();
+        $mutations = [
+            'přejmenovaný účet' => ["UPDATE chart_of_accounts SET name = 'Syntetická banka' WHERE supplier_id = ? AND account_code = '221'"],
+            'vlastní účet' => ["INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active) VALUES (?, '999', 'Syntetický vlastní', 'offbalance', NULL, 1, 1)"],
+            'vlastní předkontace' => ["INSERT INTO posting_rules (supplier_id, rule_key, description, debit_account_code, credit_account_code, priority, is_active) VALUES (?, 'invoice.service.issued', 'Syntetická předkontace', '311', '602', 100, 1)"],
+            'použitý účet v dokladu' => ["INSERT INTO cash_registers (supplier_id, name, account_code) VALUES (?, 'Syntetická pokladna', '211')"],
+        ];
+        foreach ($mutations as $label => [$sql]) {
+            $pdo->exec('SAVEPOINT pristine_case');
+            $pdo->prepare($sql)->execute([$this->supplierId]);
+            $this->expectFrameworkError(AccountingFrameworkService::CONVERSION_REQUIRED, fn () =>
+                $this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+            self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'), $label);
+            self::assertSame($this->templateCodes(ChartOfAccountsTemplate::ACCOUNTS), array_values(array_diff($this->chartCodes($this->supplierId), ['999'])), $label);
+            $pdo->exec('ROLLBACK TO SAVEPOINT pristine_case');
+        }
     }
 
     public function testSettingsHistoryGuardDoesNotBlockReturnTo500OrOtherTenant(): void
@@ -535,6 +579,32 @@ PHP;
             $pdo->prepare('DELETE FROM supplier WHERE id IN (?, ?)')
                 ->execute([$this->supplierId, $this->otherSupplierId]);
         }
+    }
+
+    /** @param list<array{code:string}> $accounts @return list<string> */
+    private function templateCodes(array $accounts): array
+    {
+        $codes = array_map(static fn (array $account): string => $account['code'], $accounts);
+        sort($codes, SORT_STRING);
+        return $codes;
+    }
+
+    /** @return list<string> */
+    private function chartCodes(int $supplierId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT account_code FROM chart_of_accounts WHERE supplier_id = ?');
+        $stmt->execute([$supplierId]);
+        $codes = array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        sort($codes, SORT_STRING);
+        return $codes;
+    }
+
+    /** @param list<mixed> $params */
+    private function scalar(string $sql, array $params): mixed
+    {
+        $stmt = $this->db->pdo()->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchColumn();
     }
 
     private function replaceBaselineWithCz504(int $supplierId): void
