@@ -1932,8 +1932,9 @@ final class TaxReturnService
         // (tax_losses) — bez kontroly by fat-finger vstup (např. 1 200 000 místo 120 000)
         // prošel kalkulátorem (ten jen ořízne do výše ř. 41/§7-10, ne proti evidenci) a
         // v XML/kc_ztrata2 by se uplatnila neexistující ztráta → podhodnocená daň beze stopy.
-        // Ponecháno jako VÝRAZNÉ varování (ne blok) — legitimní edge case jsou historické
-        // ztráty vzniklé před zavedením evidence v systému (evidence=0, ztráta reálně existuje).
+        // Při výpočtu jde o VÝRAZNÉ varování; finalizace pak odpočet nad evidencí odmítne
+        // s 409 loss_allocation_insufficient (TaxLossService::assertExact). Historickou ztrátu
+        // vzniklou před zavedením evidence je proto nutné do evidence nejprve doplnit.
         $requestedLoss = max(0.0, (float) ($inputs['loss_carryforward'] ?? 0));
         if ($requestedLoss > 0.0) {
             $available = (float) ($this->losses->card($supplierId, $year, $type)['available_total'] ?? 0.0);
