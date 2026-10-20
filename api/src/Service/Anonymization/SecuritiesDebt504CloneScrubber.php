@@ -19,7 +19,7 @@ final class SecuritiesDebt504CloneScrubber
     {
         self::context($db);$pdo=$db->pdo();$pdo->beginTransaction();
         try {
-            $rows=self::rows($db);$native=[];$payments=[];
+            $rows=self::rows($db);$native=[];$payments=[];$unbound=self::unbound($rows[self::TABLES[1]]);
             foreach($rows[self::TABLES[0]] as $lot){
                 $supplier=(int)$lot['supplier_id'];$repo=new R($db);$date=self::date($lot,$rows[self::TABLES[1]]);
                 $state=$repo->transaction($supplier,fn()=> $repo->current($supplier,(int)$lot['id'],$date));
@@ -28,7 +28,7 @@ final class SecuritiesDebt504CloneScrubber
             foreach($rows[self::TABLES[1]] as $event){
                 $supplier=(int)$event['supplier_id'];$receipt=R::decode($event['receipt_json']);
                 if(isset($receipt['ledger'])){$id=$receipt['ledger']['entry']['id'];$native[$supplier][$id]=(new PaymentJournalProof($db))->current($supplier,$id);}
-                if(isset($receipt['payment'])){$saved=$receipt['payment'];$id=$saved['ledger']['entry']['id'];$payments[$supplier][$id.':'.$saved['line']['id']]=(new SecuritiesDebt504PaymentProof($db))->current($supplier,$id,$saved['line']['id'],$saved['line']);$native[$supplier][$id]=$payments[$supplier][$id.':'.$saved['line']['id']]['ledger'];}
+                if(isset($receipt['payment'])&&!isset($unbound[$supplier][(int)$event['id']])){$saved=$receipt['payment'];$id=$saved['ledger']['entry']['id'];$payments[$supplier][$id.':'.$saved['line']['id']]=(new SecuritiesDebt504PaymentProof($db))->current($supplier,$id,$saved['line']['id'],$saved['line']);$native[$supplier][$id]=$payments[$supplier][$id.':'.$saved['line']['id']]['ledger'];}
             }
             foreach($rows[self::TABLES[3]] as $carry){$r=R::decode($carry['receipt_json']);$supplier=(int)$carry['supplier_id'];$id=$r['ledger']['entry']['id'];$native[$supplier][$id]=(new PaymentJournalProof($db))->current($supplier,$id);}
             $pdo->commit();return ['rows'=>$rows,'native'=>$native,'payments'=>$payments];
@@ -47,7 +47,7 @@ final class SecuritiesDebt504CloneScrubber
                 if(self::financial($before)!==self::financial($actual))throw new \LogicException('Debt clone financial ledger changed.');
                 $native[$supplier][$id]=$actual;
             }
-            $factsByLot=[];$hashes=[];
+            $factsByLot=[];$hashes=[];$unbound=self::unbound($rows[self::TABLES[1]]);
             foreach($rows[self::TABLES[0]] as $row){
                 $facts=self::text(R::decode($row['facts_json']),$scrubber);$supplier=(int)$row['supplier_id'];$entry=$facts['acquisition']['entry']['id'];$facts['acquisition']=$native[$supplier][$entry];
                 $asset=array_values(array_filter($facts['acquisition']['lines'],fn($line)=>$line['id']===$facts['asset']['id']));
@@ -58,7 +58,7 @@ final class SecuritiesDebt504CloneScrubber
             foreach($rows[self::TABLES[1]] as $row){
                 $supplier=(int)$row['supplier_id'];$request=self::text(R::decode($row['request_json']),$scrubber);$receipt=self::text(R::decode($row['receipt_json']),$scrubber);
                 if(isset($receipt['ledger']))$receipt['ledger']=$native[$supplier][$receipt['ledger']['entry']['id']];
-                if(isset($receipt['payment'])){
+                if(isset($receipt['payment'])&&!isset($unbound[$supplier][(int)$row['id']])){
                     $saved=$receipt['payment'];$entry=$saved['ledger']['entry']['id'];$account=$row['operation']==='sale'?\MyInvoice\Service\Accounting\Closing\SecuritiesDebt504Policy::SALE_REVENUE_ACCOUNT:null;
                     $actual=(new SecuritiesDebt504PaymentProof($db))->current($supplier,$entry,$saved['line']['id'],$factsByLot[$supplier][(int)$row['lot_id']]['asset'],$account);
                     $before=$inputs['payments'][$supplier][$entry.':'.$saved['line']['id']]??null;
@@ -83,6 +83,15 @@ final class SecuritiesDebt504CloneScrubber
         $rows=[];
         foreach(self::TABLES as $table){$order=$table===self::TABLES[2]?'supplier_id,line_id':($table===self::TABLES[3]?'supplier_id,lot_id,period_id,slot':'supplier_id,id');$rows[$table]=$db->pdo()->query('SELECT * FROM '.$table.' ORDER BY '.$order.' FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC);foreach($rows[$table] as $row)foreach(['facts','request','receipt'] as $prefix)if(isset($row[$prefix.'_json'])&&R::hash(R::decode($row[$prefix.'_json']))!==$row[$prefix.'_hash'])throw new \LogicException('Debt clone source hash mismatch.');}
         return $rows;
+    }
+    /**
+     * Odvázaná událost (má storno) drží platbu jen jako zmrazený historický podklad.
+     * SecuritiesDebt504Repository::current() ji proti živému dokladu neověřuje, protože
+     * účetní smí bankovní doklad po odvázání upravit; klon proto nesmí být přísnější.
+     */
+    private static function unbound(array $events): array
+    {
+        $out=[];foreach($events as $event)if($event['reversal_of']!==null)$out[(int)$event['supplier_id']][(int)$event['reversal_of']]=true;return $out;
     }
     private static function date(array $lot,array $events): string
     {
