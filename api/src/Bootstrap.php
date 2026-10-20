@@ -227,6 +227,9 @@ final class Bootstrap
                 )->constructorParameter(
                     'awaitingRuns',
                     \DI\get(\MyInvoice\Service\Payroll\Submission\PayrollAwaitingRunDutyService::class),
+                )->constructorParameter(
+                    'signingProfiles',
+                    \DI\get(\MyInvoice\Repository\Payroll\PayrollSigningProfileRepository::class),
                 ),
             \MyInvoice\Service\Payroll\Submission\Sickness\SicknessCaseFromAbsenceService::class =>
                 \DI\autowire()->constructorParameter(
@@ -653,6 +656,7 @@ final class Bootstrap
                 $c->get(\MyInvoice\Repository\EmailProfileRepository::class),
                 $c->get(\MyInvoice\Service\Mail\SentMailImapAppender::class),
                 invoiceIsdoc: $c->get(\MyInvoice\Service\Mail\InvoiceIsdocAttachments::class),
+                activity: $c->get(\MyInvoice\Service\ActivityLogger::class),
             ),
             \MyInvoice\Service\Bank\EmailNotice\ImapMailboxClientInterface::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Bank\EmailNotice\WebklexImapMailboxClient(
                 $c->get(\MyInvoice\Service\Bank\EmailNotice\EmailNoticeTextNormalizer::class),
@@ -1165,6 +1169,19 @@ final class Bootstrap
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->create('kb_plus'),
                     $c->get(ClockInterface::class),
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->diagnosticLogger()),
+            \MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataClient::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataClient(new \GuzzleHttp\Client()),
+            // Zdroje automatického stavu tachometru; nový zdroj se přidá sem.
+            \MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry([
+                    $c->get(\MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataProvider::class),
+                ]),
+            // Handlery společného OAuth callbacku (/api/oauth/callback); nová doména se přidá sem.
+            \MyInvoice\Service\OAuth\OAuthCallbackRegistry::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\OAuth\OAuthCallbackRegistry([
+                    $c->get(\MyInvoice\Service\Logbook\OdometerSource\OdometerOAuthCallbackHandler::class),
+                    $c->get(\MyInvoice\Service\Bank\Connector\BankOAuthCallbackHandler::class),
+                ]),
             \MyInvoice\Service\Bank\Connector\CsasApiClient::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\Bank\Connector\CsasApiClient(
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->create('csas'),

@@ -614,6 +614,7 @@ async function saveSupplier() {
       payment_thanks_auto_send: supplier.value.payment_thanks_auto_send,
       payment_thanks_default_checked: supplier.value.payment_thanks_default_checked,
       payment_thanks_attach_paid_pdf: supplier.value.payment_thanks_attach_paid_pdf,
+      payment_thanks_max_age_days: supplier.value.payment_thanks_max_age_days,
       self_copy: supplier.value.self_copy ?? null,
       auto_generate_recurring: supplier.value.auto_generate_recurring,
       embed_isdoc: supplier.value.embed_isdoc,
@@ -1306,6 +1307,15 @@ async function confirmTaxRepDelete() {
                 <input v-model="supplier.payment_thanks_auto_send" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
                 {{ t('settings.payment_thanks_auto_send') }}
               </label>
+              <div v-if="supplier.payment_thanks_auto_send" class="ml-6">
+                <label class="flex flex-wrap items-center gap-2 text-sm">
+                  {{ t('settings.payment_thanks_max_age_days') }}
+                  <input v-model.number="supplier.payment_thanks_max_age_days" type="number" min="0" max="365"
+                         class="w-24 h-10 px-3 border border-neutral-300 rounded-md text-sm font-mono" />
+                  <span class="text-neutral-500">{{ t('settings.reminder_days_unit') }}</span>
+                </label>
+                <p class="text-xs text-neutral-500 mt-1">{{ t('settings.payment_thanks_max_age_days_hint') }}</p>
+              </div>
               <label class="flex items-center gap-2 text-sm">
                 <input v-model="supplier.payment_thanks_default_checked" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
                 {{ t('settings.payment_thanks_default_checked') }}

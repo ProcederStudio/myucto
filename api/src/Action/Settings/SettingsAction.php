@@ -633,6 +633,7 @@ final class SettingsAction
             'opr_jmeno', 'opr_prijmeni', 'opr_postaveni', 'person_title',
             // Děkovný e-mail za úhradu (issue #57)
             'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf',
+            'payment_thanks_max_age_days',
             // Kopie odchozích e-mailů dodavateli (migrace 0102) — JSON, validace níže
             'self_copy',
             // Režim účetnictví (Epic F0, migrace 1001) — daňová evidence vs podvojné
@@ -1089,6 +1090,10 @@ final class SettingsAction
         // ať přímý API caller neuloží nesmyslnou hodnotu.
         if (array_key_exists('reminder_days_after_due', $body)) {
             $body['reminder_days_after_due'] = max(1, min(365, (int) $body['reminder_days_after_due']));
+        }
+        // 0 = auto poděkování bez omezení stáří platby (migrace 2073).
+        if (array_key_exists('payment_thanks_max_age_days', $body)) {
+            $body['payment_thanks_max_age_days'] = max(0, min(365, (int) $body['payment_thanks_max_age_days']));
         }
         // Kopie odchozích e-mailů dodavateli — JSON {typ: 'off'|'cc'|'bcc'},
         // klíče = typy zpráv resolveru. Ukládají se jen explicitně zvolené typy;
@@ -1625,6 +1630,7 @@ final class SettingsAction
         $row['payment_thanks_auto_send']      = (bool) ($row['payment_thanks_auto_send'] ?? false);
         $row['payment_thanks_default_checked']= (bool) ($row['payment_thanks_default_checked'] ?? false);
         $row['payment_thanks_attach_paid_pdf']= (bool) ($row['payment_thanks_attach_paid_pdf'] ?? false);
+        $row['payment_thanks_max_age_days']   = (int) ($row['payment_thanks_max_age_days'] ?? 30);
         // Kopie odchozích e-mailů dodavateli (migrace 0102) — parsed objekt nebo null.
         $sc = $row['self_copy'] !== null ? json_decode((string) $row['self_copy'], true) : null;
         $row['self_copy'] = is_array($sc) && $sc !== [] ? $sc : null;

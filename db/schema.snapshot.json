@@ -1050,7 +1050,11 @@
         "2066_nonprofit_membership.sql",
         "2067_property_issuance_preview_index.sql",
         "2068_membership_recorded_at_utc.sql",
-        "2069_nonprofit_funding_catalog_first_revision.sql"
+        "2069_nonprofit_funding_catalog_first_revision.sql",
+        "2070_asset_imported_depreciation_plan.sql",
+        "2071_logbook_odometer_sources.sql",
+        "2072_oauth_sessions.sql",
+        "2073_payment_thanks_stale_guard.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2416,6 +2420,7 @@
                 "disposal_price": "decimal(14,2) NULL DEFAULT NULL",
                 "disposal_type": "enum('sold','liquidated','donated','damaged') NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "imported_depreciation_plan": "longtext NULL DEFAULT NULL COLLATE utf8mb4_bin",
                 "input_price": "decimal(14,2) NOT NULL",
                 "inventory_number": "varchar(30) NOT NULL",
                 "is_first_owner": "tinyint(1) NOT NULL DEFAULT 0",
@@ -2456,7 +2461,9 @@
                 "fk_assets_sale_invoice": "(sale_invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_assets_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
-            "checks": []
+            "checks": {
+                "imported_depreciation_plan": "json_valid(`imported_depreciation_plan`)"
+            }
         },
         "attachment_checks": {
             "type": "BASE TABLE",
@@ -6704,6 +6711,7 @@
                 "payment_ordered_at": "timestamp NULL DEFAULT NULL",
                 "payment_thanks_sent_at": "timestamp NULL DEFAULT NULL",
                 "payment_thanks_sent_to": "varchar(512) NULL DEFAULT NULL",
+                "payment_thanks_suppressed_at": "timestamp NULL DEFAULT NULL",
                 "payment_variable_symbol": "varchar(10) NULL DEFAULT NULL",
                 "payment_variable_symbol_match_key": "varchar(10) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`payment_variable_symbol`,'[^0-9]','')),''))",
                 "pdf_generated_at": "timestamp NULL DEFAULT NULL",
@@ -8542,6 +8550,40 @@
                 "basis_json": "json_valid(`basis_json`)"
             }
         },
+        "oauth_sessions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "consumed_at": "datetime(6) NULL DEFAULT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "domain": "varchar(32) NOT NULL",
+                "error_code": "varchar(80) NULL DEFAULT NULL",
+                "expires_at": "datetime(6) NOT NULL",
+                "flow": "enum('redirect','device_code') NOT NULL",
+                "provider": "varchar(32) NOT NULL",
+                "secret_ciphertext": "mediumtext NOT NULL",
+                "stage": "varchar(32) NOT NULL DEFAULT 'oauth'",
+                "state_hash": "char(64) NOT NULL",
+                "status": "enum('pending','processing','completed','failed') NOT NULL DEFAULT 'pending'",
+                "subject_id": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE CURRENT_TIMESTAMP(6)",
+                "user_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (state_hash)",
+                "fk_oauth_session_user": "BTREE (user_id)",
+                "idx_oauth_session_expiry": "BTREE (expires_at)",
+                "idx_oauth_session_subject": "BTREE (supplier_id, domain, provider, subject_id, created_at)",
+                "idx_oauth_session_user": "BTREE (supplier_id, user_id, domain, provider, stage, status)"
+            },
+            "foreign_keys": {
+                "fk_oauth_session_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_oauth_session_user": "(user_id) -> users (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
         "odometer_readings": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -8555,7 +8597,7 @@
                 "odometer": "int(10) unsigned NOT NULL",
                 "reading_date": "date NOT NULL",
                 "reading_time": "time NULL DEFAULT NULL",
-                "source": "enum('manual') NOT NULL DEFAULT 'manual'",
+                "source": "varchar(32) NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
             "indexes": {
@@ -8568,6 +8610,76 @@
                 "fk_odometer_readings_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_odometer_readings_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_odometer_readings_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
+        },
+        "odometer_source_accounts": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "calls_day": "date NULL DEFAULT NULL",
+                "calls_used": "smallint(5) unsigned NOT NULL DEFAULT 0",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "credentials_ciphertext": "text NULL DEFAULT NULL",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "last_sync_at": "datetime NULL DEFAULT NULL",
+                "last_sync_error_code": "varchar(64) NULL DEFAULT NULL",
+                "last_sync_status": "enum('success','error') NULL DEFAULT NULL",
+                "pending_car_id": "int(10) unsigned NULL DEFAULT NULL",
+                "pending_expires_at": "datetime NULL DEFAULT NULL",
+                "pending_state_hash": "char(64) NULL DEFAULT NULL",
+                "provider": "varchar(32) NOT NULL",
+                "status": "enum('pending','active','error','disconnected') NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_odometer_source_account_user": "BTREE (created_by)",
+                "idx_odometer_source_account_pending_car": "BTREE (pending_car_id)",
+                "idx_odometer_source_account_supplier": "BTREE (supplier_id, status)",
+                "uq_odometer_source_account_state": "UNIQUE BTREE (pending_state_hash)"
+            },
+            "foreign_keys": {
+                "fk_odometer_source_account_pending_car": "(pending_car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_odometer_source_account_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_source_account_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
+        },
+        "odometer_source_cars": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "account_id": "int(10) unsigned NOT NULL",
+                "car_id": "int(10) unsigned NOT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "last_odometer": "int(10) unsigned NULL DEFAULT NULL",
+                "last_sync_at": "datetime NULL DEFAULT NULL",
+                "last_sync_error_code": "varchar(64) NULL DEFAULT NULL",
+                "last_sync_status": "enum('success','warning','error') NULL DEFAULT NULL",
+                "last_value_at": "datetime NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "vehicle_ref": "varchar(64) NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_odometer_source_car_user": "BTREE (created_by)",
+                "idx_odometer_source_car_supplier": "BTREE (supplier_id, account_id)",
+                "uq_odometer_source_car": "UNIQUE BTREE (car_id)",
+                "uq_odometer_source_car_vehicle": "UNIQUE BTREE (account_id, vehicle_ref)"
+            },
+            "foreign_keys": {
+                "fk_odometer_source_car_account": "(account_id) -> odometer_source_accounts (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_source_car_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_source_car_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_source_car_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
             },
             "checks": []
         },
@@ -24190,6 +24302,7 @@
                 "payment_thanks_auto_send": "tinyint(1) NOT NULL DEFAULT 0",
                 "payment_thanks_default_checked": "tinyint(1) NOT NULL DEFAULT 0",
                 "payment_thanks_enabled": "tinyint(1) NOT NULL DEFAULT 0",
+                "payment_thanks_max_age_days": "smallint(5) unsigned NOT NULL DEFAULT 30",
                 "payroll_attendance_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "payroll_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "pdf_logo_show_name": "tinyint(1) NOT NULL DEFAULT 0",

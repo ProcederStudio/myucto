@@ -48,6 +48,9 @@ final class RoutePermissionMap
         '/api/auth/session/lock-preference',
         // Výchozí firma je volba vlastního účtu; přístup k firmě ověřuje akce.
         '/api/auth/default-supplier',
+        // Návrat z OAuth přihlášení ke službě: firma i oprávnění v ní plynou z rozpracovaného
+        // přihlášení, ne z aktuálně zvolené firmy. Ověřuje je handler domény (OAuthCallbackDispatcher).
+        '/api/oauth/callback',
         '/api/auth/domain-login/authorize',
         '/api/mcp/settings', '/api/mcp/grants',
         '/api/auth/session/unlock/options', '/api/auth/session/unlock/verify',
@@ -813,6 +816,7 @@ final class RoutePermissionMap
         ['*', '#^/api/accounting/cash-registers/[0-9]+/(close|lock)$#', 'cash.close', AccessLevel::WRITE],
         ['*', '#^/api/accounting/cash-(documents|registers)(/|$)#', 'cash', AccessLevel::WRITE],
         ['GET', '#^/api/accounting/assets(/|$)#', 'assets', AccessLevel::READ],
+        ['POST', '#^/api/accounting/assets/[0-9]+/depreciation/revision(?:/preview)?$#', 'assets.depreciation', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets/[0-9]+/(depreciation|improvements)(/|$)#', 'assets.depreciation', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets/[0-9]+/(dispose|sale)$#', 'assets.dispose', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets(/|$)#', 'assets.write', AccessLevel::WRITE],
@@ -994,7 +998,7 @@ final class RoutePermissionMap
         // Smazání protokolu zkoušky nanečisto (AbstractMigrationAction::deleteRun) - stejné právo jako spuštění.
         ['DELETE', '#^/api/admin/imports/(money-s3|pohoda|premier)/runs/[0-9]+$#', 'utilities.import', AccessLevel::WRITE],
         ['POST',   '#^/api/admin/imports/stereo-nx/uploads(/chunked|/[a-f0-9]{32}/(chunks|complete|preview|run))$#', 'utilities.import', AccessLevel::WRITE],
-        ['GET',    '#^/api/admin/imports/stereo-nx/uploads(/[a-f0-9]{32}(/runs/[0-9]+)?)?$#', 'utilities.import', AccessLevel::READ],
+        ['GET',    '#^/api/admin/imports/stereo-nx/uploads(/[a-f0-9]{32}(/runs/[0-9]+(/pdf)?)?)?$#', 'utilities.import', AccessLevel::READ],
         ['DELETE', '#^/api/admin/imports/stereo-nx/uploads/[a-f0-9]{32}$#', 'utilities.import', AccessLevel::WRITE],
         // Credentials importních integrací — {Idoklad,Fakturoid}CredentialsAction hlídají
         // WRITE i u `status` (odpověď prozrazuje, že je integrace nastavená).

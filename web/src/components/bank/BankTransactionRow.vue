@@ -466,6 +466,9 @@ function candidateReject() {
     <tr v-if="expandedDocs.has(tx.id)">
       <td :colspan="colspan" class="bg-neutral-50 px-4 py-3">
         <LinkedDocumentsPanel entity-type="bank_transaction" :entity-id="tx.id" />
+        <LinkedDocumentsPanel v-if="tx.posting?.journal_entry_id" class="mt-3 block"
+          entity-type="journal_entry" :entity-id="tx.posting.journal_entry_id" readonly
+          :title="t('bank.journal_documents')" />
       </td>
     </tr>
     <!-- Dimenze pohybu (Firma → Dimenze) — promítnou se i do jeho zaúčtování. -->
@@ -588,6 +591,10 @@ function candidateReject() {
       :can-review="actions.canReviewSuggestion(suggestionFor(tx.id)!)" :can-accept-candidate="actions.canAcceptCandidate" @accept="candidateAccept" @reject="candidateReject" />
     <div v-if="expandedDocs.has(tx.id)" class="pt-1">
       <LinkedDocumentsPanel entity-type="bank_transaction" :entity-id="tx.id" />
+      <!-- Dokument připojený v deníku k zápisu pohybu patří i k pohybu; připojuje se tam. -->
+      <LinkedDocumentsPanel v-if="tx.posting?.journal_entry_id" class="mt-3 block"
+        entity-type="journal_entry" :entity-id="tx.posting.journal_entry_id" readonly
+        :title="t('bank.journal_documents')" />
     </div>
     <DocumentDimensionsPanel v-if="dimensionsAvailable && dimensionsOpen" class="mt-1"
       doc-type="bank-transactions" :doc-id="tx.id" :prefill="dimensionPrefill" @saved="savedDimensions = $event" />

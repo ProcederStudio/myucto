@@ -14927,7 +14927,7 @@ paths:
         - { in: query, name: page, schema: { type: integer, default: 1 } }
         - { in: query, name: per_page, schema: { type: integer, default: 50, maximum: 200 } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/AssetListItem' } }, total: { type: integer } } } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
     post:
       tags: [Accounting]
@@ -14937,7 +14937,8 @@ paths:
         s opening poli. Validační matice druh × daňová metoda dle §26–33 ZDP;
         opening oprávky nesmějí překročit vstupní cenu a osobní automobil M1
         nesmí mít zvýšený odpis prvního roku. Neblokující upozornění vrací pole
-        `warnings`.
+        `warnings`. Pole `imported_depreciation_plan` je pouze pro čtení;
+        jeho odeslání vrací 422 `imported_plan_internal_only`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
       requestBody:
@@ -15031,12 +15032,16 @@ paths:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AssetCard' } } } }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Accounting]
       summary: Upraví kartu majetku
-      description: Účetní/admin. Daňové parametry a VC zamčené po prvním potvrzeném odpisu (422 `asset_locked`).
+      description: >-
+        Účetní/admin. Daňové parametry a VC zamčené po prvním potvrzeném odpisu (422 `asset_locked`).
+        U převzatého plánu lze měnit jen inventory_number, name a description;
+        změna ostatních údajů vrací 422 `imported_plan_locked`. Odeslání samotného
+        imported_depreciation_plan vrací 422 `imported_plan_internal_only`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -15070,13 +15075,31 @@ paths:
       summary: Plán odpisů (daňové i účetní, on-the-fly R11)
       description: >-
         Minulost z potvrzených řádků, budoucnost dopočtená strategií dle ZDP/ČÚS 013.
+        U převzatého plánu jsou budoucí částky ze zdroje nebo poslední řízené revize (source=imported),
+        potvrzené řádky mají source=confirmed. Historické oprávky jsou počáteční stav.
+        Nesoulad potvrzených částek se zdrojem vrací 422 imported_plan_conflict.
         Potvrzené řádky obsahují `depreciation_entry_id`; roky s aktivním účetním
         zápisem také `journal_entry_id`, přes které lze poslední odpis smazat.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
       responses:
-        '200': { description: "OK {asset_summary, tax, accounting}", content: { application/json: { schema: { type: object } } } }
+        '200':
+          description: Plán účetních a daňových odpisů
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset_summary:
+                    $ref: '#/components/schemas/AssetPlanSummary'
+                  tax:
+                    type: array
+                    items: { $ref: '#/components/schemas/AssetDepreciationRow' }
+                  accounting:
+                    type: array
+                    items: { $ref: '#/components/schemas/AssetDepreciationRow' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/accounting/assets/{id}/depreciation-card:
@@ -15095,7 +15118,9 @@ paths:
     post:
       tags: [Accounting]
       summary: Zařazení majetku do užívání (MD 02x / D 042)
-      description: Účetní/admin. Jen koncept; `book_entry=false` pro historický majetek (R23).
+      description: >-
+        Účetní/admin. Jen koncept; `book_entry=false` pro historický majetek (R23).
+        Převzatý plán vyžaduje původní datum zařazení a book_entry=false, jinak 422 imported_plan_locked.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -15119,7 +15144,9 @@ paths:
     post:
       tags: [Accounting]
       summary: Přidá technické zhodnocení (§33 ZDP)
-      description: Účetní/admin. Jen majetek v užívání; u §30a vrací 422 (samostatná karta).
+      description: >-
+        Účetní/admin. Jen majetek v užívání; u §30a vrací 422 (samostatná karta).
+        Převzatý plán nepovoluje změny zhodnocení (422 imported_plan_locked).
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -15207,6 +15234,76 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { type: object } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/v1/accounting/assets/{id}/depreciation/revision/preview:
+    post:
+      tags: [Accounting]
+      operationId: previewAssetPlanRevision
+      summary: Náhled revize zbývajícího odpisového plánu
+      description: >-
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání ve firmě s podvojným účetnictvím
+        (jinak 422 imported_plan_revision_not_allowed); změna odhadu
+        od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
+        zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
+        období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří
+        aktuální revizi i otisk kalendáře z náhledu pod transakčními zámky.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssetPlanRevisionRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetPlanRevisionPreview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: imported_plan_revision_stale nebo imported_plan_revision_locked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/v1/accounting/assets/{id}/depreciation/revision:
+    post:
+      tags: [Accounting]
+      operationId: reviseAssetPlan
+      summary: Uložení revize zbývajícího odpisového plánu
+      description: >-
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání ve firmě s podvojným účetnictvím
+        (jinak 422 imported_plan_revision_not_allowed); změna odhadu
+        od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
+        zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
+        období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří
+        aktuální revizi i otisk kalendáře z náhledu pod transakčními zámky.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssetPlanRevisionSaveRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetPlanRevisionResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: imported_plan_revision_stale nebo imported_plan_revision_locked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/v1/accounting/assets/{id}/depreciation/pause:
@@ -37411,6 +37508,139 @@ components:
               type: number
             profit_matches:
               type: boolean
+    AssetCardBase:
+      type: object
+      properties:
+        id: { type: integer }
+        inventory_number: { type: string }
+        name: { type: string }
+    AssetListItem:
+      description: Karta v seznamu bez převzatého odpisového plánu a historie jeho revizí.
+      allOf:
+        - $ref: '#/components/schemas/AssetCardBase'
+    AssetCard:
+      description: Detail karty; převzatý plán a jeho historie se vrací jen v detailu.
+      allOf:
+        - $ref: '#/components/schemas/AssetCardBase'
+        - type: object
+          properties:
+            imported_depreciation_plan:
+              readOnly: true
+              oneOf:
+                - $ref: '#/components/schemas/ImportedDepreciationPlan'
+                - type: 'null'
+              description: >-
+                Přesný budoucí plán ověřeného importu, null u nativních karet.
+                Historie zůstává v počátečních oprávkách; plán sám nevytváří účetní zápisy.
+    AssetDepreciationRow:
+      type: object
+      properties:
+        fiscal_year: { type: integer }
+        amount: { type: number }
+        full_amount: { type: number }
+        source: { type: string, enum: [computed, confirmed, imported] }
+        months:
+          oneOf:
+            - type: array
+              items:
+                type: object
+                properties:
+                  month: { type: string }
+                  amount: { type: number }
+            - type: 'null'
+    AssetPlanSummary:
+      type: object
+      properties:
+        effective_acc_useful_life_months: { type: [integer, 'null'], readOnly: true, description: Aktuální životnost po revizích; původní životnost karty se nemění. }
+        input_price: { type: number }
+        increased_input_price: { type: number }
+        tax_residual: { type: number }
+        acc_residual: { type: number }
+        accumulated_depreciation: { type: number }
+    AssetDepreciationPlan:
+      type: object
+      required: [asset_summary, accounting, tax]
+      properties:
+        asset_summary: { $ref: '#/components/schemas/AssetPlanSummary' }
+        accounting: { type: array, items: { $ref: '#/components/schemas/AssetDepreciationRow' } }
+        tax: { type: array, items: { $ref: '#/components/schemas/AssetDepreciationRow' } }
+    AssetPlanRevisionRequest:
+      type: object
+      required: [effective_from, remaining_months, reason, expected_revision]
+      properties:
+        effective_from: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+        remaining_months: { type: integer, minimum: 1, maximum: 3000 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+        expected_revision: { type: integer, minimum: 0, maximum: 999 }
+    AssetPlanRevisionSaveRequest:
+      allOf:
+        - $ref: '#/components/schemas/AssetPlanRevisionRequest'
+        - type: object
+          required: [expected_calendar_start_month, expected_calendar_fingerprint]
+          properties:
+            expected_calendar_start_month: { type: integer, minimum: 1, maximum: 12 }
+            expected_calendar_fingerprint: { type: string, pattern: '^[a-f0-9]{64}$' }
+    AssetPlanRevisionPreview:
+      type: object
+      required: [revision, effective_from, remaining_months, remaining_amount, calendar_start_month, calendar_fingerprint, before, after]
+      properties:
+        revision: { type: integer }
+        effective_from: { type: string }
+        remaining_months: { type: integer }
+        remaining_amount: { type: number, description: Zbývající částka v Kč. }
+        calendar_start_month: { type: integer }
+        calendar_fingerprint: { type: string }
+        before: { $ref: '#/components/schemas/AssetDepreciationPlan' }
+        after: { $ref: '#/components/schemas/AssetDepreciationPlan' }
+    AssetPlanRevisionResult:
+      type: object
+      required: [asset, warnings]
+      properties:
+        asset: { $ref: '#/components/schemas/AssetCard' }
+        warnings: { type: array, items: { type: object } }
+    ImportedDepreciationRevision:
+      type: object
+      readOnly: true
+      required: [revision, effective_from, remaining_months, remaining_amount_cents, reason, user_id, created_at, fiscal_start_month]
+      properties:
+        revision: { type: integer, minimum: 1, maximum: 1000 }
+        effective_from: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+        remaining_months: { type: integer, minimum: 1, maximum: 3000 }
+        remaining_amount_cents: { type: integer, minimum: 1 }
+        reason: { type: string }
+        user_id: { type: integer }
+        created_at: { type: string, format: date-time }
+        fiscal_start_month: { type: integer, minimum: 1, maximum: 12 }
+    ImportedDepreciationPlan:
+      type: object
+      required: [version, source_program, source_tax_method, source_accounting_method, accounting, tax]
+      properties:
+        revisions:
+          type: array
+          readOnly: true
+          maxItems: 1000
+          description: Append-only historie změn odhadu; původní accounting a tax se nikdy nepřepisují.
+          items: { $ref: '#/components/schemas/ImportedDepreciationRevision' }
+        version: { type: integer, enum: [1] }
+        source_program: { type: string }
+        source_tax_method: { type: string, description: "Původní označení metody, pouze informativní." }
+        source_accounting_method: { type: string }
+        accounting:
+          type: array
+          items:
+            type: object
+            required: [month, amount_cents]
+            properties:
+              month: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+              amount_cents: { type: integer, minimum: 0, maximum: 100000000000000 }
+        tax:
+          type: array
+          items:
+            type: object
+            required: [fiscal_year, amount_cents]
+            properties:
+              fiscal_year: { type: integer, description: Označení zdaňovacího období firmy. }
+              amount_cents: { type: integer, minimum: 0, maximum: 100000000000000 }
     AiAssistantStatus:
       type: object
       required: [available, reason, provider, model, supports_files, models]
@@ -45206,6 +45436,7 @@ components:
         default_branding_profile_id: { type: [integer, "null"], readOnly: true }
         auto_send_reminders: { type: boolean, description: "Automatické odesílání upomínek; u nově založené firmy je výchozí hodnota false." }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365 }
+        payment_thanks_max_age_days: { type: integer, minimum: 0, maximum: 365, default: 30, description: "Automatické poděkování za úhradu jen k platbě ne starší než N dní; 0 = bez omezení (migrace 2073)." }
         epo_taxpayer_code:
           type: [string, "null"]
           enum: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", null]
@@ -45427,6 +45658,7 @@ components:
         has_email_logo: { type: boolean }
         auto_send_reminders: { type: boolean }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365, default: 3, description: "Per-dodavatel práh: po kolika dnech po splatnosti poslat první automatickou upomínku (migrace 0089). CLI --days ho přebije." }
+        payment_thanks_max_age_days: { type: integer, minimum: 0, maximum: 365, default: 30, description: "Automatické poděkování za úhradu jen k platbě ne starší než N dní; 0 = bez omezení (migrace 2073)." }
         self_copy:
           type: [object, "null"]
           description: |
@@ -46804,6 +47036,10 @@ components:
         last_odometer: { type: [integer, "null"], description: Poslední známý stav tachometru (z jízd) }
         trips_count: { type: [integer, "null"] }
         fuelings_count: { type: [integer, "null"] }
+        odometer_source_status:
+          type: [string, "null"]
+          enum: [active, warning, error, null]
+          description: "Stav automatického stavu tachometru auta (jen v seznamu aut): active = načítá se, warning = přechodný stav auta (stav nenavazoval na jízdy a byl přeskočen, nebo ho auto zatím neodeslalo), error = chyba auta nebo účtu u zdroje vyžadující zásah; null = auto není přiřazené k účtu u zdroje."
         driver_employee_id: { type: [integer, "null"], description: Řidič — zaměstnanec firmy }
         driver_name: { type: [string, "null"] }
         usage_mode: { type: string, enum: [business, private, mixed], description: 'Režim užívání: jen firemní / soukromé vozidlo / smíšené' }
@@ -46980,7 +47216,7 @@ components:
         reading_date: { type: string, format: date }
         reading_time: { type: [string, "null"] }
         odometer: { type: integer }
-        source: { type: string, enum: [manual] }
+        source: { type: string, enum: [manual, bmw_cardata], description: "manual = ruční zápis, ostatní = denní stav ze zdroje automatického stavu tachometru (bmw_cardata = BMW CarData)" }
         note: { type: [string, "null"] }
         created_at: { type: string }
     OdometerReadingInput:

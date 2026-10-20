@@ -15,6 +15,8 @@ final class RoutePermissionMapTest extends TestCase
     {
         $map = new RoutePermissionMap();
         $cases = [
+            ['POST', '/api/accounting/assets/7/depreciation/revision', 'assets.depreciation', AccessLevel::WRITE],
+            ['POST', '/api/accounting/assets/7/depreciation/revision/preview', 'assets.depreciation', AccessLevel::WRITE],
             ['POST', '/api/recurring/7/reschedule', 'recurring', AccessLevel::WRITE],
             ['POST', '/api/invoices/7/issue', 'invoices.issue', AccessLevel::WRITE],
             ['POST', '/api/invoices/7/send', 'invoices.send', AccessLevel::WRITE],
@@ -329,6 +331,20 @@ final class RoutePermissionMapTest extends TestCase
             self::assertSame($key, $match?->key, "$method $path");
             self::assertSame($level, $match?->minimum, "$method $path");
         }
+    }
+
+    public function testStereoNxJsonAndPdfProtocolsUseReadImportPermission(): void
+    {
+        $map = new RoutePermissionMap();
+        $base = '/api/admin/imports/stereo-nx/uploads/' . str_repeat('a', 32) . '/runs/42';
+        foreach ([$base, $base . '/pdf'] as $path) {
+            $match = $map->match('GET', $path);
+            self::assertSame(RoutePermissionMap::PERMISSION, $match?->kind, $path);
+            self::assertSame('utilities.import', $match?->key, $path);
+            self::assertSame(AccessLevel::READ, $match?->minimum, $path);
+        }
+        self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('POST', $base . '/pdf')?->kind);
+        self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('GET', $base . '/pdf/extra')?->kind);
     }
 
     /** Klíče z admin výjimek musí existovat v katalogu — jinak by je nešlo v rolích nastavit. */

@@ -106,6 +106,8 @@ final class ActionTenantReferenceTest extends TestCase
         'TripsAction.php:car_id'     => 'cars->find($carId, $supplierId) v prepare()',
         'FuelingsAction.php:car_id'  => 'cars->find($carId, $supplierId) ve validate()',
         'TripTemplatesAction.php:car_id'    => 'cars->find($carId, $supplierId) ve validate()',
+        'OdometerSourceAction.php:id' => 'cars->find($carId, $supplierId) v run()',
+        'OdometerSourceAction.php:account_id' => 'OdometerSourceService načítá účet jen přes supplier_id (accounts->find/findWithSecrets)',
         'OdometerReadingsAction.php:car_id' => 'cars->find($carId, $supplierId) v create()',
 
         // Přijaté faktury — `vendor_id` váže SupplierGuard::owns() nad řádkem klienta

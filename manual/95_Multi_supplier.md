@@ -197,11 +197,14 @@ záměrně neposílá, o úhradě dodavatel ví.
 |---|---|
 | **Posílat poděkování za úhradu** | Hlavní vypínač funkce. Bez něj se zbylé volby neuplatní. |
 | **Automaticky při spárování platby z banky** | Jakmile se platba spáruje z bankovního výpisu nebo e-mailového avíza a faktura se označí jako zaplacená, pošle se poděkování samo. |
+| **Jen za platbu ne starší než** | Automatické poděkování se pošle jen k platbě, jejíž datum není starší než zadaný počet dní (výchozí 30). Starší platba, typicky z pozdě nahraného výpisu, poděkování nevyvolá. Hodnota 0 limit vypíná. |
 | **Předzaškrtnout při ručním označení jako zaplacené** | V okně ručního označení faktury jako zaplacené bude volba „Odeslat zákazníkovi poděkování“ předem zaškrtnutá (jinak prázdná). |
 | **Přiložit PDF faktury (se stavem Uhrazeno)** | K e-mailu se připojí PDF faktury označené jako uhrazené. |
 
 Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu faktur při označování plateb.
-Automatické poděkování se neopakuje; vědomé ruční odeslání může zprávu poslat znovu. U storna,
+Automatické poděkování se neopakuje; vědomé ruční odeslání může zprávu poslat znovu. Když smažete
+bankovní výpis a nahrajete ho znovu, za platby, které už aplikace znala, se automaticky neděkuje.
+U storna,
 neuhrazené faktury nebo chybějícího příjemce se neodesílá. Požadavek na poděkování se uloží
 společně s úhradou. Pokud se úhradu nebo požadavek nepodaří uložit, párování se neprovede
 a poděkování se neodešle.

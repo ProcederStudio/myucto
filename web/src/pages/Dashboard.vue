@@ -8,6 +8,7 @@ import { useSupplierStore } from '@/stores/supplier'
 const { t } = useI18n()
 import { dashboardApi, type DashboardSummary } from '@/api/dashboard'
 import { formatMoney, formatDate, formatNumber } from '@/composables/useFormat'
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import SparklineChart from '@/components/charts/SparklineChart.vue'
 import TopClientsPieChart from '@/components/charts/TopClientsPieChart.vue'
 import TaxNetWidget from '@/components/dashboard/TaxNetWidget.vue'
@@ -72,6 +73,14 @@ onMounted(loadSummary)
 
 // Výkaz práce modal — otevíráno z tlačítka „Výkaz" na kartě konceptu (stejný popup jako v /invoices).
 const wrModalOpen = ref(false)
+
+// Souhrn (tržby, neuhrazené, koncepty) se po zápisu v jiném okně přepíše
+// na místě, bez hlášky o načítání.
+useWindowRefresh('*', async () => {
+  error.value = ''
+  await loadSummary()
+  if (error.value) throw new Error(error.value)
+}, () => !wrModalOpen.value)
 const wrModalInvoiceId = ref(0)
 function openWorkReport(id: number) {
   wrModalInvoiceId.value = id

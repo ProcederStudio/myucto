@@ -2935,6 +2935,8 @@ final class Routes
             $g->delete('/assets/{id:[0-9]+}/improvements/{impId:[0-9]+}', [AssetLifecycleAction::class, 'deleteImprovement']);
             $g->post  ('/assets/{id:[0-9]+}/dispose',               [AssetLifecycleAction::class, 'dispose']);
             $g->post  ('/assets/{id:[0-9]+}/dispose/revert',        [AssetLifecycleAction::class, 'revertDisposal']);
+            $g->post('/assets/{id:[0-9]+}/depreciation/revision/preview', [DepreciationAction::class, 'previewRevision']);
+            $g->post('/assets/{id:[0-9]+}/depreciation/revision', [DepreciationAction::class, 'revise']);
             $g->post  ('/assets/{id:[0-9]+}/depreciation/pause',    [DepreciationAction::class, 'pause']);
             $g->delete('/assets/{id:[0-9]+}/depreciation/pause/{year:[0-9]+}', [DepreciationAction::class, 'unpause']);
             $g->post  ('/assets/{id:[0-9]+}/depreciation/tax-override', [DepreciationAction::class, 'overrideTax']);
@@ -3193,6 +3195,7 @@ final class Routes
         $app->post   ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/company-profile', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'fillCompanyProfile']);
         $app->post   ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/run', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'run']);
         $app->get    ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/runs/{id:[0-9]+}', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'result']);
+        $app->get    ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/runs/{id:[0-9]+}/pdf', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'resultPdf']);
         $app->delete ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'delete']);
 
         $app->get    ('/api/admin/imports/abra-flexi/connection', [\MyInvoice\Action\Admin\Import\AbraMigrationAction::class, 'status']);
@@ -3667,6 +3670,12 @@ final class Routes
         // přihlášení k ISDS není vázané na jedno konkrétní podání.
         $app->post   ('/api/submissions/outbox/mobile-key/start-batch',   [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyStartBatch']);
         $app->post   ('/api/submissions/outbox/mobile-key/confirm-batch', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyConfirmBatch']);
+        // Dávka ostatními způsoby přihlášení: jedno zadání údajů (heslo, SMS
+        // kód, potvrzení certifikátu) pro všechna vybraná podání.
+        $app->post   ('/api/submissions/outbox/password-send-batch',    [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'passwordSendBatch']);
+        $app->post   ('/api/submissions/outbox/certificate-send-batch', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'certificateSendBatch']);
+        $app->post   ('/api/submissions/outbox/sms/start-batch',        [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsStartBatch']);
+        $app->post   ('/api/submissions/outbox/sms/complete-batch',     [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsCompleteBatch']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/resolve',  [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'resolve']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/cancel',   [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'cancel']);
         // Trvalé smazání ZRUŠENÉ zprávy, která nikdy neopustila aplikaci.
@@ -3759,8 +3768,10 @@ final class Routes
         $app->post   ('/api/settings/currencies',                     [SettingsAction::class, 'createCurrency']);
         $app->put    ('/api/settings/currencies/{id:[0-9]+}',         [SettingsAction::class, 'updateCurrency']);
         $app->delete ('/api/settings/currencies/{id:[0-9]+}',         [SettingsAction::class, 'deleteCurrency']);
+        // Společný návrat z OAuth přihlášení k externím službám (OAuthClientFlow).
+        $app->get    ('/api/oauth/callback', \MyInvoice\Action\OAuth\OAuthCallbackAction::class);
         $app->get    ('/api/settings/bank-connections', [BankConnectionAction::class, 'list']);
-        $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/kb-plus/onboarding', [KbPlusOnboardingAction::class, 'status']);
+        $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/kb-plus/onboarding',[KbPlusOnboardingAction::class, 'status']);
         $app->get    ('/api/settings/bank-connections/{currencyId:[0-9]+}/csas/onboarding', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'status']);
         $app->post   ('/api/settings/bank-connections/{currencyId:[0-9]+}/csas/onboarding', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'start']);
         $app->get    ('/api/settings/bank-connections/csas/oauth/callback', [\MyInvoice\Action\Settings\CsasOnboardingAction::class, 'callback']);
@@ -3944,6 +3955,14 @@ final class Routes
         $app->get   ('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'get']);
         $app->put   ('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'update']);
         $app->delete('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'delete']);
+        $app->get   ('/api/logbook/odometer-sources',                                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'catalog']);
+        $app->get   ('/api/logbook/cars/{id:[0-9]+}/odometer-source',                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'status']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/connect',          [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'connect']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/connect/continue', [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'continue']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/attach',           [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'attach']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/vehicle',          [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'selectVehicle']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/sync',             [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'sync']);
+        $app->delete('/api/logbook/cars/{id:[0-9]+}/odometer-source',                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'disconnect']);
 
         // Platební karty firmy + platby kartou bez dokladu. Specifické cesty PŘED /{id}.
         $app->get   ('/api/payment-cards',                                          [\MyInvoice\Action\Bank\PaymentCardAction::class, 'list']);

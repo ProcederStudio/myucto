@@ -920,7 +920,7 @@ final class StatementMatcher
             $this->begin($pdo);
             try {
                 if (!$this->claimTransaction($pdo, $transactionId)) {
-                    $pdo->rollBack();
+                    $this->rollBack($pdo);
                     return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
                 }
                 $recorded = null;
@@ -1011,7 +1011,7 @@ final class StatementMatcher
             $this->begin($pdo);
             try {
                 if (!$this->claimTransaction($pdo, $transactionId)) {
-                    $pdo->rollBack();
+                    $this->rollBack($pdo);
                     return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
                 }
                 $recorded = $this->payments->recordPayment(
@@ -1767,7 +1767,7 @@ final class StatementMatcher
                 return ['status' => 'unmatched', 'reason' => 'amount_date_transaction_not_free'];
             }
             if (($taken = $this->takenElsewhereReason($pdo, $transactionId)) !== null) {
-                $pdo->rollBack();
+                $this->rollBack($pdo);
                 return ['status' => 'unmatched', 'reason' => $taken];
             }
 

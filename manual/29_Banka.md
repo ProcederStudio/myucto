@@ -142,6 +142,8 @@ Stav a poznámka se aktualizují přímo v seznamu a nastavený filtr zůstane z
 
 **Jak poznáte, že je hotovo:** Transakce je znovu ve stavu **Nespárováno**. Platba vzniklá párováním se z faktury odebrala a stav faktury se přepočítal ze zbývajících plateb. Faktura, kterou kryje jiná platba, zůstává zaplacená, jinak se vrátí na předchozí stav (vystaveno). Zaúčtovaný pohyb se stornoval.
 
+Pokud zrušíte spárování příchozí vratky k běžné přijaté faktuře, zbývající úhrada se zvýší. Kryjí-li zbývající platby nebo zápočty celou částku k úhradě, otevřená faktura se označí jako uhrazená s datem poslední zbývající odchozí úhrady nebo zápočtu. Koncepty, stornované faktury, faktury převzaté z jiného programu a ručně nastavený stav uhrazeno se tím nemění. Faktura, kterou jste ručně vrátili ze stavu uhrazeno, zůstane neuhrazená, dokud ji sami znovu neoznačíte.
+
 > [!WARNING]
 > V uzavřeném nebo zamčeném období storno nejde provést a párování zůstane beze změny. Nejdřív období otevřete, nebo počkejte na účetní.
 

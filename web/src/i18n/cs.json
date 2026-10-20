@@ -729,7 +729,8 @@
         "status_posted": "Zaúčtováno",
         "tab_accounting": "Účetní",
         "tab_tax": "Daňové",
-        "title": "Plán odpisů"
+        "title": "Plán odpisů",
+        "status_imported": "Převzatý plán"
       },
       "reset_filters": "Zrušit filtry",
       "status": {
@@ -739,7 +740,51 @@
       },
       "subtitle": "Karty dlouhodobého majetku, daňové a účetní odpisy (§26–33 ZDP, ČÚS 013).",
       "summary_accumulated": "Oprávky",
-      "title": "Majetek"
+      "title": "Majetek",
+      "revision": {
+        "original_life_label": "Původní doba odpisování (měsíce)",
+        "original_life": "Původní doba odpisování: {months} měsíců.",
+        "total_life": "Celková doba odpisování podle tohoto plánu: {months} měsíců.",
+        "title": "Revize odpisového plánu",
+        "hint": "Revize změní pouze budoucí část převzatého plánu od zvoleného měsíce. Počáteční oprávky a potvrzené odpisy zůstanou zachované. Nejprve zkontrolujte náhled před změnou a po ní; revizi pak samostatně uložte.",
+        "effective_from": "Účinnost od měsíce",
+        "remaining_months": "Zbývající doba (měsíce)",
+        "remaining_amount": "Zbývající částka",
+        "reason": "Důvod revize",
+        "preview": "Zobrazit náhled",
+        "previewing": "Připravuji náhled…",
+        "save": "Uložit revizi",
+        "saved": "Revize odpisového plánu byla uložena.",
+        "before": "Před revizí",
+        "after": "Po revizi",
+        "annual_tax": "Roční daňové odpisy",
+        "annual_accounting": "Roční účetní odpisy",
+        "monthly": "Měsíční účetní rozpis",
+        "year": "Zdaňovací období",
+        "month": "Měsíc",
+        "amount": "Odpis",
+        "residual": "Zůstatková cena",
+        "preview_summary": "Revize č. {revision}: od {month}, zbývající doba {months} měsíců, zbývající částka {amount}.",
+        "stale": "Plán nebo nastavení období se od náhledu změnily. Obnovte kartu a připravte nový náhled.",
+        "locked": "Zvolené období je uzavřené nebo už obsahuje potvrzené odpisy. Vyberte jiné období.",
+        "not_allowed": "V aktuálním stavu této karty nelze revizi provést.",
+        "failed": "Revizi se nepodařilo zpracovat. Zkuste to znovu.",
+        "refresh": "Obnovit kartu",
+        "history": "Historie revizí odpisového plánu",
+        "number": "Revize",
+        "author": "Uživatel",
+        "created_at": "Čas zápisu",
+        "user": "Uživatel #{id}",
+        "fiscal_start": "Začátek zdaňovacího období: měsíc {month}",
+        "origin": "Původní převzatý plán — auditní podklad",
+        "origin_hint": "Původní částky ze zdrojového programu zůstávají zachované. Aktuální plán včetně revizí je v přehledu odpisů karty.",
+        "latest": "Poslední revize č. {revision}: účinnost od {month}, zbývající doba {months} měsíců."
+      },
+      "imported_plan": {
+        "title": "Převzatý odpisový plán",
+        "source": "Zdroj: {program}. Daňová metoda ve zdroji: {tax}; účetní metoda ve zdroji: {accounting}.",
+        "locked_hint": "Běžná editace parametrů pořízení, odpisů a počátečních oprávek je uzamčená. Budoucí dobu odpisování lze změnit řízenou revizí na detailu karty s náhledem a důvodem. Technické zhodnocení, přerušení a ruční přepis odpisů nejsou pro převzatý plán dostupné."
+      }
     },
     "balance_inventory": {
       "as_of_hint": "Rozvahový den: {date}. Sloupce „Skutečný stav“ a „Rozdíl“ se doplňují ručně po provedené inventuře - jsou v exportu (PDF/XLSX).",
@@ -1958,7 +2003,8 @@
       "status_col": "Stav",
       "subtitle": "Chronologický přehled účetních zápisů.",
       "title": "Účetní deník",
-      "total": "Celkem"
+      "total": "Celkem",
+      "source_documents": "Dokumenty zdrojového dokladu"
     },
     "lines_editor": {
       "account": "účet",
@@ -4863,7 +4909,8 @@
     },
     "statement_delete_has_matches": "Avízo-výpis má spárované položky. Smazat ho lze, až je převezme oficiální výpis nebo je rozpárujete.",
     "notice_superseded_hint": "Tentýž pohyb je v oficiálním bankovním výpisu a úhradu nese on. Avízo je vyřešené a automaticky se znovu nepáruje.",
-    "notice_superseded_chip": "Nahrazeno výpisem: {count}"
+    "notice_superseded_chip": "Nahrazeno výpisem: {count}",
+    "journal_documents": "Dokumenty zápisu v deníku"
   },
   "bank_accounts": {
     "account_added": "Bankovní účet přidán.",
@@ -7918,7 +7965,15 @@
         "request": "Odeslat SMS",
         "title": "Jméno, heslo a SMS kód"
       },
-      "title": "Jak zprávu odeslat"
+      "title": "Jak zprávu odeslat",
+      "batch": {
+        "intro": "Vybraná podání ({count}) odešlete jedním přihlášením. Každé jde do schránky svého úřadu nebo pojišťovny.",
+        "gatewayUnavailable": "Odesílací brána schvaluje každý koncept v datové schránce zvlášť, pro hromadné odeslání ji proto nenabízíme. Zvolte jiný způsob, nebo zprávy odešlete jednotlivě.",
+        "submit": "Odeslat {count} podání",
+        "certificateConfirm": "Potvrzuji odeslání {count} zpráv systémovým certifikátem firmy.",
+        "sentSummary": "Odesláno {dispatched} z {total} podání.",
+        "failed": "Podání se nepodařilo odeslat."
+      }
     },
     "subtitle": "Datová schránka této firmy: odesílání podání a čtení doručených zpráv. Daňová podání (DPH, kontrolní a souhrnné hlášení, DPPO a DPFO) sem můžete poslat z Daně → EPO podání a archív. Z aplikace tudy chodí přehledy a hlášení zdravotním pojišťovnám (HOZ, PPZ), měsíční hlášení zaměstnavatele ČSSZ (JMHZ) jako alternativa k přímému kanálu VREP a součinnost exekutorům.",
     "tabs": {
@@ -8200,6 +8255,7 @@
       "not_in_use": "úloha nemá co obsluhovat",
       "not_in_use_by_script": {
         "cron-bank-connections": "žádné aktivní bankovní napojení",
+        "cron-logbook-odometer-source": "žádné auto napojené na zdroj automatického stavu tachometru",
         "cron-bank-email-notices": "žádná zapnutá IMAP schránka bankovních avíz",
         "cron-catalog-worker": "žádná katalogová úloha ve frontě ani napojení e-shopu",
         "cron-epo-status": "žádné podání EPO nečeká na stav",
@@ -11338,7 +11394,13 @@
       "reminder_sent": "Upomínka odeslána",
       "sent": "Odesláno klientovi",
       "uncancelled": "Storno zrušeno",
-      "updated": "Upraveno"
+      "updated": "Upraveno",
+      "payment_matched": "Spárována platba z banky",
+      "bank_payment_released": "Bankovní platba uvolněna",
+      "payment_thanks_sent": "Poděkování za úhradu odesláno",
+      "payment_thanks_queued": "Poděkování za úhradu ve frontě",
+      "payment_thanks_failed": "Poděkování za úhradu selhalo",
+      "payment_thanks_skipped": "Poděkování za úhradu neodesláno"
     },
     "activity": "Aktivita",
     "add_first": "Přidat první",
@@ -12205,7 +12267,19 @@
     "wr_total": "Celkem",
     "wr_total_amount": "Celkem částka",
     "wr_total_hours": "Celkem hodin",
-    "wr_vat_rate": "Sazba DPH"
+    "wr_vat_rate": "Sazba DPH",
+    "payment_thanks_reasons": {
+      "not_paid": "faktura není uhrazená",
+      "cancellation": "storno doklad",
+      "disabled": "poděkování je vypnuté",
+      "auto_disabled": "automatické poděkování je vypnuté",
+      "already_sent": "už odesláno dříve",
+      "no_recipient": "chybí příjemce",
+      "stale_payment": "platba je starší než nastavený limit",
+      "suppressed_after_release": "platba už byla známá před smazáním výpisu",
+      "invalid_intent": "neplatný požadavek ve frontě",
+      "rate_limit": "zbrzděno limitem odesílání"
+    }
   },
   "invoice_default_note": {
     "enabled": "Předvyplňovat poznámku pod položkami",
@@ -12928,7 +13002,80 @@
     "gap_row_km_required": "U každé jízdy vyplňte ujeté km.",
     "gap_nothing": "Přidejte aspoň jednu jízdu.",
     "gap_private_purpose": "Soukromá jízda",
-    "gap_filled": "Jízdy byly doplněny."
+    "gap_filled": "Jízdy byly doplněny.",
+    "odosrc_short": "Tachometr",
+    "odosrc_title": "Automatický stav tachometru",
+    "odosrc_hint": "stav tachometru se jednou denně načte ze služby výrobce",
+    "odosrc_badge_active": "Tachometr",
+    "odosrc_badge_error": "Tachometr: chyba",
+    "odosrc_badge_warning": "Tachometr: upozornění",
+    "odosrc_source": "Zdroj",
+    "odosrc_pick": "Vyberte službu, ze které se bude stav tachometru načítat:",
+    "odosrc_pick_account": "Použít účet, který už je připojený:",
+    "odosrc_pick_new": "Nebo připojit nový účet:",
+    "odosrc_account_cars": "Auta: {cars}",
+    "odosrc_account_no_cars": "Zatím bez aut",
+    "odosrc_reauth_hint": "Přihlaste se znovu ke stejnému účtu. Auta účtu ({cars}) zůstanou připojená.",
+    "odosrc_shared": "Stejný účet načítá i: {cars}.",
+    "odosrc_warning_hint": "Stav se nezapsal; zkontrolujte jízdy a stavy tachometru.",
+    "odosrc_disconnect_last_confirm": "Odpojit auto od {label}? Je to poslední auto účtu, odpojí se proto i účet. Načtené stavy tachometru zůstanou.",
+    "odosrc_none": "Zatím není k dispozici žádná služba.",
+    "odosrc_missing": "Vaše značka tu není? Stav tachometru můžete zapisovat ručně tlačítkem Stav tachometru.",
+    "odosrc_other_source": "Jiný zdroj",
+    "odosrc_privacy": "Ze služby se čte jen stav tachometru. Přístup je uložený šifrovaně a odpojit ho můžete kdykoli.",
+    "odosrc_connect": "Připojit",
+    "odosrc_code_hint": "Otevřete přihlášení {label} a potvrďte tento kód:",
+    "odosrc_open": "Otevřít přihlášení {label}",
+    "odosrc_redirect_hint": "Přihlaste se na stránce {label}. Po návratu se připojení dokončí.",
+    "odosrc_waiting": "Čekám na potvrzení u {label}…",
+    "odosrc_select_vehicle": "K účtu patří víc aut. Vyberte toto auto:",
+    "odosrc_use_vehicle": "Použít",
+    "odosrc_connected": "Auto je připojené k {label}.",
+    "odosrc_vehicle": "Auto",
+    "odosrc_last_odometer": "Poslední stav",
+    "odosrc_last_sync": "Poslední načtení",
+    "odosrc_daily_hint": "Stav tachometru se načítá každý den ve 3:30.",
+    "odosrc_daily_limit": "{label} povoluje {n} dotazů denně za účet, dnes použito {used}.",
+    "odosrc_sync": "Načíst teď",
+    "odosrc_synced": "Načten stav tachometru {km} km.",
+    "odosrc_reconnect": "Připojit znovu",
+    "odosrc_disconnect": "Odpojit auto",
+    "odosrc_disconnect_confirm": "Odpojit auto od {label}? Ostatní auta účtu zůstanou připojená a načtené stavy tachometru zůstanou.",
+    "odosrc_err": {
+      "vehicle_taken": "Toto auto ze služby už je přiřazené k jinému autu. Pro další auto použijte už připojený účet.",
+      "not_connected": "Auto není připojené ke zdroji stavu tachometru.",
+      "connection_busy": "Načítání stavu tachometru už probíhá, zkuste to za chvíli.",
+      "invalid_input": "Údaj pro připojení nebyl přijat, zkontrolujte ho.",
+      "unknown_provider": "Tento zdroj stavu tachometru není dostupný.",
+      "access_denied": "Přihlášení bylo zamítnuto.",
+      "expired_token": "Přihlášení vypršelo, začněte znovu.",
+      "reauth_required": "Přihlášení ke službě vypršelo. Klikněte na Připojit znovu.",
+      "token_invalid": "Služba odmítla přístup. Klikněte na Připojit znovu.",
+      "rate_limited": "Vyčerpán denní limit dotazů služby. Zkuste to zítra.",
+      "vehicle_not_permitted": "K tomuto autu nemáte ve službě přístup.",
+      "no_odometer_data": "Auto zatím stav tachometru neodeslalo. Zkuste to po jízdě.",
+      "odometer_regression": "Stav tachometru z auta nenavazuje na zapsané jízdy a stavy.",
+      "remote_unavailable": "Služba teď neodpovídá, zkuste to později.",
+      "encryption_key_unavailable": "Aplikace nemá nastavený šifrovací klíč (app.secret_encryption_key)."
+    },
+    "odosrc_providers": {
+      "bmw_cardata": {
+        "short": "BMW",
+        "description": "Auta BMW, ke kterým máte účet v aplikaci My BMW jako hlavní uživatel.",
+        "steps": [
+          "V portálu MyBMW otevřete CarData a klikněte na „Create CarData Client“.",
+          "U klienta zapněte službu „CarData API“ a počkejte asi minutu.",
+          "Zkopírujte client ID a vložte ho sem. Pak se v dalším kroku přihlásíte u BMW."
+        ],
+        "field_client_id": "Client ID",
+        "err": {
+          "invalid_input": "Client ID nebylo přijato. Zkontrolujte ho v portálu MyBMW a že je zapnutá služba CarData API.",
+          "rate_limited": "Vyčerpán denní limit dotazů BMW (50). Zkuste to zítra.",
+          "vehicle_not_permitted": "K tomuto autu nemáte v BMW CarData přístup (musíte být hlavní uživatel).",
+          "container_limit": "V BMW CarData je moc kontejnerů. Smažte nepoužívané v portálu MyBMW."
+        }
+      }
+    }
   },
   "logbook_fuel": {
     "actions": "Akce tankování",
@@ -24305,20 +24452,15 @@
         "send": {
           "all": "Připravit a odeslat vše ({count})",
           "awaiting_receipt": "Čeká na doručenku",
-          "bar_hint": "Za tento měsíc čeká na odeslání {count} podání. Nepřipravená se připraví ze schválené revize mzdového běhu, pak jedním potvrzením odejdou: JMHZ přes VREP ČSSZ, přehledy pojišťovnám do datových schránek.",
+          "bar_hint": "Za tento měsíc čeká na odeslání {count} podání. Nepřipravená se připraví ze schválené revize mzdového běhu, pak jedním potvrzením odejdou: JMHZ přes VREP ČSSZ, je-li zvolený podpisový certifikát, jinak datovou schránkou; přehledy pojišťovnám do datových schránek. Způsob přihlášení k datové schránce zvolíte při odeslání.",
           "bar_nothing": "Všechno připravené už odešlo.",
           "channel_isds": "datová schránka",
           "channel_vrep": "VREP ČSSZ (certifikát)",
           "confirm": "Odeslat {count} podání do ostrého prostředí úřadů?",
           "databox_sent": "Odesláno do datových schránek: {sent}. Nepovedlo se: {failed}.",
-          "gateway_action": "Schválit koncept v datovce {current}/{total}",
-          "gateway_hint": "Odesílací brána schvaluje každý koncept v datové schránce zvlášť ({count}). Jedním potvrzením pro všechny zprávy odešlete jen Mobilním klíčem - nastavíte ho v Datové schránce.",
           "load_receipts": "Načíst doručenky",
           "load_receipts_count": "Načíst doručenky ({count})",
-          "manual_hint": "Zprávy ({count}) čekají v odchozí frontě datové schránky k ručnímu odeslání.",
-          "mobile_key_hint": "Zprávy do datových schránek ({count}) odešlete jedním potvrzením Mobilního klíče - každá jde do schránky své pojišťovny nebo úřadu.",
           "open": "Otevřít",
-          "open_databox": "Otevřít datovou schránku",
           "prepare_all": "Jen připravit vše ({count})",
           "prepare_all_summary": "Připraveno podání: {prepared}. Nepovedlo se: {failed}. Nic se neodeslalo.",
           "prepare_and_send": "Připravit a odeslat",
@@ -24771,7 +24913,8 @@
           "intro": "V jedné relaci Mobilního klíče odešlete najednou {count} vybraných podání - jedno potvrzení v mobilu stačí na všechna.",
           "select": "Vybrat k hromadnému odeslání",
           "selected": "Vybráno: {count}",
-          "sent_summary": "Odesláno {dispatched} z {total} vybraných podání. Zkontrolujte stav u těch, které se neodeslaly."
+          "sent_summary": "Odesláno {dispatched} z {total} vybraných podání. Zkontrolujte stav u těch, které se neodeslaly.",
+          "send_isds": "Odeslat vybraná podání ({count}) datovou schránkou"
         },
         "no_authority_result": "Úřad výsledek zpracování neposílá - potvrďte vyřízení sami.",
         "not_prepared_action": "Kde to připravit",
@@ -24884,7 +25027,9 @@
         "sweep_failed": "Kontrolu změn se nepodařilo dokončit.",
         "sweep_partial": "Zkontrolováno {scanned} pracovních vztahů, změna zjištěna u {changed}. Další vztahy čekají - spusťte kontrolu ještě jednou.",
         "sweep_running": "Kontroluji…",
-        "title": "K odeslání"
+        "title": "K odeslání",
+        "isds_pending_title": "Dokončete odeslání datovou schránkou",
+        "isds_continue": "Odeslat datovkou"
       },
       "signing": {
         "badge": {
@@ -25983,6 +26128,12 @@
       "warning_truncated": "a další ({count})",
       "warnings_title": "Na co upozornit (uzavření to nebrání)",
       "year": "Rok"
+    },
+    "dispatch_mode": {
+      "label": "Odeslat přes",
+      "vrep": "VREP ČSSZ (podpisový certifikát)",
+      "isds": "Datovou schránku",
+      "fallback": "Podpisový certifikát pro VREP není zvolený, podání odejde datovou schránkou."
     }
   },
   "payrollDocumentAccess": {
@@ -33392,7 +33543,9 @@
     },
     "web": "Web",
     "workplace_code": "Kód územního pracoviště (ÚzP)",
-    "zip": "PSČ"
+    "zip": "PSČ",
+    "payment_thanks_max_age_days": "Jen za platbu ne starší než",
+    "payment_thanks_max_age_days_hint": "Starší platba (např. z pozdě nahraného výpisu) automatické poděkování nevyvolá. 0 = bez omezení. Po smazání a opětovném nahrání výpisu se za již známou platbu automaticky neděkuje."
   },
   "setup": {
     "create_admin": "Vytvořit admin účet",
@@ -34076,7 +34229,46 @@
     "upload_title": "Nahrajte zálohu agendy",
     "vat_required": "Tento převod vyžaduje plátce DPH.",
     "working": "Zpracovávám zálohu…",
-    "written_title": "Nově uložené záznamy"
+    "written_title": "Nově uložené záznamy",
+    "download_pdf": "Stáhnout protokol PDF",
+    "pdf_downloading": "Stahuji protokol PDF…",
+    "pdf_download_failed": "Protokol PDF se nepodařilo stáhnout. Zkuste to znovu.",
+    "summary": {
+      "show_all": "Zobrazit vše",
+      "agendas_title": "Přehled agend",
+      "agenda": "Agenda",
+      "source": "Ve zdroji",
+      "ready": "K převodu",
+      "skipped": "Nepřevedeno",
+      "review": "Ke kontrole",
+      "hint": "Pomlčka znamená, že zdroj tento počet neuvádí. Počty ke kontrole se mohou překrývat s převáděnými záznamy; sloupce se nesčítají.",
+      "details_title": "Další počty a výsledek zápisu",
+      "stage": "Fáze",
+      "metric": "Ukazatel",
+      "count": "Počet",
+      "agendas": {
+        "assets": "Dlouhodobý majetek",
+        "small_assets": "Drobný majetek",
+        "employees": "Zaměstnanci",
+        "historical_payroll": "Historické mzdy",
+        "warehouses": "Sklady",
+        "stock_items": "Skladové karty",
+        "cars": "Vozidla",
+        "route_templates": "Opakované trasy",
+        "children": "Děti zaměstnanců",
+        "tax_items": "Mzdové daňové údaje",
+        "leave_records": "Záznamy dovolené",
+        "average_records": "Mzdové průměry",
+        "documents_review": "Doklady vyžadující koncept",
+        "movements_source_review": "Peněžní pohyby ke kontrole ve zdroji",
+        "movements_review": "Výsledné peněžní pohyby ke kontrole"
+      }
+    },
+    "bank_series_title": "Přiřazení bankovních účtů k řadám",
+    "bank_series_missing": "V záloze chybí dokladová řada u bankovních účtů: {count}.",
+    "bank_series_hint": "Pro import lze použít navržené přiřazení účtu k dokladové řadě bankovních výpisů. Jde pouze o dočasný výklad pro tento import; zdrojový ZIP zůstane beze změny.",
+    "bank_series_confirm": "Potvrzuji navržené přiřazení řady bankovnímu účtu pro tento import.",
+    "bank_series_ambiguous": "Účty a řady nelze jednoznačně přiřadit. Doplňte dokladové řady bankovních účtů ve Stereo a nahrajte novou zálohu. Bez opravy nelze pokračovat."
   },
   "stock": {
     "assemblies": {

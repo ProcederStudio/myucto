@@ -50,6 +50,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { formatUtcDateTime } from '@/composables/useFormat'
 import { useAutoSlug } from '@/composables/useAutoSlug'
 import { useToast } from '@/composables/useToast'
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { useSupplierStore } from '@/stores/supplier'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -1711,6 +1712,29 @@ const outboxNeedsAttention = computed(() => outbox.value.some(row =>
 
 onUnmounted(clearMobileStatusTimer)
 onUnmounted(clearReceiptsTimer)
+
+/*
+ * Tichá obnova po změně v jiném okně: mzdové nebo daňové podání odeslané
+ * jinde přidá zprávu do odchozích, doručenka do příchozích. Obnovují se jen
+ * seznamy, ne přístup ani nastavení, takže rozepsané přihlášení zůstane.
+ * Během odesílání a jiných akcí se čeká, ať se řádek nepřepíše pod rukama.
+ */
+async function refreshLists() {
+  const [out, inb, unmatched] = await Promise.all([
+    dataBoxApi.outbox(environment.value, outboxPageSize, outboxOffset.value, outboxYear.value, outboxMonth.value),
+    dataBoxApi.browseInbox(environment.value, inboxBrowseParams()),
+    dataBoxApi.unmatchedReceipts(environment.value).catch(() => [] as InboxMessage[]),
+  ])
+  outbox.value = out.items
+  outboxTotal.value = out.total
+  outboxYears.value = out.years ?? []
+  applyInboxResult(inb)
+  unmatchedReceipts.value = unmatched
+  await loadNotices()
+}
+
+useWindowRefresh('*', refreshLists, () => !loading.value && !saving.value && !inboxLoading.value
+  && !receiptsBusy.value && !assignBusy.value && busyId.value === null && sendOpenFor.value === null)
 </script>
 
 <template>

@@ -729,7 +729,8 @@
         "status_posted": "Posted",
         "tab_accounting": "Accounting",
         "tab_tax": "Tax",
-        "title": "Depreciation plan"
+        "title": "Depreciation plan",
+        "status_imported": "Imported schedule"
       },
       "reset_filters": "Reset filters",
       "status": {
@@ -739,7 +740,51 @@
       },
       "subtitle": "Fixed asset cards, tax and accounting depreciation (Czech ITA §26–33, CAS 013).",
       "summary_accumulated": "Accumulated depreciation",
-      "title": "Fixed assets"
+      "title": "Fixed assets",
+      "revision": {
+        "original_life_label": "Original depreciation life (months)",
+        "original_life": "Original depreciation life: {months} months.",
+        "total_life": "Total depreciation life under this schedule: {months} months.",
+        "title": "Revise depreciation schedule",
+        "hint": "A revision changes only the future part of the imported schedule from the selected month. Opening balances and confirmed depreciation remain unchanged. Review the before and after preview first, then save the revision separately.",
+        "effective_from": "Effective from month",
+        "remaining_months": "Remaining life (months)",
+        "remaining_amount": "Remaining amount",
+        "reason": "Reason for revision",
+        "preview": "Preview revision",
+        "previewing": "Preparing preview…",
+        "save": "Save revision",
+        "saved": "The depreciation schedule revision was saved.",
+        "before": "Before revision",
+        "after": "After revision",
+        "annual_tax": "Annual tax depreciation",
+        "annual_accounting": "Annual accounting depreciation",
+        "monthly": "Monthly accounting schedule",
+        "year": "Fiscal year",
+        "month": "Month",
+        "amount": "Depreciation",
+        "residual": "Residual value",
+        "preview_summary": "Revision {revision}: from {month}, remaining life {months} months, remaining amount {amount}.",
+        "stale": "The schedule or fiscal year settings have changed since the preview. Refresh the asset and prepare a new preview.",
+        "locked": "The selected period is closed or already contains confirmed depreciation. Select another period.",
+        "not_allowed": "This asset cannot be revised in its current state.",
+        "failed": "The revision could not be processed. Please try again.",
+        "refresh": "Refresh asset",
+        "history": "Depreciation schedule revision history",
+        "number": "Revision",
+        "author": "User",
+        "created_at": "Recorded at",
+        "user": "User #{id}",
+        "fiscal_start": "Fiscal year starts in month {month}",
+        "origin": "Original imported schedule — audit record",
+        "origin_hint": "Original amounts from the source program remain unchanged. The current schedule, including revisions, is shown in the asset depreciation overview.",
+        "latest": "Latest revision {revision}: effective from {month}, remaining life {months} months."
+      },
+      "imported_plan": {
+        "title": "Imported depreciation schedule",
+        "source": "Source: {program}. Source tax method: {tax}; source accounting method: {accounting}.",
+        "locked_hint": "Regular edits to acquisition, depreciation and opening balance parameters are locked. Future depreciation life can be changed through a controlled revision on the asset detail, with a preview and a reason. Technical improvements, suspension and manual depreciation overrides are unavailable for imported schedules."
+      }
     },
     "balance_inventory": {
       "as_of_hint": "Balance sheet date: {date}. The \"Actual state\" and \"Difference\" columns are filled in by hand after the physical inventory count — they are included in the export (PDF/XLSX).",
@@ -1958,7 +2003,8 @@
       "status_col": "Status",
       "subtitle": "Chronological overview of journal entries.",
       "title": "General journal",
-      "total": "Total"
+      "total": "Total",
+      "source_documents": "Source document files"
     },
     "lines_editor": {
       "account": "account",
@@ -4863,7 +4909,8 @@
     },
     "statement_delete_has_matches": "The notice statement has matched items. You can delete it once the official statement takes them over or after you unmatch them.",
     "notice_superseded_hint": "The same transaction is on the official bank statement, which carries the payment. The notice is resolved and is not matched automatically again.",
-    "notice_superseded_chip": "Replaced by statement: {count}"
+    "notice_superseded_chip": "Replaced by statement: {count}",
+    "journal_documents": "Journal entry documents"
   },
   "bank_accounts": {
     "account_added": "Bank account added.",
@@ -7918,7 +7965,15 @@
         "request": "Send SMS",
         "title": "Username, password and SMS code"
       },
-      "title": "How to send the message"
+      "title": "How to send the message",
+      "batch": {
+        "intro": "Send the selected submissions ({count}) with a single sign-in. Each goes to the data box of its authority or insurer.",
+        "gatewayUnavailable": "The sending gateway approves every draft in the data box separately, so it is not offered for bulk sending. Choose another method, or send the messages one by one.",
+        "submit": "Send {count} submissions",
+        "certificateConfirm": "I confirm sending {count} messages with the company system certificate.",
+        "sentSummary": "Sent {dispatched} of {total} submissions.",
+        "failed": "The submissions could not be sent."
+      }
     },
     "subtitle": "This company's data box: sending filings and reading incoming messages. Tax filings (VAT, control and recapitulative statements, corporate and personal income tax) can be sent here from Taxes → EPO filings and archive. What the application sends this way: health insurer overviews and notifications (HOZ, PPZ), the employer's monthly report to the social security administration (JMHZ) as an alternative to the direct VREP channel, and enforcement cooperation replies.",
     "tabs": {
@@ -8200,6 +8255,7 @@
       "not_in_use": "the job has nothing to serve",
       "not_in_use_by_script": {
         "cron-bank-connections": "no active bank connection",
+        "cron-logbook-odometer-source": "no car connected to an automatic odometer source",
         "cron-bank-email-notices": "no enabled IMAP mailbox for bank notices",
         "cron-catalog-worker": "no catalog job queued and no e-shop connection",
         "cron-epo-status": "no EPO submission is waiting for its status",
@@ -11338,7 +11394,13 @@
       "reminder_sent": "Reminder sent",
       "sent": "Sent to client",
       "uncancelled": "Cancellation undone",
-      "updated": "Updated"
+      "updated": "Updated",
+      "payment_matched": "Bank payment matched",
+      "bank_payment_released": "Bank payment released",
+      "payment_thanks_sent": "Payment thank-you sent",
+      "payment_thanks_queued": "Payment thank-you queued",
+      "payment_thanks_failed": "Payment thank-you failed",
+      "payment_thanks_skipped": "Payment thank-you not sent"
     },
     "activity": "Activity",
     "add_first": "Add first",
@@ -12205,7 +12267,19 @@
     "wr_total": "Total",
     "wr_total_amount": "Total amount",
     "wr_total_hours": "Total hours",
-    "wr_vat_rate": "VAT rate"
+    "wr_vat_rate": "VAT rate",
+    "payment_thanks_reasons": {
+      "not_paid": "invoice is not paid",
+      "cancellation": "cancellation document",
+      "disabled": "thank-you e-mails are off",
+      "auto_disabled": "automatic thank-you is off",
+      "already_sent": "already sent earlier",
+      "no_recipient": "no recipient",
+      "stale_payment": "payment is older than the configured limit",
+      "suppressed_after_release": "payment was already known before the statement was deleted",
+      "invalid_intent": "invalid queue request",
+      "rate_limit": "held back by the sending limit"
+    }
   },
   "invoice_default_note": {
     "enabled": "Pre-fill the note below items",
@@ -12928,7 +13002,80 @@
     "gap_row_km_required": "Fill in the distance of every trip.",
     "gap_nothing": "Add at least one trip.",
     "gap_private_purpose": "Private trip",
-    "gap_filled": "Trips have been filled in."
+    "gap_filled": "Trips have been filled in.",
+    "odosrc_short": "Odometer",
+    "odosrc_title": "Automatic odometer",
+    "odosrc_hint": "the odometer is read from the manufacturer service once a day",
+    "odosrc_badge_active": "Odometer",
+    "odosrc_badge_error": "Odometer: error",
+    "odosrc_badge_warning": "Odometer: warning",
+    "odosrc_source": "Source",
+    "odosrc_pick": "Choose the service to read the odometer from:",
+    "odosrc_pick_account": "Use an account that is already connected:",
+    "odosrc_pick_new": "Or connect a new account:",
+    "odosrc_account_cars": "Cars: {cars}",
+    "odosrc_account_no_cars": "No cars yet",
+    "odosrc_reauth_hint": "Sign in again to the same account. The cars of the account ({cars}) stay connected.",
+    "odosrc_shared": "The same account also reads: {cars}.",
+    "odosrc_warning_hint": "The reading was not saved; check the trips and odometer readings.",
+    "odosrc_disconnect_last_confirm": "Disconnect the car from {label}? It is the last car of the account, so the account will be disconnected too. Fetched odometer readings stay.",
+    "odosrc_none": "No service is available yet.",
+    "odosrc_missing": "Your brand is not listed? You can record the odometer manually with the Odometer button.",
+    "odosrc_other_source": "Other source",
+    "odosrc_privacy": "Only the odometer is read from the service. Access is stored encrypted and you can disconnect at any time.",
+    "odosrc_connect": "Connect",
+    "odosrc_code_hint": "Open the {label} sign-in and confirm this code:",
+    "odosrc_open": "Open {label} sign-in",
+    "odosrc_redirect_hint": "Sign in on the {label} page. The connection completes when you return.",
+    "odosrc_waiting": "Waiting for confirmation at {label}…",
+    "odosrc_select_vehicle": "Your account has several cars. Choose this car:",
+    "odosrc_use_vehicle": "Use",
+    "odosrc_connected": "The car is connected to {label}.",
+    "odosrc_vehicle": "Car",
+    "odosrc_last_odometer": "Last reading",
+    "odosrc_last_sync": "Last fetched",
+    "odosrc_daily_hint": "The odometer is fetched every day at 3:30.",
+    "odosrc_daily_limit": "{label} allows {n} requests a day per account, {used} used today.",
+    "odosrc_sync": "Fetch now",
+    "odosrc_synced": "Odometer {km} km fetched.",
+    "odosrc_reconnect": "Reconnect",
+    "odosrc_disconnect": "Disconnect car",
+    "odosrc_disconnect_confirm": "Disconnect the car from {label}? Other cars of the account stay connected and fetched odometer readings stay.",
+    "odosrc_err": {
+      "vehicle_taken": "This car of the service is already assigned to another car. Use the account that is already connected for further cars.",
+      "not_connected": "The car is not connected to an odometer source.",
+      "connection_busy": "The odometer is already being fetched, try again in a moment.",
+      "invalid_input": "The connection detail was not accepted, please check it.",
+      "unknown_provider": "This odometer source is not available.",
+      "access_denied": "Sign-in was declined.",
+      "expired_token": "Sign-in expired, please start again.",
+      "reauth_required": "Sign-in to the service expired. Click Reconnect.",
+      "token_invalid": "The service refused access. Click Reconnect.",
+      "rate_limited": "Daily request limit of the service reached. Try again tomorrow.",
+      "vehicle_not_permitted": "You have no access to this car in the service.",
+      "no_odometer_data": "The car has not sent its odometer yet. Try again after a drive.",
+      "odometer_regression": "The odometer from the car does not follow recorded trips and readings.",
+      "remote_unavailable": "The service is not responding, try again later.",
+      "encryption_key_unavailable": "The application has no encryption key set (app.secret_encryption_key)."
+    },
+    "odosrc_providers": {
+      "bmw_cardata": {
+        "short": "BMW",
+        "description": "BMW cars linked to your My BMW app account as the primary user.",
+        "steps": [
+          "In the MyBMW portal open CarData and click “Create CarData Client”.",
+          "Subscribe the client to the “CarData API” service and wait about a minute.",
+          "Copy the client ID and paste it here. Then you will sign in at BMW."
+        ],
+        "field_client_id": "Client ID",
+        "err": {
+          "invalid_input": "The client ID was not accepted. Check it in the MyBMW portal and that the CarData API service is enabled.",
+          "rate_limited": "BMW daily request limit (50) reached. Try again tomorrow.",
+          "vehicle_not_permitted": "You have no BMW CarData access to this car (you must be the primary user).",
+          "container_limit": "Too many containers in BMW CarData. Delete unused ones in the MyBMW portal."
+        }
+      }
+    }
   },
   "logbook_fuel": {
     "actions": "Refuelling actions",
@@ -24305,20 +24452,15 @@
         "send": {
           "all": "Prepare and send all ({count})",
           "awaiting_receipt": "Waiting for receipt",
-          "bar_hint": "{count} submissions are waiting to be sent for this month. Unprepared ones are prepared from the approved payroll run revision, then sent with one confirmation: JMHZ via the CSSA VREP, insurer overviews to data boxes.",
+          "bar_hint": "{count} submissions are waiting to be sent for this month. Unprepared ones are prepared from the approved payroll run revision, then sent with one confirmation: JMHZ via the CSSA VREP if a signing certificate is selected, otherwise via the data box; insurer overviews to data boxes. You choose how to sign in to the data box when sending.",
           "bar_nothing": "Everything prepared has been sent.",
           "channel_isds": "data box",
           "channel_vrep": "CSSA VREP (certificate)",
           "confirm": "Send {count} submissions to the authorities' production environment?",
           "databox_sent": "Sent to data boxes: {sent}. Failed: {failed}.",
-          "gateway_action": "Approve draft in data box {current}/{total}",
-          "gateway_hint": "The sending gateway approves every draft in the data box separately ({count}). Only the Mobile Key sends all messages with one confirmation — set it up under Data box.",
           "load_receipts": "Load delivery receipts",
           "load_receipts_count": "Load delivery receipts ({count})",
-          "manual_hint": "Messages ({count}) are waiting in the data box outbox to be sent manually.",
-          "mobile_key_hint": "Send the data box messages ({count}) with a single Mobile Key confirmation — each goes to the data box of its insurer or authority.",
           "open": "Open",
-          "open_databox": "Open data box",
           "prepare_all": "Prepare all only ({count})",
           "prepare_all_summary": "Submissions prepared: {prepared}. Failed: {failed}. Nothing was sent.",
           "prepare_and_send": "Prepare and send",
@@ -24771,7 +24913,8 @@
           "intro": "One Mobile Key session sends all {count} selected filings at once — a single confirmation in the app covers them all.",
           "select": "Select for bulk sending",
           "selected": "Selected: {count}",
-          "sent_summary": "Sent {dispatched} of {total} selected filings. Check the status of any that were not sent."
+          "sent_summary": "Sent {dispatched} of {total} selected filings. Check the status of any that were not sent.",
+          "send_isds": "Send selected filings ({count}) via data box"
         },
         "no_authority_result": "The authority sends no processing result — confirm it yourself.",
         "not_prepared_action": "Where to prepare it",
@@ -24884,7 +25027,9 @@
         "sweep_failed": "The change check could not be completed.",
         "sweep_partial": "Checked {scanned} employments, changes found in {changed}. More employments are waiting — run the check again.",
         "sweep_running": "Checking…",
-        "title": "To send"
+        "title": "To send",
+        "isds_pending_title": "Finish sending via the data box",
+        "isds_continue": "Send via data box"
       },
       "signing": {
         "badge": {
@@ -25983,6 +26128,12 @@
       "warning_truncated": "and {count} more",
       "warnings_title": "Worth knowing (does not prevent closing)",
       "year": "Year"
+    },
+    "dispatch_mode": {
+      "label": "Send via",
+      "vrep": "CSSZ VREP (signing certificate)",
+      "isds": "Data box",
+      "fallback": "No signing certificate is selected for VREP, so the submission goes via the data box."
     }
   },
   "payrollDocumentAccess": {
@@ -33392,7 +33543,9 @@
     },
     "web": "Website",
     "workplace_code": "Territorial workplace code (ÚzP)",
-    "zip": "ZIP"
+    "zip": "ZIP",
+    "payment_thanks_max_age_days": "Only for payments no older than",
+    "payment_thanks_max_age_days_hint": "An older payment (e.g. from a statement uploaded late) does not trigger an automatic thank-you. 0 = no limit. After a statement is deleted and uploaded again, no automatic thank-you is sent for an already known payment."
   },
   "setup": {
     "create_admin": "Create admin account",
@@ -34076,7 +34229,46 @@
     "upload_title": "Upload an agenda backup",
     "vat_required": "This migration requires a VAT payer.",
     "working": "Processing backup…",
-    "written_title": "New records saved"
+    "written_title": "New records saved",
+    "download_pdf": "Download PDF report",
+    "pdf_downloading": "Downloading PDF report…",
+    "pdf_download_failed": "The PDF report could not be downloaded. Please try again.",
+    "summary": {
+      "show_all": "Show all",
+      "agendas_title": "Agenda overview",
+      "agenda": "Agenda",
+      "source": "In source",
+      "ready": "Ready to transfer",
+      "skipped": "Not transferred",
+      "review": "Needs review",
+      "hint": "A dash means this count was not supplied. Review counts may overlap with transferred records; the columns are not additive.",
+      "details_title": "Other counts and write results",
+      "stage": "Stage",
+      "metric": "Metric",
+      "count": "Count",
+      "agendas": {
+        "assets": "Fixed assets",
+        "small_assets": "Small assets",
+        "employees": "Employees",
+        "historical_payroll": "Historical payroll",
+        "warehouses": "Warehouses",
+        "stock_items": "Stock items",
+        "cars": "Vehicles",
+        "route_templates": "Recurring routes",
+        "children": "Employee children",
+        "tax_items": "Payroll tax data",
+        "leave_records": "Leave records",
+        "average_records": "Payroll averages",
+        "documents_review": "Documents requiring draft status",
+        "movements_source_review": "Source money movements needing review",
+        "movements_review": "Resulting money movements needing review"
+      }
+    },
+    "bank_series_title": "Bank account series assignments",
+    "bank_series_missing": "The backup has bank accounts without a document series: {count}.",
+    "bank_series_hint": "The suggested account assignment to a bank statement document series can be used for this import. This is a temporary interpretation for this import only; the source ZIP remains unchanged.",
+    "bank_series_confirm": "I confirm the suggested bank account series assignment for this import.",
+    "bank_series_ambiguous": "The accounts and series cannot be matched unambiguously. Fill in the bank account document series in Stereo and upload a new backup. Correct the source before continuing."
   },
   "stock": {
     "assemblies": {
