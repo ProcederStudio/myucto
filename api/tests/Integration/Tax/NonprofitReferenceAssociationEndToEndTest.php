@@ -259,6 +259,14 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
             $check = $closing->closingCheck($this->supplier, $period);
             self::assertTrue($check['complete'], json_encode($check['findings']));
         }
+        // Krok odložené daně 504 v uzávěrce: náhled i zápis (aktuální čtení) dokládají
+        // podklady období stejným otiskem bez legacy snímku zdrojů.
+        $deferred = $this->container->get(\MyInvoice\Service\Accounting\Closing\DeferredTax504Service::class);
+        foreach ([$this->period, $next] as $period) {
+            $preview = $deferred->preview($this->supplier, $period);
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $preview['source_hash']);
+            self::assertSame($preview['source_hash'], \MyInvoice\Service\Accounting\Closing\DeferredTax504Repository::sourceHash($this->db, $this->supplier, $period, true));
+        }
     }
 
     private function useSaving(NonprofitTaxSavingsService $savings, array $source, int $line, string $cents, string $key): array
