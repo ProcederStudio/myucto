@@ -21378,7 +21378,25 @@
       "public_isdoc_downloaded": "Client downloaded ISDOC from the web invoice",
       "public_pdf_downloaded": "Client downloaded the PDF from the web invoice",
       "public_attachment_downloaded": "Client downloaded an attachment from the web invoice",
-      "proforma_final_issued": "Final tax document issued from proforma"
+      "proforma_final_issued": "Final tax document issued from proforma",
+      "payment_matched": "Bank payment matched",
+      "bank_payment_released": "Bank payment released",
+      "payment_thanks_sent": "Payment thank-you sent",
+      "payment_thanks_queued": "Payment thank-you queued",
+      "payment_thanks_failed": "Payment thank-you failed",
+      "payment_thanks_skipped": "Payment thank-you not sent"
+    },
+    "payment_thanks_reasons": {
+      "not_paid": "invoice is not paid",
+      "cancellation": "cancellation document",
+      "disabled": "thank-you e-mails are off",
+      "auto_disabled": "automatic thank-you is off",
+      "already_sent": "already sent earlier",
+      "no_recipient": "no recipient",
+      "stale_payment": "payment is older than the configured limit",
+      "suppressed_after_release": "payment was already known before the statement was deleted",
+      "invalid_intent": "invalid queue request",
+      "rate_limit": "held back by the sending limit"
     },
     "approval": {
       "badge": "Approval",

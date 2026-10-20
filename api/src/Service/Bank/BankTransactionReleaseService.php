@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Bank;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
+use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
@@ -50,6 +51,7 @@ final class BankTransactionReleaseService
         private readonly BankPostingService $bankPosting,
         private readonly AutoPostingPolicyService $policy,
         private readonly PurchasePaidStatusRestore $paidStatusRestore,
+        private readonly ActivityLogger $activity,
     ) {}
 
     /**
@@ -245,8 +247,24 @@ final class BankTransactionReleaseService
         // Konečná faktura zálohy už nesmí čerpat 314/324 za úhradu, která tu není.
         $this->bankPosting->syncAdvanceSettlements($supplierId, $advances, $userId);
 
-        if (!$deletedPayment && $invoiceId > 0 && $postedAt !== '') {
-            $this->releaseLegacyInvoiceMatch($pdo, $txId, $invoiceId, $postedAt, $tx['matched_at'] ?? null);
+        $legacyReleased = !$deletedPayment && $invoiceId > 0 && $postedAt !== ''
+            && $this->releaseLegacyInvoiceMatch($pdo, $txId, $invoiceId, $postedAt, $tx['matched_at'] ?? null);
+
+        // Faktura, které pohyb zrušil nebo odpojil úhradu, to musí mít v aktivitě —
+        // jinak není vidět, proč se tatáž platba později „zaplatila" znovu.
+        $affected = $paidInvoices;
+        if ($invoiceId > 0) {
+            $affected[$invoiceId] = $affected[$invoiceId] ?? false;
+        }
+        foreach ($affected as $affectedId => $bankPayment) {
+            $this->activity->log('invoice.bank_payment_released', $userId, 'invoice', $affectedId, [
+                'mode'                => $mode,
+                'bank_transaction_id' => $txId,
+                'statement_id'        => $statementId > 0 ? $statementId : null,
+                'posted_at'           => $postedAt !== '' ? $postedAt : null,
+                'payment_deleted'     => $bankPayment || ($legacyReleased && $affectedId === $invoiceId),
+                'thanks_suppressed'   => $mode === self::MODE_DELETE && $bankPayment,
+            ]);
         }
 
         if ($statementId > 0) {
@@ -344,8 +362,10 @@ final class BankTransactionReleaseService
      * pohyb, vrátí do nezaplacených — ale jen když ji nekryjí jiné platby. O stavu
      * rozhoduje přepočet z plateb, ne ruční UPDATE: faktura zaplacená platbou, která
      * ztratila vazbu na pohyb (smazaný výpis), musí zůstat zaplacená.
+     *
+     * @return bool true = legacy platba smazána
      */
-    private function releaseLegacyInvoiceMatch(PDO $pdo, int $txId, int $invoiceId, string $postedAt, ?string $matchedAt): void
+    private function releaseLegacyInvoiceMatch(PDO $pdo, int $txId, int $invoiceId, string $postedAt, ?string $matchedAt): bool
     {
         $other = $pdo->prepare(
             "SELECT COUNT(*) FROM bank_transactions
@@ -355,13 +375,13 @@ final class BankTransactionReleaseService
         );
         $other->execute([$invoiceId, $txId]);
         if ((int) $other->fetchColumn() > 0) {
-            return;
+            return false;
         }
 
         $inv = $pdo->prepare("SELECT 1 FROM invoices WHERE id = ? AND status = 'paid' AND paid_at = ? FOR UPDATE");
         $inv->execute([$invoiceId, $postedAt]);
         if ($inv->fetchColumn() === false) {
-            return;
+            return false;
         }
 
         // Backfill 'legacy' platba (migrace 0108) odpovídá právě tomuto historickému
@@ -374,12 +394,13 @@ final class BankTransactionReleaseService
             );
             $older->execute([$invoiceId, $matchedAt]);
             if ($older->fetchColumn() !== false) {
-                return;
+                return false;
             }
         }
         $pdo->prepare("DELETE FROM invoice_payments WHERE invoice_id = ? AND source = 'legacy'")
             ->execute([$invoiceId]);
         $this->payments->recompute($invoiceId);
+        return true;
     }
 
     /** @param list<int> $txIds */

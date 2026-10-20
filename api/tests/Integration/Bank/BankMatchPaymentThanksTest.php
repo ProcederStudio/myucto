@@ -234,6 +234,15 @@ final class BankMatchPaymentThanksTest extends TestCase
             ->fetch(PDO::FETCH_ASSOC);
         self::assertNotSame('paid', $row['status'], 'smazání výpisu vrací fakturu mezi neuhrazené');
         self::assertNotNull($row['payment_thanks_suppressed_at']);
+        $released = $pdo->query(
+            "SELECT payload FROM activity_log
+              WHERE entity_type = 'invoice' AND entity_id = {$this->invoiceId} AND action = 'invoice.bank_payment_released'"
+        )->fetchColumn();
+        self::assertNotFalse($released, 'zrušení platby smazáním výpisu musí být v aktivitě faktury');
+        $released = json_decode((string) $released, true);
+        self::assertSame(BankTransactionReleaseService::MODE_DELETE, $released['mode'] ?? null);
+        self::assertTrue($released['payment_deleted'] ?? null);
+        self::assertTrue($released['thanks_suppressed'] ?? null);
 
         $this->matcher->match($this->txId);
 
@@ -252,6 +261,17 @@ final class BankMatchPaymentThanksTest extends TestCase
 
         self::assertNull($this->db->pdo()
             ->query("SELECT payment_thanks_suppressed_at FROM invoices WHERE id = {$this->invoiceId}")->fetchColumn());
+    }
+
+    /** Vypnuté automatické poděkování dřív skončilo bez stopy v aktivitě faktury. */
+    public function testAutoDisabledSkipIsLogged(): void
+    {
+        $this->db->pdo()->prepare('UPDATE supplier SET payment_thanks_auto_send = 0 WHERE id = ?')->execute([$this->supplierId]);
+        $this->createFixture('CURDATE()');
+
+        $this->matcher->match($this->txId);
+
+        self::assertSame('auto_disabled', $this->lastThanksReason());
     }
 
     private function setMaxAgeDays(int $days): void

@@ -21378,7 +21378,25 @@
       "public_isdoc_downloaded": "Klient stáhl ISDOC z web faktury",
       "public_pdf_downloaded": "Klient stáhl PDF z web faktury",
       "public_attachment_downloaded": "Klient stáhl přílohu z web faktury",
-      "proforma_final_issued": "Vystaven daňový doklad k záloze"
+      "proforma_final_issued": "Vystaven daňový doklad k záloze",
+      "payment_matched": "Spárována platba z banky",
+      "bank_payment_released": "Bankovní platba uvolněna",
+      "payment_thanks_sent": "Poděkování za úhradu odesláno",
+      "payment_thanks_queued": "Poděkování za úhradu ve frontě",
+      "payment_thanks_failed": "Poděkování za úhradu selhalo",
+      "payment_thanks_skipped": "Poděkování za úhradu neodesláno"
+    },
+    "payment_thanks_reasons": {
+      "not_paid": "faktura není uhrazená",
+      "cancellation": "storno doklad",
+      "disabled": "poděkování je vypnuté",
+      "auto_disabled": "automatické poděkování je vypnuté",
+      "already_sent": "už odesláno dříve",
+      "no_recipient": "chybí příjemce",
+      "stale_payment": "platba je starší než nastavený limit",
+      "suppressed_after_release": "platba už byla známá před smazáním výpisu",
+      "invalid_intent": "neplatný požadavek ve frontě",
+      "rate_limit": "zbrzděno limitem odesílání"
     },
     "approval": {
       "badge": "Schválení",

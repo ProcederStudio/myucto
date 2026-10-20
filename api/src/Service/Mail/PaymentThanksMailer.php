@@ -55,7 +55,7 @@ final class PaymentThanksMailer
     /** Chyby persistence fronty a zámků se propagují; nejde o best-effort consumer. */
     public function flushDeferred(?int $invoiceId = null, int $max = 25): array
     {
-        return (new PaymentThanksOutbox($this->db))->flush(fn (array $intent): array => $this->sendCommitted(
+        return (new PaymentThanksOutbox($this->db, $this->logger))->flush(fn (array $intent): array => $this->sendCommitted(
             $intent['invoice_id'], $intent['trigger'], $intent['user_id'], $intent['ip'],
             $intent['user_agent'], $intent['require_unsent'],
         ), $invoiceId, $max);
@@ -68,19 +68,19 @@ final class PaymentThanksMailer
             return ['status' => 'skipped', 'reason' => 'not_found'];
         }
         if (($invoice['invoice_type'] ?? '') === 'cancellation') {
-            return ['status' => 'skipped', 'reason' => 'cancellation'];
+            return $this->logSkip($invoiceId, $invoice, 'cancellation', $trigger, $userId, $ip, $userAgent);
         }
         if (($invoice['status'] ?? '') !== 'paid') {
-            return ['status' => 'skipped', 'reason' => 'not_paid'];
+            return $this->logSkip($invoiceId, $invoice, 'not_paid', $trigger, $userId, $ip, $userAgent);
         }
 
         $supplierId = (int) ($invoice['supplier_id'] ?? 0);
         $settings = $this->supplierSettings($supplierId);
         if (!$settings['enabled']) {
-            return ['status' => 'skipped', 'reason' => 'disabled'];
+            return $this->logSkip($invoiceId, $invoice, 'disabled', $trigger, $userId, $ip, $userAgent);
         }
         if ($trigger === 'bank_match' && !$settings['auto_send']) {
-            return ['status' => 'skipped', 'reason' => 'auto_disabled'];
+            return $this->logSkip($invoiceId, $invoice, 'auto_disabled', $trigger, $userId, $ip, $userAgent);
         }
 
         // Idempotence — auto odeslání jen jednou (ruční „odeslat znovu" by byla
