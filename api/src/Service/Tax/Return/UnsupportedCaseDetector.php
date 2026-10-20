@@ -88,7 +88,12 @@ final class UnsupportedCaseDetector
         self::checkForeignSeat($supplier, $type, $findings);
 
         if ($type === 'po') {
-            if (isset($podklady['accounting_decree'])) {
+            // Rámec podvojného účetnictví zná jen 500 a 504. Ručně nastavená vyhláška
+            // 501–503 (banky, pojišťovny) v něm vyjádřit nejde, proto má přednost.
+            $manualDecree = trim((string) ($supplier['tax_accounting_decree'] ?? ''));
+            $manualOutsideFramework = in_array($manualDecree, ['501', '502', '503'], true);
+            if (isset($podklady['accounting_decree'])
+                && !($manualOutsideFramework && $podklady['accounting_decree'] === TaxpayerTypeCodebook::SUPPORTED_DECREE)) {
                 $supplier['tax_accounting_decree'] = $podklady['accounting_decree'];
             }
             $native504 = ($podklady['accounting_decree'] ?? null) === '504' && is_array($podklady['nonprofit_calculation'] ?? null);

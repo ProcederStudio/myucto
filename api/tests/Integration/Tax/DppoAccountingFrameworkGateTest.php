@@ -118,6 +118,15 @@ final class DppoAccountingFrameworkGateTest extends TestCase
         $this->expectGate(fn () => $decrees->assertDppoSupported($this->supplierId, 2027),'nonprofit_dppo_accounting_mode_required');
     }
 
+    /** Rámec 500 nesmí v nálezech XML přebít ručně nastavenou vyhlášku 502 (pojišťovna). */
+    public function testXmlFindingsKeepManualDecreeOutsideFramework(): void
+    {
+        $this->db->pdo()->prepare("UPDATE supplier SET tax_accounting_decree = '502' WHERE id = ?")
+            ->execute([$this->supplierId]);
+        $built = $this->service->buildXml($this->supplierId, 2026, 'po');
+        self::assertContains('accounting_decree_unsupported', array_column($built['unsupported_cases'], 'key'));
+    }
+
     public function testMissingPeriodDoesNotBypassFrameworkGuard(): void
     {
         $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2028),'nonprofit_dppo_period_required');

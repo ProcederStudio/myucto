@@ -84,6 +84,20 @@ final class DppoAccountingFrameworkGuardTest extends TestCase
         $guard->assertDppoSubmissionSupported(1, $this->submission('1.7.2026', '30.6.2027'));
     }
 
+    /**
+     * Přiznání 500 bez přílohy účetní závěrky (chybí účetní období, výkazy nešly sestavit,
+     * starší uložené podání) atribut `uv_vyhl` nemá. Před větví 504 takové podání prošlo
+     * a nesmí ho zablokovat ani kontrola rámce. U skutečného období 504 se blokuje dál.
+     */
+    public function testSubmissionWithoutDeclaredDecreePassesFor500AndStaysBlockedFor504(): void
+    {
+        $guard = new AccountingDecreeService($this->db);
+        $guard->assertDppoSubmissionSupported(1, $this->submission('01.07.2025', '30.06.2026', null));
+        self::assertTrue(true);
+        $this->expectException(TaxReturnException::class);
+        $guard->assertDppoSubmissionSupported(1, $this->submission('01.07.2026', '30.06.2027', null));
+    }
+
     public function testPureCalculatorRejectsExplicit504Data(): void
     {
         $this->expectException(TaxReturnException::class);
@@ -132,15 +146,33 @@ final class DppoAccountingFrameworkGuardTest extends TestCase
         self::assertContains('accounting_decree_unsupported', array_column($findings, 'key'));
     }
 
-    private function submission(string $startsOn, string $endsOn, string $decree = '500'): array
+    /** Rámec podvojného zná jen 500/504; ručně nastavená vyhláška 501–503 musí dál varovat. */
+    #[DataProvider('unsupportedManualDecrees')]
+    public function testDetectorKeepsWarningForManualDecreeOutsideFramework(string $decree): void
     {
+        $findings = UnsupportedCaseDetector::detectForSupplier(
+            ['tax_accounting_decree' => $decree], 'po', ['accounting_decree' => '500'],
+        );
+        self::assertContains('accounting_decree_unsupported', array_column($findings, 'key'));
+    }
+
+    public static function unsupportedManualDecrees(): iterable
+    {
+        yield 'banky' => ['501'];
+        yield 'pojišťovny' => ['502'];
+        yield 'zdravotní pojišťovny' => ['503'];
+    }
+
+    private function submission(string $startsOn, string $endsOn, ?string $decree = '500'): array
+    {
+        $decreeAttribute = $decree === null ? '' : ' uv_vyhl="' . $decree . '"';
         return [
             'form_code' => 'dppdp9',
             'period_year' => 2026,
             'status' => 'generated',
             'validation_status' => 'failed',
             'validation_errors' => null,
-            'xml_content' => '<Pisemnost><DPPDP9><VetaD zdobd_od="' . $startsOn . '" zdobd_do="' . $endsOn . '" uv_vyhl="' . $decree . '"/></DPPDP9></Pisemnost>',
+            'xml_content' => '<Pisemnost><DPPDP9><VetaD zdobd_od="' . $startsOn . '" zdobd_do="' . $endsOn . '"' . $decreeAttribute . '/></DPPDP9></Pisemnost>',
         ];
     }
 }

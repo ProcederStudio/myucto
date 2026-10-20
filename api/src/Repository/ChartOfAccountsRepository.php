@@ -27,8 +27,16 @@ final class ChartOfAccountsRepository
 
     public function findByCode(int $supplierId, string $code, ?string $date = null): ?array
     {
-        foreach((new AccountDefinitionRepository($this->db))->listForDate($supplierId,$date??date('Y-m-d')) as $row)if($row['account_code']===$code)return $this->project($row);
-        return null;
+        // Kód porovnává databáze (collation sloupce, unikátní index) stejně jako před
+        // historií definic; k datu se dočte jen nalezený účet, ne celá osnova.
+        $stmt = $this->db->pdo()->prepare('SELECT id FROM chart_of_accounts WHERE supplier_id = ? AND account_code = ?');
+        $stmt->execute([$supplierId, $code]);
+        $id = $stmt->fetchColumn();
+        if ($id === false) {
+            return null;
+        }
+        $row = (new AccountDefinitionRepository($this->db))->findForDate($supplierId, (int) $id, $date ?? date('Y-m-d'));
+        return $row === null ? null : $this->project($row);
     }
 
     /**

@@ -9,7 +9,7 @@ import { hasFrameworkScope } from '@/security/frameworkScope'
 import { createWorkspaceRoutes } from '@/router/workspaceRoutes'
 
 type NavSection = { key: string; items: { to: string }[] }
-type Supplier = { accounting_framework?: 'cz_500' | 'cz_504'; entity_profile?: 'nonprofit' | 'svj' | 'unknown' }
+type Supplier = { accounting_framework?: 'cz_500' | 'cz_504'; entity_profile?: 'nonprofit' | 'svj' | 'unknown'; dimensions_enabled?: boolean }
 
 const NONPROFIT_ITEMS = [
   '/accounting/nonprofit-dppo',
@@ -89,6 +89,16 @@ describe('navigace agend NNO/504 a SVJ', () => {
     expect(paths).toContain('/accounting/framework-conversion')
     for (const path of NONPROFIT_ITEMS.filter(item => item !== '/accounting/framework-conversion')) expect(paths).not.toContain(path)
     for (const path of SVJ_ITEMS) expect(paths).toContain(path)
+  })
+
+  it('společné náklady (alokace rámce 504) vidí jen firma s agendou 504 a dimenzemi', () => {
+    const commercial = navigationPaths({ accounting_framework: 'cz_500', entity_profile: 'unknown', dimensions_enabled: true } as Supplier)
+    expect(commercial).toContain('/accounting/dimension-profit')
+    expect(commercial).not.toContain('/accounting/joint-allocations')
+    const nonprofit = navigationPaths({ accounting_framework: 'cz_504', entity_profile: 'unknown', dimensions_enabled: true } as Supplier)
+    expect(nonprofit).toContain('/accounting/joint-allocations')
+    const scopes = new Map(createWorkspaceRoutes().map(route => [`/${route.path}`, route.meta?.frameworkScope]))
+    expect(scopes.get('/accounting/joint-allocations')).toBe('nonprofit504')
   })
 
   it('router nese stejnou podmínku na každé z 14 položek', () => {

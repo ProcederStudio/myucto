@@ -7,7 +7,11 @@ import type { BankTransactionActions } from '@/composables/useBankTransactionAct
 const bankLinks = vi.hoisted(() => vi.fn())
 vi.mock('@/api/propertyPayments', () => ({ propertyPaymentsApi: { bankLinks } }))
 vi.mock('@/composables/useWorkspaceNavigation', () => ({ useWorkspaceNavigation: () => ({ openBeside: vi.fn() }) }))
-vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplierId: 3 }) }))
+const supplier = vi.hoisted(() => ({ entityProfile: 'svj' }))
+vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({
+  currentSupplierId: 3,
+  get currentSupplier() { return { accounting_framework: 'cz_504', entity_profile: supplier.entityProfile } },
+}) }))
 vi.mock('@/composables/useDimensions', () => ({
   useDimensions: () => ({ enabled: { value: false }, canEdit: { value: false }, documentTypes: { value: [] }, load: () => Promise.resolve() }),
 }))
@@ -38,7 +42,7 @@ const stubs = { BankTransactionJournalLink: true, RowActionsMenu: true, PostingS
 const mountRow = (tx: BankTransaction) => mount(BankTransactionRow, { props: { tx, actions: actions(), layout: 'desktop', isDoubleEntry: false }, global: { stubs } })
 const menu = (wrapper: ReturnType<typeof mountRow>) => wrapper.findComponent(RowActionsMenu).props('actions') as RowAction[]
 
-beforeEach(() => { resetPropertyBankLinks(); bankLinks.mockReset() })
+beforeEach(() => { resetPropertyBankLinks(); bankLinks.mockReset(); supplier.entityProfile = 'svj' })
 
 describe('BankTransactionRow — úhrady jednotek SVJ', () => {
   it('nabídne spárování na jednotku a vede na úhradu s předvybraným pohybem', async () => {
@@ -63,7 +67,15 @@ describe('BankTransactionRow — úhrady jednotek SVJ', () => {
     expect(wrapper.get('[data-test="tx-property-payment"]').text()).toContain('"id":12')
   })
 
-  it('firma bez SVJ se zeptá jednou za dávku a pak už ne', async () => {
+  it('firma bez profilu SVJ se na vazby SVJ vůbec neptá', async () => {
+    supplier.entityProfile = 'unknown'
+    const wrapper = mountRow(row(71))
+    await flushPromises()
+    expect(bankLinks).not.toHaveBeenCalled()
+    expect(menu(wrapper).find(a => a.key === 'property-unit')?.show).toBe(false)
+  })
+
+  it('SVJ, kterému server vazby nepovolí, se zeptá jednou za dávku a pak už ne', async () => {
     bankLinks.mockResolvedValue({ enabled: false, items: {} })
     const first = [mountRow(row(51)), mountRow(row(52))]
     await flushPromises()

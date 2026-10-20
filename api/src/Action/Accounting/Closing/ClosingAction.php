@@ -8,6 +8,8 @@ use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\AccountingFrameworkRepository;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Service\Accounting\Closing\ClosingException;
 use MyInvoice\Service\Accounting\Closing\ClosingService;
 use MyInvoice\Service\Accounting\FindingRemedyService;
@@ -975,7 +977,8 @@ final class ClosingAction
         if ($rowVersion === null) return $err;
 
         $step = trim((string) ($body['step'] ?? ''));
-        if (!in_array($step, self::ASSIST_STEPS, true)) {
+        if (!in_array($step, self::ASSIST_STEPS, true)
+            || ($step === 'provisions' && !$this->periodUsesFramework504($supplierId, $periodId))) {
             return Json::error($response, 'validation_failed', 'Nepodporovaný krok asistovaného zápisu.', 422);
         }
         $ruleKey = trim((string) ($body['rule_key'] ?? ''));
@@ -1008,6 +1011,23 @@ final class ClosingAction
         }
 
         return Json::ok($response, $data, 201);
+    }
+
+    /**
+     * Asistovaná zákonná rezerva přes API patří uzávěrce podle vyhlášky 504; u rámce 500
+     * vede krok rezerv průvodce opravných položek a jeho payload by zápis přepsal.
+     * Neexistující období propustí, chybu 404 vrátí služba.
+     */
+    private function periodUsesFramework504(int $supplierId, int $periodId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT ends_on FROM accounting_periods WHERE supplier_id = ? AND id = ?');
+        $stmt->execute([$supplierId, $periodId]);
+        $endsOn = $stmt->fetchColumn();
+        if ($endsOn === false) {
+            return true;
+        }
+        $frameworks = new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db));
+        return $frameworks->forDate($supplierId, (string) $endsOn) === AccountingFrameworkService::CZ_504;
     }
 
     public function reverseEntry(Request $request, Response $response, array $args): Response

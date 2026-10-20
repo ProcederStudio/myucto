@@ -253,7 +253,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'accounting/income-statement', name: 'accounting-income-statement', component: () => import('@/pages/accounting/IncomeStatement.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/income-statement-by-function', name: 'accounting-income-statement-by-function', component: () => import('@/pages/accounting/IncomeStatementByFunction.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/dimension-profit', name: 'accounting-dimension-profit', component: () => import('@/pages/accounting/DimensionProfit.vue'), meta: { requiresAccountingMode: true } },
-      { path: 'accounting/joint-allocations', name: 'accounting-joint-allocations', component: () => import('@/pages/accounting/JointAllocations.vue'), meta: { requiresDoubleEntry: true } },
+      { path: 'accounting/joint-allocations', name: 'accounting-joint-allocations', component: () => import('@/pages/accounting/JointAllocations.vue'), meta: { requiresDoubleEntry: true, frameworkScope: 'nonprofit504' } },
       { path: 'accounting/nonprofit-capital', name: 'accounting-nonprofit-capital', component: () => import('@/views/NonprofitCapitalView.vue'), meta: { requiresDoubleEntry: true, frameworkScope: 'nonprofit504' } },
       { path: 'accounting/nonprofit-funding', name: 'accounting-nonprofit-funding', component: () => import('@/views/NonprofitFundingView.vue'), meta: { requiresDoubleEntry: true, frameworkScope: 'nonprofit504' } },
       { path: 'accounting/nonprofit-membership', name: 'accounting-nonprofit-membership', component: () => import('@/views/NonprofitMembershipView.vue'), meta: { requiresDoubleEntry: true, frameworkScope: 'nonprofit504' } },

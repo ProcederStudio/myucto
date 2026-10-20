@@ -148,9 +148,13 @@ final class StereoNxAccountingImporter
             }
 
             $frameworkGuard = new AccountingFrameworkImportGuard($this->db);
-            $frameworkPeriods = !empty($report['date_bounds']['from']) && !empty($report['date_bounds']['to'])
-                ? $frameworkGuard->periodsForDates($supplierId, $report['date_bounds']['from'], $report['date_bounds']['to']) : [];
-            if ($frameworkPeriods === []) throw new StereoNxException('accounting_source_invalid', 'Zdrojové účetnictví obsahuje chyby, které brání převodu.');
+            // Záloha bez datovaných účetních záznamů se převádí jako dřív; rámec se pak
+            // ověří k dnešku, ke kterému writer zakládá osnovu.
+            $hasDates = !empty($report['date_bounds']['from']) && !empty($report['date_bounds']['to']);
+            $today = date('Y-m-d');
+            $frameworkPeriods = $hasDates
+                ? $frameworkGuard->periodsForDates($supplierId, $report['date_bounds']['from'], $report['date_bounds']['to'])
+                : $frameworkGuard->periodsForDates($supplierId, $today, $today);
             $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods);
             $lastPayroll = $plans['payroll']['last_source_period'] ?? null;
             $lastData = isset($report['date_bounds']['to']) ? substr($report['date_bounds']['to'], 0, 7) : null;
