@@ -1,26 +1,30 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DateInput from '@/components/ui/DateInput.vue'
 import { propertyControl as control } from './propertyFormStyles'
+import { fromLocalInstant, localOffset, toLocalInstant } from './propertyInstant'
 
 const props = withDefaults(defineProps<{ modelValue: string; label: string; required?: boolean }>(), { required: false })
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const { t } = useI18n()
-const parts = reactive({ date: '', time: '', offset: 'Z' })
+const parts = reactive({ date: '', time: '' })
 let emitted = ''
 watch(() => props.modelValue, value => {
   if (value === emitted) return
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})T([0-9:.]+)(Z|[+-]\d{2}:\d{2})$/)
-  parts.date = match?.[1] ?? ''
-  parts.time = match?.[2] ?? ''
-  parts.offset = match?.[3] ?? 'Z'
+  const local = toLocalInstant(value)
+  parts.date = local.date
+  parts.time = local.time
 }, { immediate: true })
-function change(part: number, value: string) {
-  if (part === 1) parts.date = value
-  if (part === 2) parts.time = value.length === 5 ? `${value}:00` : value
-  if (part === 3) parts.offset = value
-  emitted = parts.date || parts.time ? `${parts.date}T${parts.time}${parts.offset}` : ''
+const season = computed(() => {
+  const offset = localOffset(parts.date, parts.time)
+  if (offset === '+02:00') return t('propertyRegistry.localTimeSummer')
+  if (offset === '+01:00') return t('propertyRegistry.localTimeWinter')
+  return t('propertyRegistry.localTime')
+})
+function change(part: 'date' | 'time', value: string) {
+  parts[part] = value.slice(0, part === 'time' ? 5 : 10)
+  emitted = parts.date && parts.time ? fromLocalInstant(parts.date, parts.time) : ''
   emit('update:modelValue', emitted)
 }
 </script>
@@ -28,10 +32,10 @@ function change(part: number, value: string) {
 <template>
   <fieldset class="space-y-1 min-w-0">
     <legend class="text-sm font-medium">{{ label }}</legend>
-    <div class="flex min-w-0 flex-wrap gap-2">
-      <DateInput :model-value="parts.date" :class="[control, 'w-40']" :required="required || !!parts.time" :aria-label="label" @update:model-value="change(1, $event ?? '')" />
-      <input type="time" step="0.000001" :value="parts.time" :required="required || !!parts.date" :class="[control, 'w-36']" :aria-label="t('propertyRegistry.time')" @input="change(2, ($event.target as HTMLInputElement).value)">
-      <input :value="parts.offset" :required="required || !!parts.date || !!parts.time" pattern="Z|[+\-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]" :class="[control, 'w-24']" :aria-label="t('propertyRegistry.offset')" placeholder="+02:00" @input="change(3, ($event.target as HTMLInputElement).value)">
+    <div class="flex min-w-0 flex-wrap items-center gap-2">
+      <DateInput :model-value="parts.date" :class="[control, 'w-40']" :required="required || !!parts.time" :aria-label="label" @update:model-value="change('date', $event ?? '')" />
+      <input type="time" step="60" :value="parts.time" :required="required || !!parts.date" :class="[control, 'w-28']" :aria-label="t('propertyRegistry.time')" @input="change('time', ($event.target as HTMLInputElement).value)">
+      <span class="text-xs text-neutral-500 whitespace-nowrap" data-instant-zone>{{ season }}</span>
     </div>
     <p class="text-xs text-neutral-500">{{ t('propertyRegistry.instantHelp') }}</p>
   </fieldset>

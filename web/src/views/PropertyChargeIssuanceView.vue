@@ -19,10 +19,11 @@ import CaseCandidateList from '@/components/property/issuance/CaseCandidateList.
 import { candidatesOf, caseErrorOf, caseRequestReady, continuationCase, emptyCaseDistinction, emptyCaseIdentity, emptyIssue, emptyIssueUnit, familyKey, issueMoney, normalizeCaseRequest } from '@/components/property/issuance/issuanceModel'
 import { propertyError } from '@/components/property/propertyError'
 import { propertyDateInput as dateInput, propertyInput as input, propertyTextarea as textarea } from '@/components/property/propertyFormStyles'
+import { propertyNow } from '@/components/property/propertyInstant'
 const { t, locale } = useI18n()
 const route = useRoute()
 const supplier = computed(() => useSupplierStore().currentSupplierId)
-const asOf = ref(new Date().toISOString())
+const asOf = ref(propertyNow())
 const houses = ref<PropertyObject[]>([])
 const houseId = ref(0)
 const versions = ref<ChargeVersion[]>([])
@@ -217,11 +218,12 @@ async function useExisting() {
 }
 </script>
 <template>
-  <main class="space-y-5">
+  <div class="space-y-5">
     <div><h1 class="text-2xl font-semibold">{{ t('propertyIssuance.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyIssuance.scopeHelp') }}</p></div>
     <p v-if="error" role="alert" class="rounded border border-danger-300 p-3 text-danger-700">{{ error }}</p>
     <div class="flex flex-wrap items-end gap-3"><PropertyInstantInput v-model="asOf" :label="t('propertyIssuance.registryAsOf')" /><PropertyButton icon="uturn" variant="primary" filled :disabled="busy" @click="load">{{ t('propertyIssuance.refresh') }}</PropertyButton></div>
     <section v-if="capabilities.issue" class="rounded-lg border border-neutral-200 p-4 space-y-4">
+      <p v-if="!busy && !houses.length" class="text-sm text-neutral-500" data-testid="houses-empty">{{ t('propertyIssuance.housesEmpty') }}</p>
       <div class="flex flex-wrap gap-3"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.house') }}<select data-house v-model="houseId" :class="input"><option :value="0">{{ t('propertyIssuance.choose') }}</option><option v-for="house in houses" :key="house.id" :value="house.id">{{ (house.revision?.state as HouseState | undefined)?.name || house.code }}</option></select></label>
         <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.version') }}<select data-version v-model="versionId" :class="input"><option :value="0">{{ t('propertyIssuance.choose') }}</option><option v-for="version in versions" :key="version.id" :value="version.id">{{ version.request.decision_ref }} · {{ version.effective_from }} · {{ version.request.frequency }}</option></select></label></div>
       <CaseFamilyPicker v-if="context" :context="context" :choice="caseChoice" :disabled="busy" @choose="chooseCase" />
@@ -253,6 +255,8 @@ async function useExisting() {
       </section>
     </section>
     <section class="space-y-3"><h2 class="font-semibold">{{ t('propertyIssuance.history') }}</h2>
+      <p v-if="busy && !history.length" role="status" class="text-sm text-neutral-500" data-testid="history-loading">{{ t('propertyIssuance.loading') }}</p>
+      <p v-else-if="!history.length" class="rounded-lg border border-dashed border-neutral-200 p-4 text-sm text-neutral-500" data-testid="history-empty">{{ t('propertyIssuance.historyEmpty') }}</p>
       <article v-for="charge in history" :key="charge.id" class="rounded-lg border border-neutral-200 p-3 space-y-2"><div class="flex flex-wrap justify-between gap-2"><strong>{{ unitName(charge) }} · {{ charge.period_from }} - {{ charge.period_to }}</strong><span>{{ money(charge.amount_cents) }} {{ t('propertyIssuance.currency') }} · {{ t(`propertyIssuance.statuses.${charge.status}`) }}</span></div>
         <p v-if="charge.snapshot.case_identity" class="text-sm text-neutral-600" data-testid="history-case">{{ charge.snapshot.case_identity.case_ref }} · {{ charge.snapshot.case_identity.occurrence_ref }} · {{ charge.snapshot.case_identity.title_ref }}</p>
         <div class="flex flex-wrap gap-2"><PropertyButton icon="eye" @click="show(charge)">{{ t('propertyIssuance.detail') }}</PropertyButton><PropertyButton v-if="charge.status === 'draft' && capabilities.post" icon="check" variant="success" :disabled="busy" @click="post(charge)">{{ t('propertyIssuance.postBatch') }}</PropertyButton>
@@ -262,5 +266,5 @@ async function useExisting() {
     </section>
     <section v-if="reverseTarget" class="rounded border border-danger-300 p-4 space-y-3"><h2>{{ t('propertyIssuance.reverse') }} · {{ unitName(reverseTarget) }}</h2><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.dates.accounting_date') }}<DateInput v-model="reversal.accounting_date" :class="[dateInput, 'sm:w-40']" /></label><PropertyInstantInput v-model="reversal.effective_at" :label="t('propertyIssuance.effectiveAt')" /><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.reason') }}<textarea v-model="reversal.reason" :class="textarea" /></label><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyIssuance.evidence') }}<input v-model="reversal.evidence_ref" :class="input"></label><div class="flex flex-wrap gap-2"><PropertyButton icon="uturn" variant="danger" filled :disabled="busy" @click="reverse">{{ t('propertyIssuance.confirmReverse') }}</PropertyButton><PropertyButton icon="x" @click="reverseTarget = null">{{ t('propertyIssuance.close') }}</PropertyButton></div></section>
     <section v-if="detail && supplier" class="rounded border p-4 space-y-3"><h2>{{ t('propertyIssuance.detail') }} · {{ unitName(detail.charge) }}</h2><p v-for="group in detail.charge.snapshot.liability_groups" :key="group.group_key">{{ t(`propertyIssuance.roles.${group.role}`) }} · {{ group.members.map(id => detail!.charge.snapshot.parties.find(p => p.id === id)?.company_name || t('propertyIssuance.unknownPerson')).join(', ') }} · {{ group.extent.num }}/{{ group.extent.den }} · {{ group.evidence_ref }}</p><CaseIdentitySummary :identity="detail.charge.snapshot.case_identity" :distinction="detail.charge.snapshot.case_distinction" :candidates="detail.charge.snapshot.case_candidates" :unit-name="unitNo" /><p v-for="line in detail.charge.snapshot.lines" :key="line.component_id">{{ line.component.name }} · {{ money(line.amount_cents) }} {{ t('propertyIssuance.currency') }}</p><IssueEvidencePanel :supplier-id="supplier" :charge="detail.charge" :events="detail.evidence" :can-edit="capabilities.issue" @saved="show(detail!.charge)" /></section>
-  </main>
+  </div>
 </template>

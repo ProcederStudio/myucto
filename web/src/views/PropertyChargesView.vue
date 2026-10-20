@@ -10,10 +10,11 @@ import ChargeRateEditor from '@/components/property/charges/ChargeRateEditor.vue
 import ChargePreviewPanel from '@/components/property/charges/ChargePreviewPanel.vue'
 import { propertyError } from '@/components/property/propertyError'
 import { propertyInput as input, propertyTextarea as textarea } from '@/components/property/propertyFormStyles'
+import { propertyNow } from '@/components/property/propertyInstant'
 const { t } = useI18n()
 const store = useSupplierStore()
 const supplier = computed(() => store.currentSupplierId)
-const asOf = ref(new Date().toISOString())
+const asOf = ref(propertyNow())
 const houseId = ref(0)
 const houses = ref<PropertyObject[]>([])
 const components = ref<ChargeComponent[]>([])

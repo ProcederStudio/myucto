@@ -21,14 +21,20 @@ const profile = { profile: null, history: [], capabilities: { manage: true, conf
 beforeEach(() => { vi.clearAllMocks(); store.currentSupplierId = 1; calls.profile.mockResolvedValue(profile); calls.list.mockResolvedValue([]); calls.summary.mockResolvedValue({ scopes: [] }) })
 
 describe('property registry UI', () => {
-  it('keeps partially entered date, time and offset instead of inventing an effective time', async () => {
+  it('derives the Prague offset from the entered local date and time instead of asking for it', async () => {
     const wrapper = mount(PropertyInstantInput, { props: { modelValue: '', label: 'Účinnost', 'onUpdate:modelValue': value => { void wrapper.setProps({ modelValue: value }) } }, global: { plugins: plugins(), stubs: { DateInput: dateStub } } })
+    expect(wrapper.find('input[placeholder="+02:00"]').exists()).toBe(false)
     await wrapper.get('[data-date]').setValue('2026-05-01')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([''])
     await wrapper.get('input[type="time"]').setValue('10:15')
-    await wrapper.get('input[placeholder="+02:00"]').setValue('+02:00')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['2026-05-01T10:15:00+02:00'])
-    await wrapper.setProps({ modelValue: '2026-06-02T13:20:30Z' })
+    expect(wrapper.get('[data-instant-zone]').text()).toBe(cs.propertyRegistry.localTimeSummer)
+    await wrapper.get('[data-date]').setValue('2026-01-10')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['2026-01-10T10:15:00+01:00'])
+    expect(wrapper.get('[data-instant-zone]').text()).toBe(cs.propertyRegistry.localTimeWinter)
+    await wrapper.setProps({ modelValue: '2026-06-02T13:20:30.123456Z' })
     expect((wrapper.get('[data-date]').element as HTMLInputElement).value).toBe('2026-06-02')
+    expect((wrapper.get('input[type="time"]').element as HTMLInputElement).value).toBe('15:20')
     wrapper.unmount()
   })
 

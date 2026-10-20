@@ -9,10 +9,11 @@ import PropertyStateEditor from '@/components/property/PropertyStateEditor.vue'
 import PropertyImportPanel from '@/components/property/PropertyImportPanel.vue'
 import { propertyError } from '@/components/property/propertyError'
 import { propertyInput as inputClass } from '@/components/property/propertyFormStyles'
+import { propertyNow } from '@/components/property/propertyInstant'
 const { t } = useI18n()
 const supplierStore = useSupplierStore()
 const supplier = computed(() => supplierStore.currentSupplierId)
-const asOf = ref(new Date().toISOString())
+const asOf = ref(propertyNow())
 const knownAt = ref('')
 const profile = ref<ProfileResponse | null>(null)
 const summary = ref<RegistrySummary | null>(null)
