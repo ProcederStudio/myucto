@@ -14,6 +14,13 @@ final class DeferredTax504Repository
 
     public static function sourceHash(Connection $db, int $supplierId, int $periodId, bool $currentRead = false): string
     {
+        if (\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAssessmentSource::pagedHistory($db, $supplierId, $periodId, $currentRead)) {
+            // Nad stránkovanou historií J6 doloží podklady období otisk stránkovaného zdroje.
+            $container = \MyInvoice\Bootstrap::buildContainer();
+            $container->set(Connection::class, $db);
+            return $container->get(\MyInvoice\Service\Tax\Nonprofit\Authoritative\J6CurrentProviderFactory::class)
+                ->fingerprint($supplierId, $periodId, $currentRead)->inputHash;
+        }
         $frameworks = new \MyInvoice\Service\Accounting\AccountingFrameworkService($db, new \MyInvoice\Repository\AccountingFrameworkRepository($db));
         $sources = new \MyInvoice\Repository\NonprofitTaxSourceRepository($db, $frameworks,
             new \MyInvoice\Repository\JointAllocationReadRepository($db), new \MyInvoice\Repository\NonprofitTaxAssessmentRepository($db));

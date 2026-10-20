@@ -101,6 +101,33 @@ final readonly class NonprofitDppoAssessmentSource
             'result' => $this->result($providers, $receipt)];
     }
 
+    /** Aktuální revize období vznikla stránkovanou cestou a nemá legacy snímek podkladů. */
+    public function currentIsPagedOnly(int $supplierId, int $periodId): bool
+    {
+        $assessment = $this->legacy->latest($supplierId, $periodId, true);
+        return $assessment !== null && $assessment['status'] === 'confirmed' && self::pagedOnly($assessment);
+    }
+
+    /**
+     * Legacy snímek zdrojů období nejde sestavit: aktuální revize období nebo revize
+     * některého předchozího období vznikla stránkovanou cestou. Podklady období se pak
+     * dokládají otiskem stránkovaného zdroje (J6CurrentProviderFactory::fingerprint).
+     */
+    public static function pagedHistory(\MyInvoice\Infrastructure\Database\Connection $db, int $supplierId, int $periodId, bool $currentRead = false): bool
+    {
+        $assessments = new NonprofitTaxAssessmentRepository($db);
+        $latest = $assessments->latest($supplierId, $periodId, $currentRead);
+        if ($latest !== null && $latest['status'] === 'confirmed' && self::pagedOnly($latest)) return true;
+        $paged = array_values(array_filter($assessments->effectiveOtherPeriods($supplierId, $periodId, $currentRead), self::pagedOnly(...)));
+        if ($paged === []) return false;
+        $stmt = $db->pdo()->prepare('SELECT id, starts_on, ends_on FROM accounting_periods WHERE supplier_id = ?');
+        $stmt->execute([$supplierId]);
+        $periods = array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), null, 'id');
+        $startsOn = (string) ($periods[$periodId]['starts_on'] ?? '');
+        foreach ($paged as $revision) if ((string) ($periods[$revision['period_id']]['ends_on'] ?? '') < $startsOn) return true;
+        return false;
+    }
+
     /** Revize bez původního legacy JSON (vznikla stránkovanou cestou). */
     public static function pagedOnly(array $assessment): bool
     {

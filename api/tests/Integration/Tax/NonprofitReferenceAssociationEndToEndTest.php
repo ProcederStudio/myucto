@@ -43,6 +43,7 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
     private int $supplier;
     private int $actor;
     private int $period;
+    private int $year = 2025;
     private array $catalog;
     private array $kinds = [];
     private array $accounts = [];
@@ -68,7 +69,7 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
                 ->execute([$this->catalog['activity_kind']['id'], $this->supplier, strtoupper($code), 'Syntetický druh ' . $code]);
             $this->kinds[$code] = (int) $this->pdo->lastInsertId();
         }
-        $types = ['221' => 'asset', '022' => 'asset', '082' => 'asset', '348' => 'asset', '321' => 'liability', '901' => 'equity',
+        $types = ['221' => 'asset', '022' => 'asset', '082' => 'asset', '348' => 'asset', '321' => 'liability', '901' => 'equity', '931' => 'equity', '932' => 'equity',
             '501' => 'expense', '518' => 'expense', '551' => 'expense',
             '602' => 'revenue', '649' => 'revenue', '682' => 'revenue', '684' => 'revenue', '691' => 'revenue'];
         foreach ($types as $code => $type) {
@@ -107,7 +108,7 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         self::assertSame('out_of_scope', $rows[$this->lines['O-21']]['classification']['regime']);
 
         self::assertSame('return', $rows[$this->lines['O-01']]['classification']['method']);
-        $this->saveStatementNotes(2025);
+        $this->saveStatementNotes(2025, $this->period);
         $service = $this->container->get(TaxReturnService::class);
         $read = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
         $draft = $service->saveInputs($this->supplier, 2025, 'po', ['nonprofit' => ['reduction_kc' => 100000,
@@ -215,6 +216,59 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         self::assertSame('1050000', $savings->context($this->supplier)['sources'][0]['remaining_cents']);
     }
 
+    /**
+     * Obě období potvrzená stránkovanou cestou: DPPO druhého období spočítá, finalizuje
+     * a vygeneruje XML včetně použití úspory z prvního období. Formulář DPPDP9 05.01.01
+     * nepřijímá začátek roku 2026, proto etalon běží v letech 2024 a 2025.
+     */
+    public function testPagedSecondPeriodDppoFinalizesWithSavingUse(): void
+    {
+        $next = $this->period;
+        $this->pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework) VALUES(?,'2024-01-01','cz_504')")
+            ->execute([$this->supplier]);
+        $this->year = 2024;
+        $this->period = (new AccountingPeriodRepository($this->db))->create($this->supplier, 2024, '2024-01-01', '2024-12-31');
+        $this->pagedReferenceYearFinal();
+        // Zahajovací zápis 2025 přebírá konečné zůstatky 2024 včetně výsledku ve schvalovacím řízení (931).
+        $opening = $this->entry('OPEN-2025', '2025-01-01', [['022', 'debit', '120000.00'], ['221', 'debit', '392000.00'],
+            ['082', 'credit', '24000.00'], ['901', 'credit', '357600.00'], ['931', 'credit', '130400.00']], $next);
+        $this->pdo->prepare("UPDATE journal_entries SET source_type='opening' WHERE id=?")->execute([$opening]);
+        $this->entry('SETTLE-2024', '2025-06-30', [['931', 'debit', '130400.00'], ['932', 'credit', '130400.00']], $next);
+        $second = $this->nextPeriodPaged($next);
+        $savings = new NonprofitTaxSavingsService($this->db);
+        $this->useSaving($savings, $savings->context($this->supplier)['sources'][0], $second['line'], '2100000', 'tj-paged-use-second');
+
+        $this->saveStatementNotes(2025, $next);
+        $service = $this->container->get(TaxReturnService::class);
+        $read = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
+        $draft = $service->saveInputs($this->supplier, 2025, 'po', ['nonprofit' => []], $read['return']['row_version'], $this->actor, partial: true);
+        $context = $draft['podklady']['nonprofit_calculation']['data'];
+        self::assertSame(2, $context['j6_receipt']['version']);
+        self::assertSame('2100000', $draft['podklady']['nonprofit']['saving_due']['sources'][0]['used_cents']);
+        self::assertSame(0, $draft['podklady']['nonprofit']['unused_reduction_addback_kc']);
+        self::assertSame(0, (int) $draft['computed']['tax']);
+        $draft = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
+        $final = $service->finalize($this->supplier, 2025, 'po', $draft['return']['row_version'], $this->actor,
+            expectedNonprofitFilingProofHash: $draft['nonprofit_filing_proof_hash']);
+        self::assertSame('final', $final['return']['status']);
+        self::assertSame(0, (int) $final['computed']['tax']);
+        self::assertStringContainsString('uv_vyhl="504"', $service->buildXml($this->supplier, 2025, 'po')['xml']);
+        // Kontrola uzávěrky obou období čte stránkovaná posouzení bez legacy snímku.
+        $closing = $this->container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentGuard::class);
+        foreach ([$this->period, $next] as $period) {
+            $check = $closing->closingCheck($this->supplier, $period);
+            self::assertTrue($check['complete'], json_encode($check['findings']));
+        }
+        // Krok odložené daně 504 v uzávěrce: náhled i zápis (aktuální čtení) dokládají
+        // podklady období stejným otiskem bez legacy snímku zdrojů.
+        $deferred = $this->container->get(\MyInvoice\Service\Accounting\Closing\DeferredTax504Service::class);
+        foreach ([$this->period, $next] as $period) {
+            $preview = $deferred->preview($this->supplier, $period);
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $preview['source_hash']);
+            self::assertSame($preview['source_hash'], \MyInvoice\Service\Accounting\Closing\DeferredTax504Repository::sourceHash($this->db, $this->supplier, $period, true));
+        }
+    }
+
     private function useSaving(NonprofitTaxSavingsService $savings, array $source, int $line, string $cents, string $key): array
     {
         $input = ['cost_line_id' => $line, 'amount_cents' => $cents, 'purpose' => 'nonbusiness',
@@ -224,19 +278,20 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
     }
 
     /** Následující období potvrzené stránkovanou cestou přes HTTP. */
-    private function nextPeriodPaged(): array
+    private function nextPeriodPaged(?int $period = null): array
     {
-        $period = (new AccountingPeriodRepository($this->db))->create($this->supplier, 2026, '2026-01-01', '2026-12-31');
-        (new NonprofitLegalProfileService($this->db))->confirm($this->supplier, $period, $this->legalRequest('tj-legal-2026-paged'), $this->actor);
+        $year = $this->year + 1;
+        $period ??= (new AccountingPeriodRepository($this->db))->create($this->supplier, $year, $year . '-01-01', $year . '-12-31');
+        (new NonprofitLegalProfileService($this->db))->confirm($this->supplier, $period, $this->legalRequest('tj-legal-' . $year . '-paged'), $this->actor);
         $main = $this->catalog['activity']['values']['main'];
         $subject = $this->catalog['tax_regime']['values']['subject'];
-        $entry = $this->entry('N-01', '2026-02-01', [['518', 'debit', '25000.00', [$main, $this->kinds['sport'], $subject]],
+        $entry = $this->entry('N-01', $year . '-02-01', [['518', 'debit', '25000.00', [$main, $this->kinds['sport'], $subject]],
             ['221', 'credit', '25000.00']], $period);
         $assessment = ['profile' => ['kind' => 'narrow_vpp', 'evidence' => 'Syntetické stanovy spolku TJ Příklad'],
             'activities' => [(string) $this->kinds['sport'] => ['evidence' => 'Syntetická sportovní činnost']],
             'decisions' => [$this->lines['N-01'] => ['title' => 'nonbusiness_cost', 'deductible_cents' => 0,
                 'evidence' => 'Syntetický nepodnikatelský náklad hrazený z úspory', 'legal_basis' => 'zdp_20_7']], 'funding' => []];
-        $confirmed = $this->confirmPaged($period, $assessment, 'tj-paged-2026-' . $this->supplier);
+        $confirmed = $this->confirmPaged($period, $assessment, 'tj-paged-' . $year . '-' . $this->supplier);
         self::assertSame(0, $confirmed['receipt']['summary']['assessed_result_cents']);
         return ['period' => $period, 'entry' => $entry, 'line' => (int) substr($this->lines['N-01'], 5)];
     }
@@ -250,10 +305,10 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         $stored->execute([$this->supplier, $confirmed['assessment_id']]);
         self::assertSame(['storage_version' => 'paged_v2', 'legacy_input_hash' => null], $stored->fetch(PDO::FETCH_ASSOC));
 
-        $this->saveStatementNotes(2025);
+        $this->saveStatementNotes($this->year, $this->period);
         $service = $this->container->get(TaxReturnService::class);
-        $read = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
-        $draftReturn = $service->saveInputs($this->supplier, 2025, 'po', ['nonprofit' => ['reduction_kc' => 100000,
+        $read = $service->getReturn($this->supplier, $this->year, 'po', $this->actor);
+        $draftReturn = $service->saveInputs($this->supplier, $this->year, 'po', ['nonprofit' => ['reduction_kc' => 100000,
             'reduction_evidence' => 'Syntetický předem schválený plán použití úspory']], $read['return']['row_version'], $this->actor, partial: true);
         $saving = $draftReturn['computed']['nonprofit']['saving'];
         self::assertSame(100000, $saving['base_before_reduction_kc']);
@@ -265,11 +320,11 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
 
         (new NonprofitDppoAcceptanceService($this->db))->change($this->supplier, NonprofitDppoAcceptanceService::ACCEPT, true,
             'Syntetický protokol porovnání s etalonem TJ Příklad', 'Syntetická akceptace výpočtu', 'tj-paged-accept', null, $this->actor);
-        $draftReturn = $service->getReturn($this->supplier, 2025, 'po', $this->actor);
-        $final = $service->finalize($this->supplier, 2025, 'po', $draftReturn['return']['row_version'], $this->actor,
+        $draftReturn = $service->getReturn($this->supplier, $this->year, 'po', $this->actor);
+        $final = $service->finalize($this->supplier, $this->year, 'po', $draftReturn['return']['row_version'], $this->actor,
             expectedNonprofitFilingProofHash: $draftReturn['nonprofit_filing_proof_hash']);
         self::assertSame('final', $final['return']['status']);
-        $built = $service->buildXml($this->supplier, 2025, 'po');
+        $built = $service->buildXml($this->supplier, $this->year, 'po');
         self::assertStringContainsString('uv_vyhl="504"', $built['xml']);
         $source = (new NonprofitTaxSavingsService($this->db))->context($this->supplier)['sources'][0];
         self::assertSame('2100000', $source['source']['saving_cents']);
@@ -329,7 +384,8 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         $main = $this->catalog['activity']['values']['main'];
         $economic = $this->catalog['activity']['values']['economic'];
         $regime = $this->catalog['tax_regime']['values'];
-        $this->entry('O-00', '2025-01-01', [['221', 'debit', '300000.00'], ['901', 'credit', '300000.00']]);
+        $y = (string) $this->year;
+        $this->entry('O-00', $y . '-01-01', [['221', 'debit', '300000.00'], ['901', 'credit', '300000.00']]);
         $operations = [
             ['O-01', '602', 'credit', '100000.00', $main, 'sport', 'subject'],
             ['O-02', '602', 'credit', '100000.00', $main, 'education', 'subject'],
@@ -345,22 +401,22 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
             ['O-14c', '518', 'debit', '3018.52', $economic, 'rental', 'subject'],
         ];
         foreach ($operations as [$id, $account, $side, $amount, $activity, $kind, $taxRegime]) {
-            $this->entry($id, '2025-03-01', [[$account, $side, $amount, [$activity, $this->kinds[$kind], $regime[$taxRegime]]],
+            $this->entry($id, $y . '-03-01', [[$account, $side, $amount, [$activity, $this->kinds[$kind], $regime[$taxRegime]]],
                 ['221', $side === 'debit' ? 'credit' : 'debit', $amount]]);
         }
-        $this->entry('O-06', '2025-02-01', [['348', 'debit', '30000.00'],
+        $this->entry('O-06', $y . '-02-01', [['348', 'debit', '30000.00'],
             ['691', 'credit', '30000.00', [$main, $this->kinds['general_support'], $regime['out_of_scope']]]]);
-        $this->entry('O-07', '2025-02-15', [['221', 'debit', '30000.00'], ['348', 'credit', '30000.00']]);
-        $this->entry('O-08', '2025-03-10', [['501', 'debit', '80000.00', [$main, $this->kinds['sport'], $regime['subject']]],
+        $this->entry('O-07', $y . '-02-15', [['221', 'debit', '30000.00'], ['348', 'credit', '30000.00']]);
+        $this->entry('O-08', $y . '-03-10', [['501', 'debit', '80000.00', [$main, $this->kinds['sport'], $regime['subject']]],
             ['321', 'credit', '80000.00']]);
-        $this->entry('O-15', '2025-03-20', [['321', 'debit', '80000.00'], ['221', 'credit', '80000.00']]);
-        $this->entry('O-16', '2025-04-01', [['348', 'debit', '72000.00'], ['901', 'credit', '72000.00']]);
-        $this->entry('O-17', '2025-04-15', [['221', 'debit', '72000.00'], ['348', 'credit', '72000.00']]);
-        $this->entry('O-18', '2025-05-01', [['022', 'debit', '120000.00'], ['321', 'credit', '120000.00']]);
-        $this->entry('O-19', '2025-05-10', [['321', 'debit', '120000.00'], ['221', 'credit', '120000.00']]);
-        $this->entry('O-20', '2025-12-31', [['551', 'debit', '24000.00', [$main, $this->kinds['culture_free_events'], $regime['out_of_scope']]],
+        $this->entry('O-15', $y . '-03-20', [['321', 'debit', '80000.00'], ['221', 'credit', '80000.00']]);
+        $this->entry('O-16', $y . '-04-01', [['348', 'debit', '72000.00'], ['901', 'credit', '72000.00']]);
+        $this->entry('O-17', $y . '-04-15', [['221', 'debit', '72000.00'], ['348', 'credit', '72000.00']]);
+        $this->entry('O-18', $y . '-05-01', [['022', 'debit', '120000.00'], ['321', 'credit', '120000.00']]);
+        $this->entry('O-19', $y . '-05-10', [['321', 'debit', '120000.00'], ['221', 'credit', '120000.00']]);
+        $this->entry('O-20', $y . '-12-31', [['551', 'debit', '24000.00', [$main, $this->kinds['culture_free_events'], $regime['out_of_scope']]],
             ['082', 'credit', '24000.00']]);
-        $this->entry('O-21', '2025-12-31', [['901', 'debit', '14400.00'],
+        $this->entry('O-21', $y . '-12-31', [['901', 'debit', '14400.00'],
             ['649', 'credit', '14400.00', [$main, $this->kinds['culture_free_events'], $regime['out_of_scope']]]]);
     }
 
@@ -466,10 +522,10 @@ final class NonprofitReferenceAssociationEndToEndTest extends TestCase
         return (int) $stmt->fetchColumn();
     }
 
-    private function saveStatementNotes(int $year): void
+    private function saveStatementNotes(int $year, int $period): void
     {
         $notes = $this->container->get(\MyInvoice\Service\Accounting\Reports\StatementNotesService::class);
-        foreach ($notes->build($this->supplier, $this->period)['sections'] as $section) {
+        foreach ($notes->build($this->supplier, $period)['sections'] as $section) {
             $notes->saveSection($this->supplier, $year, $section['key'], 'Syntetická zkontrolovaná příloha', $this->actor);
         }
     }
