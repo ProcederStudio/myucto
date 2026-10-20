@@ -42882,6 +42882,11 @@ components:
           enum: [cz_500, cz_504]
           readOnly: true
           description: "Účetní rámec účinný k dnešnímu dni. Doplňuje přehled firem v session endpointu /api/auth/me po načtení cachovaného seznamu; neodvozuje se z ruční vyhlášky."
+        entity_profile:
+          type: string
+          enum: [nonprofit, svj, unknown]
+          readOnly: true
+          description: "Profil firmy podle právní formy (nevýdělečná organizace, SVJ, jiná). Řídí, zda aplikace nabízí agendy NNO a SVJ."
 
     UserSupplierAssignment:
       type: object

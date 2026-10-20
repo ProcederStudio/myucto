@@ -78,6 +78,7 @@
     "expense_categories",
     "export",
     "foreign_income",
+    "frameworkConversion",
     "fx504",
     "gopay",
     "group_stats",
@@ -918,6 +919,9 @@
     ],
     "accounting-securities-debt": [
       "securities504"
+    ],
+    "accounting-framework-conversion": [
+      "frameworkConversion"
     ],
     "property-service-lifecycles": [
       "propertyServiceLifecycle"

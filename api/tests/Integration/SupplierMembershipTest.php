@@ -334,6 +334,24 @@ final class SupplierMembershipTest extends TestCase
         self::assertSame('2098-01-01', $payload['effective_from'] ?? null);
     }
 
+    public function testMeReportsEntityProfileFromLegalFormForNavigation(): void
+    {
+        $userId = $this->mkUser('accountant');
+        $this->assign($userId, [[$this->supplierA, null], [$this->supplierB, null]]);
+        $session = $this->mkSession($userId);
+        $pdo = $this->db->pdo();
+        $pdo->prepare("UPDATE supplier SET legal_form = '145', accounting_mode = 'double_entry' WHERE id = ?")
+            ->execute([$this->supplierB]);
+
+        $response = $this->sessionRequest('GET', '/api/auth/me', $session);
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $suppliers = array_column($this->json($response)['suppliers'] ?? [], null, 'id');
+        self::assertSame('svj', $suppliers[$this->supplierB]['entity_profile'] ?? null);
+        self::assertContains($suppliers[$this->supplierA]['entity_profile'] ?? null, ['nonprofit', 'svj', 'unknown']);
+        self::assertArrayNotHasKey('legal_form', $suppliers[$this->supplierB]);
+    }
+
     public function testFrameworkUpdateTo504WithAccountingHistoryRequiresControlledConversion(): void
     {
         $userId = $this->mkUser('admin');
