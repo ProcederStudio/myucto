@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import { formInput as field, formLabel } from '@/components/ui/formStyles'
@@ -28,6 +28,7 @@ const clientId = ref<number | null>(null)
 const clientLabel = ref('')
 const memberNumber = ref('')
 const creating = ref(false)
+const detailPane = ref<HTMLElement | null>(null)
 let alive = true
 let generation = 0
 let createTicket = 0
@@ -35,6 +36,16 @@ let createTicket = 0
 const today = computed(() => appIsoDate())
 const numberValid = computed(() => memberNumber.value.trim().length > 0 && memberNumber.value.trim().length <= 80)
 const labelOf = (row: MemberRow) => row.company_name || t('nonprofitMembership.clientFallback', { id: row.client_id })
+
+function openMember(row: MemberRow) {
+  selected.value = { id: row.id, label: labelOf(row) }
+}
+
+watch(() => selected.value?.id, async id => {
+  if (id === undefined) return
+  await nextTick()
+  detailPane.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+})
 
 async function load(append = false) {
   const ticket = ++generation, supplier = props.supplier
@@ -134,17 +145,25 @@ const createActions = computed<ActionItem[]>(() => [
 
     <MembershipReconciliation v-if="periods.length" :supplier="supplier" :periods="periods" />
 
-    <section class="space-y-3" data-section="members">
+    <div :class="selected ? 'grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' : ''" data-section="members-layout">
+    <div v-if="selected" ref="detailPane" class="min-w-0 scroll-mt-4 self-start lg:sticky lg:top-4 lg:order-last" data-section="member-detail-pane">
+      <MembershipMemberDetail
+        :key="selected.id"
+        :supplier="supplier" :can-manage="canManage" :member-id="selected.id" :label="selected.label" :periods="periods"
+        @changed="load()" @close="selected = null"
+      />
+    </div>
+    <section class="min-w-0 space-y-3" data-section="members">
       <h2 class="font-semibold">{{ t('nonprofitMembership.members') }}</h2>
       <p v-if="!members.length && !loading" class="text-sm text-neutral-500" data-section="members-empty">{{ t('nonprofitMembership.membersEmpty') }}</p>
-      <div v-for="row in members" :key="row.id" class="flex flex-wrap items-center justify-between gap-3 rounded border bg-surface p-3" data-section="member-row" :data-member="row.id">
+      <div v-for="row in members" :key="row.id" :class="['flex flex-wrap items-center justify-between gap-3 rounded border bg-surface p-3', selected?.id === row.id ? 'border-primary-400 ring-1 ring-primary-300' : '']" data-section="member-row" :data-member="row.id" :aria-current="selected?.id === row.id ? 'true' : undefined">
         <div class="space-y-1 text-sm">
           <p class="font-medium">{{ row.member_number }} · {{ labelOf(row) }}</p>
           <p v-if="row.revision_no === null || row.effective_from === null || row.status === null" class="text-warning-700" data-field="member-revision">{{ t('nonprofitMembership.noRevision') }}</p>
           <p v-else-if="row.effective_from > today" class="text-warning-700" data-field="member-revision">{{ t('nonprofitMembership.futureRevision', { status: t(`nonprofitMembership.status_${row.status}`), date: row.effective_from }) }}</p>
           <p v-else data-field="member-revision">{{ t(`nonprofitMembership.status_${row.status}`) }} · {{ t('nonprofitMembership.sinceDate', { date: row.effective_from }) }}</p>
         </div>
-        <button type="button" :class="btnOutline('primary')" data-action="open-member" @click="selected = { id: row.id, label: labelOf(row) }">
+        <button type="button" :class="btnOutline('primary')" data-action="open-member" @click="openMember(row)">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.eye" /></svg>{{ t('nonprofitMembership.openMember') }}
         </button>
       </div>
@@ -152,12 +171,6 @@ const createActions = computed<ActionItem[]>(() => [
         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.chevron" /></svg>{{ t('nonprofitMembership.moreMembers') }}
       </button>
     </section>
-
-    <MembershipMemberDetail
-      v-if="selected"
-      :key="selected.id"
-      :supplier="supplier" :can-manage="canManage" :member-id="selected.id" :label="selected.label" :periods="periods"
-      @changed="load()" @close="selected = null"
-    />
+    </div>
   </div>
 </template>
