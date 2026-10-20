@@ -80,6 +80,20 @@ describe('Debt securities workspace', () => {
   w.unmount()
  })
 
+ it('states that a sale covers the whole holding and explains why a foreign lot cannot be sold', async () => {
+  const w = mounted()
+  await choose(w)
+  await w.get('[data-field="operation"]').setValue('sale')
+  expect(w.get('[data-field="sale-scope"]').text()).toBe(cs.securitiesDebt.saleWholeHolding)
+  w.unmount()
+  mocks.detail.mockResolvedValue({ ...structuredClone(state), facts: { terms, currency: 'EUR' } })
+  const foreign = mounted()
+  await choose(foreign)
+  expect(foreign.get('[data-field="operation"]').text()).not.toContain(cs.securitiesDebt.sale)
+  expect(foreign.get('[data-field="sale-currency"]').text()).toBe(cs.securitiesDebt.saleCurrencyUnsupported)
+  foreign.unmount()
+ })
+
  it('maps a known server error code to a translated explanation', async () => {
   mocks.preview.mockRejectedValue({ response: { status: 409, data: { error: { code: 'debt_sale_accrual_required', message: 'raw' } } } })
   const w = mounted()

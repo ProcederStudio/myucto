@@ -37812,6 +37812,8 @@
     "history": "Potvrzené operace",
     "sale": "Přiřadit prodej",
     "proceedsHelp": "Vyberte řádek tržby na účtu 653 z výpisu nebo pokladního dokladu. Zápis vyřadí celou účetní hodnotu včetně naběhlého úroku na 553.",
+    "saleWholeHolding": "Prodává se vždy celá zbývající držba. Částečný prodej zatím podporovaný není, zaúčtujte ho ručním dokladem.",
+    "saleCurrencyUnsupported": "Prodej cenného papíru v cizí měně zatím podporovaný není. Vyřazení zaúčtujte ručním dokladem.",
     "sold_on": "Prodáno",
     "earned": "Naběhlý úrok celkem",
     "amortised": "Rozpuštěný diskont nebo prémie",

@@ -137,11 +137,23 @@ final class SecuritiesDebt504Workflow
      * zaúčtované ke dni prodeje, tržbu zaúčtuje účetní bankovním nebo pokladním dokladem
      * na 653 a tady se jen naváže; vygenerovaný zápis vyřadí celou účetní hodnotu včetně
      * naběhlého úroku na 553 (ČÚS 406 bod 3.2.1 a 3.4, směrná osnova vyhlášky 504/2002 Sb.).
+     *
+     * Částečný prodej ani prodej v cizí měně podporovaný není. Úrok i rozpuštění rozdílu
+     * se počítají z celé jmenovité hodnoty lotu a stav po prodeji se už nevyvíjí; částečný
+     * prodej by vyžadoval poměrné rozdělení rozvrhu i ověření historie. U cizí měny by se
+     * účetní hodnota musela před vyřazením přepočíst kurzem dne prodeje s kurzovým rozdílem
+     * mimo 553/653 a navázat na kurzové saldo (FX carry) lotu.
      */
     private function salePlan(int $supplier,array $state,array $c,array $plan): array
     {
         $facts=$state['facts'];$terms=$facts['terms'];$date=$c['accounting_date'];
-        SecuritiesDebt504Terms::need($facts['currency']==='CZK','debt_sale_currency_unsupported');
+        if($facts['currency']!=='CZK'){
+            throw new ClosingException(
+                'debt_sale_currency_unsupported',
+                'Prodej dluhového cenného papíru v cizí měně zatím není podporovaný. Vyřazení zaúčtujte ručním dokladem.',
+                422,
+            );
+        }
         SecuritiesDebt504Terms::need($state['sold_on']===null && $date<$terms['maturity_on'] && bccomp($state['principal_balance'],'0',2)>0,'debt_sale_invalid');
         $earnedComplete=$terms['debt_type']!=='coupon' || $state['earned']===SecuritiesDebt504Terms::earned($terms,$date);
         $amortisedComplete=$terms['classification']!=='held_to_maturity' || $state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date);

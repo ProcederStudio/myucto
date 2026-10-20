@@ -181,6 +181,20 @@ final class SecuritiesDebt504WorkflowTest extends TestCase
         $state=$this->service->detail($this->supplier,$lot,'2026-01-01');self::assertSame('23760.25',$state['principal_book_czk']);self::assertSame('23760.25',$state['book_czk']);self::assertSame('50.41',$state['amortised']);
     }
 
+    public function testForeignCurrencySaleIsAnExplicitValidationError(): void
+    {
+        $lot = $this->foreignAcquisition();
+        $command = ['operation' => 'sale', 'lot_id' => $lot, 'accounting_date' => '2026-03-31', 'evidence' => 'Synthetic EUR sale', 'entry_id' => 1, 'line_id' => 1];
+        try {
+            $this->service->preview($this->supplier, $command, $this->actor);
+            self::fail('Foreign currency sale must be rejected.');
+        } catch (ClosingException $e) {
+            self::assertSame('debt_sale_currency_unsupported', $e->errorCode);
+            self::assertSame(422, $e->httpStatus);
+            self::assertStringContainsString('cizí měně', $e->getMessage());
+        }
+    }
+
     public function testFxOwnerWorkflowRegistersNativeCarryBoundary(): void
     {
         $lot=$this->foreignFx(false);$q=$this->db->pdo()->prepare('SELECT COUNT(*) FROM accounting_securities_debt_fx_carries WHERE supplier_id=? AND lot_id=?');$q->execute([$this->supplier,$lot]);self::assertSame(1,(int)$q->fetchColumn(),'The native FX owner did not register its debt carry.');

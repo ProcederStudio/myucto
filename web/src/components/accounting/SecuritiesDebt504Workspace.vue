@@ -284,6 +284,8 @@ onMounted(() => { void refresh() })
       </select>
      </label>
      <label class="sm:col-span-2">{{ t('securitiesDebt.evidence') }}<textarea v-model="evidence" required maxlength="4000" :class="input" data-field="evidence" /></label>
+     <p v-if="operation === 'sale'" class="text-sm text-neutral-500 sm:col-span-2" data-field="sale-scope">{{ t('securitiesDebt.saleWholeHolding') }}</p>
+     <p v-else-if="!detail.sold_on && detail.facts.currency !== 'CZK'" class="text-sm text-neutral-500 sm:col-span-2" data-field="sale-currency">{{ t('securitiesDebt.saleCurrencyUnsupported') }}</p>
      <label v-if="operation === 'principal_redemption'">{{ t('securitiesDebt.nominal_amount') }}<input v-model="nominal" required inputmode="decimal" :class="input" data-field="nominal_amount" /></label>
      <label v-if="operation === 'reverse'" class="sm:col-span-2">{{ t('securitiesDebt.reverse_event') }}
       <select v-model.number="reverseEvent" required :class="input" data-field="reverse_event">
