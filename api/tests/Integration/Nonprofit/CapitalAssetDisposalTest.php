@@ -169,6 +169,35 @@ final class CapitalAssetDisposalTest extends TestCase
         self::assertSame('in_use', $q->fetchColumn());
     }
 
+    public function testOverviewReadTakesNoRowLocksAndReadsEachDepreciationYearOnce(): void
+    {
+        $this->enrollFullDonation();
+        $this->bookFirstYear();
+        $this->depreciation->bookYear($this->supplier, 2027, $this->meta());
+
+        $locks = fn (): int => (int) $this->pdo->query('SELECT trx_lock_structs FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id = CONNECTION_ID()')->fetchColumn();
+        $before = $locks();
+        $source = $this->capital->read($this->supplier)['sources'][0];
+        self::assertSame(24000000, $source['used_cents']);
+        self::assertSame($before, $locks(), 'Přehled zdrojů nesmí zamykat období ani účetní řádky.');
+
+        $queries = fn (): int => (int) $this->pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(PDO::FETCH_NUM)[1];
+        $start = $queries();
+        $this->capital->read($this->supplier);
+        $twoYears = $queries() - $start - 1;
+        Bootstrap::buildContainer()->get(AccountingPeriodRepository::class)->create($this->supplier, 2028, '2028-01-01', '2028-12-31');
+        $this->depreciation->bookYear($this->supplier, 2028, $this->meta());
+        $start = $queries();
+        $this->capital->read($this->supplier);
+        $threeYears = $queries() - $start - 1;
+        Bootstrap::buildContainer()->get(AccountingPeriodRepository::class)->create($this->supplier, 2029, '2029-01-01', '2029-12-31');
+        $this->depreciation->bookYear($this->supplier, 2029, $this->meta());
+        $start = $queries();
+        $this->capital->read($this->supplier);
+        $fourYears = $queries() - $start - 1;
+        self::assertSame($threeYears - $twoYears, $fourYears - $threeYears, 'Ověření historie musí růst lineárně s počtem ročních odpisů.');
+    }
+
     private function enrollFullDonation(): void
     {
         $this->enroll('500000.00');
