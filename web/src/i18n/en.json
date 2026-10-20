@@ -37812,6 +37812,8 @@
     "history": "Confirmed operations",
     "sale": "Assign sale",
     "proceedsHelp": "Select the proceeds line on account 653 from a bank statement or cash document. The entry derecognises the whole carrying amount including accrued interest to 553.",
+    "saleWholeHolding": "A sale always covers the whole remaining holding. Partial sales are not supported yet, post them with a manual entry.",
+    "saleCurrencyUnsupported": "Selling a security in a foreign currency is not supported yet. Post the derecognition with a manual entry.",
     "sold_on": "Sold",
     "earned": "Total accrued interest",
     "amortised": "Amortised discount or premium",

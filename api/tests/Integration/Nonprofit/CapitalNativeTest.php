@@ -226,6 +226,21 @@ final class CapitalNativeTest extends TestCase
         foreach([['policy'=>null],['operation'=>'unknown'],['input_hash'=>null],['reason'=>[]],['extra'=>true]]as$invalid){$response=$action->confirm($request->withParsedBody(array_replace($valid,$invalid)),new \Slim\Psr7\Response());self::assertSame(422,$response->getStatusCode(),(string)$response->getBody());}
         $response=$action->preview($request->withParsedBody(['operation'=>'register','policy'=>$policy]),new \Slim\Psr7\Response());self::assertSame(200,$response->getStatusCode(),(string)$response->getBody());self::assertSame([],$this->capital->read($this->supplier)['sources']);
     }
+    public function testHumanChoicesReadWithoutRowLocks():void
+    {
+        $this->posted('911','1000.00');
+        $this->posted('518','800.00','debit');
+        $lockedRows=function():int{
+            // InnoDB obnovuje cache INNODB_TRX nejvýš po 100 ms.
+            usleep(150000);
+            $q=$this->pdo->query('SELECT trx_rows_locked FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id=CONNECTION_ID()');
+            return (int)$q->fetchColumn();
+        };
+        $before=$lockedRows();
+        $choices=(new \MyInvoice\Service\Nonprofit\Capital\CapitalChoices($this->db))->read($this->supplier,$this->period);
+        self::assertNotSame([],$choices['sources']);
+        self::assertSame($before,$lockedRows(),'Čtení výběrů kapitálu nesmí zamykat řádky.');
+    }
     public function testHumanChoicesAreTenantScopedSearchableAndRemoveAlreadyOwnedSources():void
     {
         $line=$this->posted('911','1000.00');$cost=$this->posted('518','800.00','debit');$choices=new \MyInvoice\Service\Nonprofit\Capital\CapitalChoices($this->db);$one=$choices->read($this->supplier,$this->period,['provider_search'=>'capital donor']);self::assertSame([$line],array_column($one['sources'],'id'));self::assertSame([$cost],array_column($one['costs'],'id'));self::assertSame([$this->provider],array_column($one['providers'],'id'));self::assertContains($this->asset,array_column($one['assets'],'id'));self::assertFalse($one['sources_more']);
