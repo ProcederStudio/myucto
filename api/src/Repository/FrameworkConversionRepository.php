@@ -44,17 +44,38 @@ final class FrameworkConversionRepository
         $step=$this->rows("SELECT * FROM accounting_closing_steps WHERE supplier_id=? AND period_id=? AND step_key='close_books'",[$supplier,$sourceId],$current)[0]??null;
         E::need(($step['status']??null)==='done','conversion_native_close_required');$payload=json_decode($step['payload'],true,512,JSON_THROW_ON_ERROR);
         $entry=(int)($payload['entry_id']??0);E::need($entry>0,'conversion_native_close_required');
-        $headers=$this->rows('SELECT * FROM journal_entries WHERE supplier_id=? AND entry_date<=? AND posted_at IS NOT NULL ORDER BY id',[$supplier,$source['ends_on']],$current);
+        // Převod potřebuje rozvahu od poslední kotvy počátečních stavů a výsledovku
+        // zdrojového období. Starší historie do výsledku nevstupuje, proto se ani
+        // nečte; bez kotvy (firma nikdy neotevírala) jde rozvaha od začátku deníku.
+        $anchor=$this->openingAnchor($supplier,$source['ends_on'],$current);
+        $lower=$anchor===null?null:min($anchor,$source['starts_on']);
+        $range=$lower===null?'':' AND e.entry_date>=?';
+        $rangeArgs=$lower===null?[$supplier,$source['ends_on']]:[$supplier,$source['ends_on'],$lower];
+        $headers=$this->rows(
+            'SELECT e.* FROM journal_entries e
+              WHERE e.supplier_id=? AND e.entry_date<=?'.$range.' AND e.posted_at IS NOT NULL
+              ORDER BY e.id',
+            $rangeArgs,
+            $current,
+        );
         $close=array_column($headers,null,'id')[$entry]??null;
         E::need($close!==null&&$close['source_type']==='closing'&&(int)$close['source_id']===$sourceId&&(int)$close['period_id']===$sourceId&&$close['reversed_by']===null&&$close['entry_date']===$source['ends_on'],'conversion_native_close_changed');
-        $rows=$this->rows('SELECT l.*,e.entry_date,e.period_id,e.source_type,e.source_id,e.row_version AS entry_version,a.account_code,a.account_type FROM journal_entry_lines l JOIN journal_entries e ON e.id=l.entry_id AND e.supplier_id=l.supplier_id JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE e.supplier_id=? AND e.entry_date<=? AND e.posted_at IS NOT NULL ORDER BY e.id,l.line_no,l.id',[$supplier,$source['ends_on']],$current);
+        $rows=$this->rows(
+            'SELECT l.*,e.entry_date,e.period_id,e.source_type,e.source_id,e.row_version AS entry_version,a.account_code,a.account_type
+               FROM journal_entries e
+               JOIN journal_entry_lines l ON l.supplier_id=e.supplier_id AND l.entry_id=e.id
+               JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id
+              WHERE e.supplier_id=? AND e.entry_date<=?'.$range.' AND e.posted_at IS NOT NULL
+              ORDER BY e.id,l.line_no,l.id',
+            $rangeArgs,
+            $current,
+        );
         $assign=new DimensionAssignmentRepository($this->db);$ids=array_column($rows,'id');$dimensions=$assign->lineDimensions($supplier,$ids,$current);$splits=$assign->lineSplits($supplier,$ids,$current);
         foreach($rows as &$row){$row['dimensions']=$dimensions[$row['id']]??[];$row['dimension_splits']=$splits[$row['id']]??[];}unset($row);
         $closing=array_values(array_filter($rows,static fn($r)=>(int)$r['entry_id']===$entry));
         $expect=(new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionNative500Adapter($this->db))->snapshot($supplier,$source,$current);
         E::need(self::journal($closing)===self::journal($expect['lines']),'conversion_native_close_changed');
         E::need(JournalLineAmount::cents($payload['profit']??'0')===JournalLineAmount::cents($expect['profit']),'conversion_profit_changed');
-        $anchor=null;foreach($headers as $h)if($h['source_type']==='opening'&&$h['reversed_by']===null){$start=$periods[$h['period_id']]['starts_on']??null;if($start!==null&&($anchor===null||$start>$anchor))$anchor=$start;}
         $native=array_values(array_filter($rows,static fn($r)=>$r['source_type']!=='closing'&&($anchor===null||$r['entry_date']>=$anchor)));
         $bs=array_values(array_filter($native,static fn($r)=>in_array($r['account_type'],['asset','liability','equity'],true)));
         $plNative=array_values(array_filter($rows,static fn($r)=>(int)$r['entry_id']!==$entry&&$r['entry_date']>=$source['starts_on']&&in_array($r['account_type'],['revenue','expense'],true)));
@@ -66,6 +87,31 @@ final class FrameworkConversionRepository
         $sourceHash=self::hash([$supplier,$periodShape,$step,$headers,$rows,$origins['facts'],$definitions]);
         return ['source'=>$source,'target'=>$target,'source_entry_id'=>$entry,'step'=>$step,'closing'=>$closing,'native'=>$native,'bs'=>$bs,'pl_native'=>$plNative,'origins'=>$origins,'profit_cents'=>JournalLineAmount::cents($expect['profit']),'source_hash'=>$sourceHash,'frameworks'=>$frameworks];
     }
+    /**
+     * Začátek období posledního platného zaúčtovaného zápisu počátečních stavů
+     * nejpozději k datu. Jde po indexu (supplier_id, source_type) místo čtení
+     * všech hlaviček deníku.
+     */
+    private function openingAnchor(int $supplier, string $endsOn, bool $current): ?string
+    {
+        $openings = $this->rows(
+            "SELECT e.id, p.starts_on
+               FROM journal_entries e
+               JOIN accounting_periods p ON p.id = e.period_id AND p.supplier_id = e.supplier_id
+              WHERE e.supplier_id = ? AND e.source_type = 'opening' AND e.posted_at IS NOT NULL
+                AND e.reversed_by IS NULL AND e.entry_date <= ?",
+            [$supplier, $endsOn],
+            $current,
+        );
+        $anchor = null;
+        foreach ($openings as $opening) {
+            if ($anchor === null || $opening['starts_on'] > $anchor) {
+                $anchor = (string) $opening['starts_on'];
+            }
+        }
+        return $anchor;
+    }
+
     public static function journal(array $rows):array
     {
         $out=[];foreach($rows as $r){$dimensions=$r['dimensions']??[];ksort($dimensions);$splits=$r['dimension_splits']??[];ksort($splits);$out[]=[(string)$r['account_code'],$r['side'],JournalLineAmount::signedCents($r),$dimensions,$splits,$r['cost_center']??null,isset($r['project_id'])?(int)$r['project_id']:null];}return $out;
