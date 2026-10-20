@@ -226,10 +226,13 @@ final class StereoNxAccountingWriter
         ];
         if ($this->accounts->count($supplierId) === 0) {
             $firstDate = $prepared['date_bounds']['from'] ?? null;
-            if ($firstDate === null) throw new StereoNxException('accounting_plan_invalid', 'Plán převodu účetnictví není platný.');
-            $calendar = $this->calendar($supplierId);
-            $year = $calendar->fiscalYearOfDate($firstDate);
-            $seedDate = $this->periods->findByYear($supplierId, $year)['starts_on'] ?? $calendar->periodStart($year);
+            $seedDate = null;
+            // Bez datovaných záznamů se osnova zakládá k dnešku jako před historií rámců.
+            if ($firstDate !== null) {
+                $calendar = $this->calendar($supplierId);
+                $year = $calendar->fiscalYearOfDate($firstDate);
+                $seedDate = $this->periods->findByYear($supplierId, $year)['starts_on'] ?? $calendar->periodStart($year);
+            }
             $this->seeder->seedForSupplier($supplierId, $seedDate);
         }
 
