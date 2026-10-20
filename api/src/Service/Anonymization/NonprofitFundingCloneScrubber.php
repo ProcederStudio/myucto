@@ -23,7 +23,7 @@ final class NonprofitFundingCloneScrubber
             $snapshot=json_decode($row['snapshot_json'],true,flags:JSON_THROW_ON_ERROR);$input=$snapshot;unset($input['input_hash']);
             if(!hash_equals($row['input_hash'],NonprofitTaxRules::hash($input))||($snapshot['input_hash']??null)!==$row['input_hash'])throw new \LogicException('Nonprofit clone source snapshot is corrupt.');
             $assessment=json_decode($row['assessment_json'],true,flags:JSON_THROW_ON_ERROR);$result=json_decode($row['result_json'],true,flags:JSON_THROW_ON_ERROR);
-            if($row['ruleset']===NonprofitTaxRules::VERSION&&NonprofitTaxRules::hash((new NonprofitTaxCalculator())->calculate($snapshot,$assessment))!==NonprofitTaxRules::hash($result))throw new \LogicException('Nonprofit clone source result is corrupt.');
+            if($row['ruleset']===NonprofitTaxRules::VERSION&&NonprofitTaxRules::hash(NonprofitTaxCalculator::forConnection($db)->calculate($snapshot,$assessment))!==NonprofitTaxRules::hash($result))throw new \LogicException('Nonprofit clone source result is corrupt.');
             $supplier=(int)$row['supplier_id'];$period=(int)$row['period_id'];$key=$supplier.':'.$period;
             try{$snapshots[$key]??=$sources->snapshot($supplier,$period);$flags[(int)$row['id']]=hash_equals($row['input_hash'],$snapshots[$key]['input_hash']);}
             catch(\MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException){$flags[(int)$row['id']]=false;}
@@ -50,7 +50,7 @@ final class NonprofitFundingCloneScrubber
             $this->map($row['input_hash'],$snapshot['input_hash']);
             $assessment=$this->transform(json_decode($row['assessment_json'],true,flags:JSON_THROW_ON_ERROR));
             $oldResult=json_decode($row['result_json'],true,flags:JSON_THROW_ON_ERROR);
-            $result=$row['ruleset']===NonprofitTaxRules::VERSION?(new NonprofitTaxCalculator())->calculate($snapshot,$assessment):$this->transform($oldResult);
+            $result=$row['ruleset']===NonprofitTaxRules::VERSION?NonprofitTaxCalculator::forConnection($this->db)->calculate($snapshot,$assessment):$this->transform($oldResult);
             foreach(['accounting_result_cents','excluded_revenue_cents','cost_addbacks_cents','assessed_result_cents','funding_usage']as$key)if(NonprofitTaxRules::canonicalJson(['value'=>$result[$key]??null])!==NonprofitTaxRules::canonicalJson(['value'=>$oldResult[$key]??null]))throw new \LogicException('Nonprofit clone changed financial assessment.');
             $reason=$this->scrubber->scrub($row['reason']);
             $request=$row['status']==='withdrawn'?['action'=>'withdraw','period_id'=>$period,'expected_id'=>(int)$row['previous_id'],'reason'=>$reason,'actor'=>(int)$row['created_by']]

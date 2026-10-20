@@ -93,9 +93,18 @@ test('společné alokace poskytují čtení s přesnými kurzory a cílovým dat
 });
 
 test('daňové posouzení poskytuje pouze aktuální podklady, historii a konkrétní revizi', async () => {
-  assert.equal((await call('nonprofit_tax_assessment', { period_id: 7 })).path, '/accounting/periods/7/nonprofit-tax');
-  assert.equal((await call('nonprofit_tax_assessment_history', { period_id: 7 })).path, '/accounting/periods/7/nonprofit-tax/history');
-  assert.equal((await call('export_nonprofit_tax_assessment', { assessment_id: 42 })).path, '/accounting/nonprofit-tax-assessments/42/export');
+  assert.equal((await call('nonprofit_tax_assessment', { period_id: 7 })).path, '/accounting/periods/7/nonprofit-tax/summary');
+  assert.deepEqual(await call('nonprofit_tax_assessment_history', { period_id: 7, after: 'opaque', limit: 50 }),
+    { path: '/accounting/periods/7/nonprofit-tax/history', query: { after: 'opaque', limit: 50 }, tool: 'nonprofit_tax_assessment_history' });
+  assert.equal((await call('get_nonprofit_tax_assessment', { assessment_id: 42 })).path, '/accounting/nonprofit-tax-assessments/42');
+  assert.deepEqual(await call('nonprofit_tax_assessment_page', { assessment_id: 42, kind: 'result', limit: 10 }),
+    { path: '/accounting/nonprofit-tax-assessments/42/result', query: { after: undefined, limit: 10 }, tool: 'nonprofit_tax_assessment_page' });
+  assert.equal(TOOLS_BY_NAME.get('export_nonprofit_tax_assessment'), undefined);
+  for (const name of ['nonprofit_tax_assessment', 'nonprofit_tax_assessment_history', 'get_nonprofit_tax_assessment', 'nonprofit_tax_assessment_page']) {
+    assert.equal(TOOLS_BY_NAME.get(name).write, false);
+  }
+  assert.throws(() => validateToolArguments(TOOLS_BY_NAME.get('nonprofit_tax_assessment_page'), { assessment_id: 42, kind: 'draft' }));
+  assert.throws(() => validateToolArguments(TOOLS_BY_NAME.get('nonprofit_tax_assessment_history'), { period_id: 7, limit: 101 }));
 });
 
 test('statistika skupiny používá all bez kolize s kontextem firmy hosted MCP', async () => {

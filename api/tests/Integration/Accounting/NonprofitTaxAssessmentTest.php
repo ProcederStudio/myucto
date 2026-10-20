@@ -630,7 +630,7 @@ final class NonprofitTaxAssessmentTest extends TestCase
         unset($snapshot['input_hash']);
         $snapshot['input_hash'] = \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash($snapshot);
         $assessment = $this->assessment($snapshot);
-        $result = (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxCalculator())->calculate($snapshot, $assessment);
+        $result = \MyInvoice\Tests\Support\J6CalculatorFactory::legacy()->calculate($snapshot, $assessment);
         $result['ruleset'] = $snapshot['ruleset'];
         $reason = 'Synthetic historical ruleset confirmation';
         $requestHash = \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash(['action' => 'confirm', 'period_id' => $this->period,

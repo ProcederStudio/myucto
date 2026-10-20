@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Tax\Nonprofit;
 
+use MyInvoice\Tests\Support\J6CalculatorFactory;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxCalculator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -32,7 +33,7 @@ final class NonprofitTaxCalculatorTest extends TestCase
 
     private function calculate(): array
     {
-        return (new NonprofitTaxCalculator())->calculate($this->snapshot, $this->assessment);
+        return J6CalculatorFactory::legacy()->calculate($this->snapshot, $this->assessment);
     }
 
     private function pendingGift(string $id, int $activity): void
@@ -258,6 +259,14 @@ final class NonprofitTaxCalculatorTest extends TestCase
         self::assertSame(5000000, $groups[2]['contribution_cents']);
         self::assertSame(7900000, $out['cost_addbacks_cents']);
         self::assertFalse($out['dppo_supported']);
+        $rows = array_column($out['rows'], null, 'id');
+        foreach (['sport-income', 'education-income'] as $id) {
+            self::assertSame('subject', $rows[$id]['classification']['regime'], $id);
+            self::assertSame('return', $rows[$id]['classification']['method'], $id);
+        }
+        $bridge = (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoClassificationBridge())->build($out);
+        self::assertSame(13040000, $bridge['line_cents'][10]);
+        self::assertSame(7900000, $bridge['line_cents'][40]);
         $this->assessment['decisions']['gift']['facts']['claim_exemption'] = false;
         $this->assessment['decisions']['gift']['facts']['income_treatment'] = 'nonbusiness_activity';
         $this->assessment['decisions']['gift']['facts']['income_attribution_evidence'] = 'Samostatná obecná podpora podle původních skutečností';

@@ -94,6 +94,11 @@ final class AnonymizationService
                     || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_cost_bindings LIMIT 1')->fetchColumn() !== false) {
                     throw new \RuntimeException('Anonymizace finančního archivu DPPO 504 a daňových úspor není podporována. Zdrojová databáze zůstala zachovaná.');
                 }
+                foreach (['nonprofit_tax_drafts', 'nonprofit_tax_snapshot_manifests', 'nonprofit_tax_calculation_manifests', 'nonprofit_tax_source_evidence_manifests'] as $pagedTable) {
+                    if ($captureConnection->pdo()->query('SELECT 1 FROM ' . $pagedTable . ' LIMIT 1')->fetchColumn() !== false) {
+                        throw new \RuntimeException('Anonymizace stránkovaného daňového posouzení neziskové organizace není podporována. Zdrojová databáze zůstala zachovaná.');
+                    }
+                }
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
             finally { $captureConnection->close(); }
