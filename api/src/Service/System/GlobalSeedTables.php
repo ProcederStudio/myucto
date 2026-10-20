@@ -340,7 +340,7 @@ final class GlobalSeedTables
         'property_claim_party_events', 'property_claim_party_event_debts', 'property_claim_party_members', 'property_debt_certificates',
         'unit_payment_workflows', 'unit_payment_workflow_operations', 'unit_payment_source_revisions', 'unit_payment_source_heads',
         'unit_payment_exports', 'unit_payment_export_items', 'unit_payment_bank_proposals',
-        'property_service_policy_versions', 'property_service_settlement_objections',
+        'property_service_policy_versions', 'property_service_settlement_objections', 'anonymized_clone_submission_provenance',
         'accounting_archives', 'accounting_backfill_jobs', 'accounting_balance_inventory',
         'accounting_balance_inventory_items', 'accounting_closing_steps', 'accounting_corrections',
         'accounting_opening_balances', 'accounting_receivable_provisions',
