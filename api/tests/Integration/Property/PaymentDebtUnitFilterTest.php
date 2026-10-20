@@ -39,6 +39,10 @@ final class PaymentDebtUnitFilterTest extends TestCase
             $items = $read->page($this->f['supplier'], 'debts', 0, 25, $this->f['units'][$code])['items'];
             self::assertSame([$case['debts'][$code]], array_column($items, 'id'));
         }
-        self::assertSame([], $read->page($this->f['supplier'], 'debts', 0, 25, $this->f['units']['U07'])['items']);
+        // Zaúčtování dávky registruje dluh každé jednotce; filtr U07 vrací jen její vlastní dluh.
+        $other = $read->page($this->f['supplier'], 'debts', 0, 25, $this->f['units']['U07'])['items'];
+        self::assertCount(1, $other);
+        self::assertSame([$this->f['units']['U07']], array_values(array_unique(array_column($other, 'unit_id'))));
+        self::assertNotContains($other[0]['id'], $case['debts']);
     }
 }
