@@ -7,6 +7,9 @@ use MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Nonprofit\Capital\CapitalService;
 use MyInvoice\Service\Nonprofit\Funding\FundingService;
+use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6AssessmentConfirmationService;
+use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6AssessmentDraftService;
+use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6DraftContext;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentService;
 
 trait NonprofitResourceCaseFixture
@@ -35,6 +38,27 @@ trait NonprofitResourceCaseFixture
         $service=$this->container->get(FundingService::class);$preview=$service->preview($this->supplier,$this->period,'PRIVATE-SOURCE-KEY',$this->fundingPolicy);$source=$service->confirm($this->supplier,$this->period,'PRIVATE-SOURCE-KEY',$this->fundingPolicy,$preview['input_hash'],$preview['expected_revision'],self::PRIVATE_SENTINEL,'gift-source',$this->actor);
         if($use){$a=$this->assessment;$a['funding']=[['source_id'=>'line:'.$this->income,'cost_id'=>'line:'.$this->expense,'amount_cents'=>60000,'evidence'=>self::PRIVATE_SENTINEL]];$snapshot=$tax->read($this->supplier,$this->period)['snapshot'];$this->taxReceipt=$tax->confirm($this->supplier,$this->period,$a,$snapshot['input_hash'],self::PRIVATE_SENTINEL,'actual-use',$this->actor,$this->taxReceipt['id']);}
         return $source;
+    }
+    /** Potvrdí období fixture stránkovanou cestou J6 se stejnými rozhodnutími a volitelným čerpáním daru. */
+    private function pagedFundingAssessment(int $drawdown): int
+    {
+        $drafts = $this->container->get(J6AssessmentDraftService::class);
+        $draft = $drafts->openCurrent($this->supplier, $this->period, $this->assessment['profile'], null, $this->actor);
+        $decisions = [];
+        foreach ($this->assessment['decisions'] as $id => $payload) $decisions[] = ['source_id' => $id, 'payload' => $payload];
+        $draft = $drafts->patchDecisions($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $decisions, [], $this->actor);
+        $activities = [];
+        foreach ($this->assessment['activities'] as $id => $payload) $activities[] = ['activity_kind_id' => (string) $id, 'payload' => $payload];
+        $draft = $drafts->patchActivities($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $activities, [], $this->actor);
+        if ($drawdown > 0) {
+            $draft = $drafts->patchFundingLinks($this->supplier, $this->period, $draft['id'], $draft['revision_no'], [[
+                'source_id' => 'line:' . $this->income, 'cost_id' => 'line:' . $this->expense,
+                'payload' => ['amount_cents' => $drawdown, 'evidence' => self::PRIVATE_SENTINEL],
+            ]], [], $this->actor);
+        }
+        $context = new J6DraftContext($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $this->actor, $draft['source_input_hash']);
+        return $this->container->get(J6AssessmentConfirmationService::class)
+            ->confirm($context, 'paged-funding-' . $draft['id'], self::PRIVATE_SENTINEL, $this->taxReceipt['id'])->assessmentId;
     }
     private function capitalSource(string $kind='fund'):array
     {

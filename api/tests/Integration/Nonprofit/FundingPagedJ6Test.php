@@ -22,7 +22,7 @@ final class FundingPagedJ6Test extends TestCase
     public function testReadOverPagedAssessmentReportsCurrentSourceAndActualUse(): void
     {
         $this->fundingSource(false);
-        $assessment = $this->pagedConfirm(60000);
+        $assessment = $this->pagedFundingAssessment(60000);
 
         $report = $this->container->get(FundingService::class)->read($this->supplier);
 
@@ -43,7 +43,7 @@ final class FundingPagedJ6Test extends TestCase
     public function testSourceRevisionUsesPagedAssessmentAsBasisAndBudgetGuard(): void
     {
         $this->fundingSource(false);
-        $assessment = $this->pagedConfirm(60000);
+        $assessment = $this->pagedFundingAssessment(60000);
         $service = $this->container->get(FundingService::class);
 
         $policy = $this->fundingPolicy;
@@ -68,7 +68,7 @@ final class FundingPagedJ6Test extends TestCase
     public function testChoicesOfferGiftFromPagedAssessment(): void
     {
         $this->fundingSource(false);
-        $this->pagedConfirm(0);
+        $this->pagedFundingAssessment(0);
 
         $choices = $this->container->get(FundingService::class)->choices($this->supplier, $this->period);
 
@@ -98,26 +98,5 @@ final class FundingPagedJ6Test extends TestCase
         self::assertSame([['code' => 'funding_source_not_current', 'source_key' => 'PRIVATE-SOURCE-KEY']], $report['findings']);
         self::assertFalse($report['sources'][0]['source_current']);
         self::assertNull($report['sources'][0]['available_cents']);
-    }
-
-    private function pagedConfirm(int $drawdown): int
-    {
-        $drafts = $this->container->get(J6AssessmentDraftService::class);
-        $draft = $drafts->openCurrent($this->supplier, $this->period, $this->assessment['profile'], null, $this->actor);
-        $decisions = [];
-        foreach ($this->assessment['decisions'] as $id => $payload) $decisions[] = ['source_id' => $id, 'payload' => $payload];
-        $draft = $drafts->patchDecisions($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $decisions, [], $this->actor);
-        $activities = [];
-        foreach ($this->assessment['activities'] as $id => $payload) $activities[] = ['activity_kind_id' => (string) $id, 'payload' => $payload];
-        $draft = $drafts->patchActivities($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $activities, [], $this->actor);
-        if ($drawdown > 0) {
-            $draft = $drafts->patchFundingLinks($this->supplier, $this->period, $draft['id'], $draft['revision_no'], [[
-                'source_id' => 'line:' . $this->income, 'cost_id' => 'line:' . $this->expense,
-                'payload' => ['amount_cents' => $drawdown, 'evidence' => self::PRIVATE_SENTINEL],
-            ]], [], $this->actor);
-        }
-        $context = new J6DraftContext($this->supplier, $this->period, $draft['id'], $draft['revision_no'], $this->actor, $draft['source_input_hash']);
-        return $this->container->get(J6AssessmentConfirmationService::class)
-            ->confirm($context, 'paged-funding-' . $draft['revision_no'], self::PRIVATE_SENTINEL, $this->taxReceipt['id'])->assessmentId;
     }
 }

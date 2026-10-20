@@ -32389,6 +32389,119 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/accounting/catalog/nonprofit-funding/{id}/evidence:
+    get:
+      tags:
+      - Accounting
+      summary: Ověřitelné podklady účelového zdroje (potvrzení o daru)
+      description: Pouze accounting READ. Čte podklady jednoho účelového zdroje z potvrzeného
+        posouzení J6 uloženého jako neměnný stránkovaný graf. kind=purpose vrací řádek
+        přijetí zdroje (datum, částka, druh činnosti), právní titul a rozhodnutí o osvobození
+        včetně zákonného kódu, kind=usage souhrn čerpání zdroje v posouzení a kind=uses
+        jednotlivé čerpané náklady. Podklady slouží externímu nástroji k sestavení potvrzení
+        o daru nebo zprávy poskytovateli; aplikace samotný dopis netvoří. Každá stránka
+        čte nejvýše jeden ověřený blok grafu; prázdná stránka s next_cursor znamená, že
+        blok je ověřený a další bloky následují. Posouzení uložené jen ve starším formátu
+        vrací 409 nonprofit_tax_legacy_history_requires_migration. Volné texty, důkazy,
+        osobní údaje a interní otisky se nevracejí. Částky jsou přesné řetězce haléřů.
+        Výstup neopravňuje k finanční mutaci.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: ID první kanonické revize zdroje z katalogu nonprofit-funding.
+      - name: period_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: assessment_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Potvrzená revize posouzení J6 daného období.
+      - name: kind
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - purpose
+          - usage
+          - uses
+      - name: after_ordinal
+        in: query
+        schema:
+          type: integer
+          minimum: -1
+        description: Nezměněné next_cursor.after_ordinal předchozí stránky.
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 499
+        description: Nezměněné next_cursor.offset předchozí stránky; jen spolu s after_ordinal.
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+        description: Nejvyšší počet položek kind=uses na stránce.
+      - name: date
+        in: query
+        schema:
+          type: string
+        description: Nepodporovaný časový filtr; jakákoli přítomnost vrací 409 nonprofit_catalog_time_unsupported.
+      - name: as_of
+        in: query
+        schema:
+          type: string
+        description: Nepodporovaný časový filtr; jakákoli přítomnost vrací 409 nonprofit_catalog_time_unsupported.
+      - name: known_at
+        in: query
+        schema:
+          type: string
+        description: Nepodporovaný časový filtr; jakákoli přítomnost vrací 409 nonprofit_catalog_time_unsupported.
+      responses:
+        '200':
+          description: Ověřená stránka podkladů zdroje.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitFundingEvidence'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Zdroj nebo posouzení neexistuje v dostupné firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: nonprofit_catalog_time_unsupported, nonprofit_catalog_snapshot_required,
+            nonprofit_funding_catalog_assessment_unconfirmed, nonprofit_funding_catalog_proof_invalid
+            nebo nonprofit_tax_legacy_history_requires_migration. Žádný částečně ověřený DTO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: nonprofit_funding_catalog_query_invalid nebo integrita historie
+            zdroje nelze ověřit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/accounting/catalog/nonprofit-capital:
     get:
       tags:
@@ -33592,6 +33705,240 @@ components:
         financial_authorization:
           type: boolean
           const: false
+    NonprofitFundingEvidence:
+      type: object
+      additionalProperties: false
+      required:
+      - funding_id
+      - period_id
+      - assessment_id
+      - evidence_kind
+      - items
+      - next_cursor
+      - temporal_basis
+      - consistency
+      - proof_status
+      - coverage
+      - financial_authorization
+      properties:
+        funding_id:
+          type: integer
+        period_id:
+          type: integer
+        assessment_id:
+          type: integer
+        evidence_kind:
+          type: string
+          enum:
+          - purpose
+          - usage
+          - uses
+        items:
+          type: array
+          description: Pro purpose a usage nejvýše jedna položka, pro uses nejvýše limit.
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/NonprofitFundingEvidencePurpose'
+            - $ref: '#/components/schemas/NonprofitFundingEvidenceUsage'
+            - $ref: '#/components/schemas/NonprofitFundingEvidenceUse'
+        next_cursor:
+          oneOf:
+          - type: 'null'
+          - type: object
+            additionalProperties: false
+            required:
+            - after_ordinal
+            - offset
+            properties:
+              after_ordinal:
+                type: integer
+                minimum: -1
+              offset:
+                type: integer
+                minimum: 0
+                maximum: 499
+        temporal_basis:
+          type: string
+          const: confirmed_assessment
+        consistency:
+          type: string
+          const: immutable_j6_graph
+        proof_status:
+          type: string
+          const: verified
+        coverage:
+          type: string
+          enum:
+          - proven
+          - proven_more_available
+          - page_verified_more_available
+          - not_available_in_assessment
+        financial_authorization:
+          type: boolean
+          const: false
+    NonprofitFundingEvidencePurpose:
+      type: object
+      additionalProperties: false
+      required:
+      - funding_id
+      - period_id
+      - assessment_id
+      - source_line_id
+      - date
+      - amount_cents
+      - activity_kind_id
+      - decision
+      - classification
+      - assessment_method
+      - proof_status
+      properties:
+        funding_id:
+          type: integer
+        period_id:
+          type: integer
+        assessment_id:
+          type: integer
+        source_line_id:
+          type: integer
+          description: Řádek účetního deníku s přijetím zdroje.
+        date:
+          type: string
+          format: date
+          description: Účetní datum přijetí zdroje.
+        amount_cents:
+          type: string
+          pattern: ^[0-9]+$
+        activity_kind_id:
+          type: integer
+        decision:
+          type: object
+          additionalProperties: false
+          required:
+          - title
+          - qualifying_purpose
+          - claim_exemption
+          - election_evidence_present
+          - public_budget
+          properties:
+            title:
+              type: string
+              enum:
+              - gift
+              - public_operating_grant
+              - public_investment_grant
+            qualifying_purpose:
+              type:
+              - boolean
+              - 'null'
+            claim_exemption:
+              type:
+              - boolean
+              - 'null'
+            election_evidence_present:
+              type: boolean
+            public_budget:
+              type:
+              - boolean
+              - 'null'
+        classification:
+          type: object
+          additionalProperties: false
+          required:
+          - regime
+          - method
+          - legal_basis_status
+          - legal_basis_code
+          properties:
+            regime:
+              type: string
+              enum:
+              - subject
+              - out_of_scope
+              - exempt
+            method:
+              type: string
+              enum:
+              - return
+              - none
+              - annual_activity_test
+              - final_withholding
+            legal_basis_status:
+              type: string
+              enum:
+              - standard_code
+              - documented_not_exposed
+            legal_basis_code:
+              type:
+              - string
+              - 'null'
+        assessment_method:
+          type: string
+          enum:
+          - ruleset
+          - documented_manual
+        proof_status:
+          type: string
+          const: confirmed_immutable_j6
+    NonprofitFundingEvidenceUsage:
+      type: object
+      additionalProperties: false
+      required:
+      - funding_id
+      - period_id
+      - assessment_id
+      - net_source_cents
+      - prior_drawdown_cents
+      - drawdown_cents
+      - remaining_cents
+      - proof_status
+      properties:
+        funding_id:
+          type: integer
+        period_id:
+          type: integer
+        assessment_id:
+          type: integer
+        net_source_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        prior_drawdown_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        drawdown_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        remaining_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        proof_status:
+          type: string
+          const: confirmed_immutable_j6
+    NonprofitFundingEvidenceUse:
+      type: object
+      additionalProperties: false
+      required:
+      - funding_id
+      - period_id
+      - assessment_id
+      - cost_line_id
+      - amount_cents
+      - proof_status
+      properties:
+        funding_id:
+          type: integer
+        period_id:
+          type: integer
+        assessment_id:
+          type: integer
+        cost_line_id:
+          type: integer
+          description: Řádek účetního deníku s čerpaným nákladem.
+        amount_cents:
+          type: string
+          pattern: ^[0-9]+$
+        proof_status:
+          type: string
+          const: confirmed_immutable_j6
     NonprofitFundingCatalogDetail:
       type: object
       additionalProperties: false

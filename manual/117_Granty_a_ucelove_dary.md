@@ -22,7 +22,7 @@ Přes **Posoudit daň a použití zdroje** otevřete daňové posouzení vybran�
 
 U evidovaného účelového zdroje se navíc kontroluje jeho rozpočet, datum nákladu, druh činnosti a účet. Rozpočet je společný pro všechna účetní období. Způsob vyloučení financované daňově uznatelné části nákladu vychází ze stejného potvrzeného posouzení.
 
-Přehled zdroje čte toto potvrzené použití přímo. Samotné potvrzení účelu ani prohlížení přehledu nevytváří účetní zápis.
+Přehled zdroje čte toto potvrzené použití přímo, ať bylo posouzení potvrzené klasicky, nebo stránkovanou cestou J6. Stránkované posouzení se ověřuje proti otisku dnešních účetních podkladů a čte se po ověřených stránkách. Je-li některé předchozí období posouzené stránkovaně, starší klasické posouzení navazujícího období se v přehledu ukáže jako neaktuální; potvrďte je znovu stránkovanou cestou. Samotné potvrzení účelu ani prohlížení přehledu nevytváří účetní zápis.
 
 ## 117.4 Opravy a nové revize
 
@@ -37,3 +37,5 @@ Změna účetnictví nebo odvolání posouzení se v přehledu projeví upozorn�
 Přehled uvádí název a účel zdroje, historické údaje poskytovatele, rozpočet, účetně doloženou hodnotu a čerpání. Detail použití ukazuje konkrétní datum, nákladový účet, částku, podklad a aktuálnost potvrzení.
 
 U daru jsou dostupné také původní účetní řádky s datem a částkou včetně oprav a potvrzená volba osvobození. Tyto podklady slouží ke kontrole evidence a k přípravě potvrzení externím nástrojem. Použitý kontakt poskytovatele archivujte; jeho historická vazba brání smazání.
+
+Pro potvrzení o daru nabízí REST API a MCP server čtení ověřitelných podkladů zdroje z potvrzeného stránkovaného posouzení J6: datum a částku přijetí daru, právní titul, rozhodnutí o osvobození se zákonným kódem, souhrn čerpání a jednotlivé čerpané náklady. Dárce je uveden jen identifikátorem kontaktu; volné texty a důkazy se nevracejí. Text potvrzení ani dopis aplikace netvoří, připraví je externí nástroj nad těmito podklady. Podrobnosti jsou v kapitolách [REST API](104_API.md) a [MCP server](106_MCP_server.md).
