@@ -375,6 +375,14 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             $closing->confirmStep($this->supplier, $period, $step, 'skipped', null, $this->periodVersion($period), $meta);
         }
         $closing->runStockValuation($this->supplier, $period, $this->periodVersion($period), $meta);
+        // Splatná daň SVJ je nulová (krok 591/341 se přeskakuje), ale daňová předkontrola
+        // příjmů 504 se přeskočit nedá: bez potvrzeného posouzení knihy neuzavře.
+        try {
+            $closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta);
+            self::fail('Uzávěrka SVJ prošla bez daňové předkontroly.');
+        } catch (\MyInvoice\Service\Accounting\Closing\ClosingException $e) {
+            self::assertSame('nonprofit_tax_assessment_required', $e->errorCode);
+        }
         \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($this->container, $this->supplier, $period, $this->actor);
         return $closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta);
     }
