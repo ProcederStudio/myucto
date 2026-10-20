@@ -432,7 +432,7 @@ final class PaymentRepository
     /**
      * Věřitel kreditu musí být doložený: vlastník jednotky podle registru k datu kreditu,
      * jinak osoba s výslovně doloženým titulem (postoupení, dědění, omylem přijatá platba…).
-     * Plátce ani shoda jednotky sama věřitele neurčuje (PRAVNI-PRAVIDLA-SVJ § 5.1).
+     * Plátce ani shoda jednotky sama věřitele neurčuje.
      */
     private static function creditParties(array $parties,array $unit,?array $thirdParty):array
     {

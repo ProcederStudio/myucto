@@ -1060,6 +1060,7 @@
         "2076_property_service_unwind_permission.sql",
         "2077_property_service_settlement_objections.sql",
         "2078_unit_payment_bank_proposals.sql",
+        "2079_membership_charge_deferral_index.sql",
         "2080_nonprofit_tax_snapshot_manifests.sql",
         "2081_nonprofit_tax_paged_assessments.sql",
         "2082_nonprofit_tax_calculation_manifest_binding.sql",
@@ -8271,6 +8272,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "created_by": "BTREE (created_by)",
                 "fk_nmcc_head": "BTREE (supplier_id, id, head_operation_id)",
+                "ix_nmcc_deferral": "BTREE (supplier_id, period_to, period_from, id)",
                 "ix_nmcc_overlap": "BTREE (supplier_id, member_id, title_key, period_from, period_to, id)",
                 "uq_nmcc_identity": "UNIQUE BTREE (supplier_id, member_id, title_key, period_from, period_to)",
                 "uq_nmcc_tenant": "UNIQUE BTREE (supplier_id, id)"
