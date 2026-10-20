@@ -17,7 +17,7 @@ final class NonprofitAnnualConstantsCompatibilityTest extends TestCase
     {unset($record['filing_proof_hash']);$record['filing_proof_hash']=NonprofitTaxRules::hash($record);return$record;}
     public function testUnversionedCompleteAndLegacyPinnedRecordsKeepOriginalHashAndContents():void
     {
-        [$computed,$record]=$this->fixture();self::assertSame(3,$record['version']);$record['version']=2;unset($record['form_manifest'],$record['line_coverage']);$record=$this->seal($record);unset($record['version']);$record=$this->seal($record);$before=$record;NonprofitDppoStoredProof::assertCalculation($computed,$record);self::assertSame($before,$record);
+        [$computed,$record]=$this->fixture();self::assertSame(3,$record['version']);$record['version']=2;unset($record['form_manifest'],$record['line_coverage'],$record['proof_hash_mode']);$record=$this->seal($record);unset($record['version']);$record=$this->seal($record);$before=$record;NonprofitDppoStoredProof::assertCalculation($computed,$record);self::assertSame($before,$record);
         foreach(array_keys(NonprofitDppoReduction::configuration($record['constants']))as$key)unset($record['constants'][$key]);$record=$this->seal($record);$before=$record;NonprofitDppoStoredProof::assertCalculation($computed,$record);self::assertSame($before,$record);
         foreach([2024,2025,2026]as$year){$record['constants']['year']=$year;$record['data']['period']['fiscal_year']=$year;self::assertSame(300000,NonprofitDppoStoredProof::constantsForRecord($record)['nonprofit_reduction_min']);}
     }
