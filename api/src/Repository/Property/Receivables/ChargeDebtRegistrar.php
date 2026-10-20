@@ -123,7 +123,7 @@ final class ChargeDebtRegistrar
         $this->execute('INSERT INTO unit_payment_debts (supplier_id,charge_id,request_json,snapshot_json,request_hash,snapshot_hash,idempotency_key,created_by,recorded_at) VALUES '.implode(',', $debtValues), $debtParams);
         $created = [];
         $newTokens = array_column($pending, 'token');
-        foreach ($this->all('SELECT id,charge_id FROM unit_payment_debts WHERE supplier_id=? AND idempotency_key IN ('.self::marks(count($newTokens)).') ORDER BY id', [$supplier, ...$newTokens]) as $row) {
+        foreach ($this->all('SELECT id,charge_id FROM unit_payment_debts WHERE supplier_id=? AND idempotency_key IN ('.self::marks(count($newTokens)).')', [$supplier, ...$newTokens]) as $row) {
             $created[(int)$row['charge_id']] = (int)$row['id'];
         }
         if (count($created) !== count($pending)) throw new \LogicException('Registered debts were not materialized.');
