@@ -108,6 +108,16 @@ final class NonprofitTaxSavingsLedger
         $source=$this->source($supplier,(int)$this->db->pdo()->lastInsertId());$this->assertFinalCurrent($supplier,$source);return$source;
     }
 
+    /**
+     * Ověřený základ úspory z finálního snapshotu 504 (stejný tvar, jaký nese zdroj úspory).
+     * Anonymizovaná kopie z něj staví základ zdroje po přepisu archivu.
+     */
+    public function finalBasis(int $supplier,int $snapshot):array
+    {
+        $this->locked();
+        return$this->finalProof($supplier,$snapshot);
+    }
+
     public function command(int $supplier,int $id):array
     {
         $this->locked();$q=$this->db->pdo()->prepare('SELECT * FROM nonprofit_tax_saving_commands WHERE supplier_id=? AND id=? FOR UPDATE');$q->execute([$supplier,$id]);$row=$q->fetch(PDO::FETCH_ASSOC);if(!$row)$this->changed();foreach(['id','supplier_id','created_by']as$key)$row[$key]=(int)$row[$key];$row['request']=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);unset($row['request_json']);

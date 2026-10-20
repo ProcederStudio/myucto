@@ -59,6 +59,7 @@ final readonly class DefaultSubmissionArtifactResolver implements SubmissionArti
         if (!$this->db->hasTable('tax_submissions')) {
             return null;
         }
+        (new AnonymizedCloneSubmissionProvenance($this->db))->assertDispatchable($supplierId, $id);
         // `epo_attempt_active` kopíruje podmínku TaxSubmissionEpoRepository::activeAttempt()
         // pro ostré prostředí: rozpracované asistované předání, nedořešený nebo potvrzený
         // přímý pokus. Jeden snapshot jde ven jen jednou cestou.

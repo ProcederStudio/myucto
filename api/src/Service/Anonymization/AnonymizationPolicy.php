@@ -758,6 +758,7 @@ final class AnonymizationPolicy
         'tax_submission_attempts' => ['confirmation_ciphertext' => 'wipe', 'error_code' => 'keep', 'error_message' => 'text', 'idempotency_key' => 'keep', 'last_response_ciphertext' => 'wipe', 'last_status_json' => 'json', 'offline_password_ciphertext' => 'wipe', 'offline_transfer_id' => 'keep', 'remote_submission_ref' => 'keep', 'request_sha256' => 'keep', 'resolution_code' => 'keep', 'resolution_note' => 'text', 'signing_fingerprint' => 'keep', 'state_password_ciphertext' => 'wipe', 'submitted_signed_ciphertext' => 'wipe', 'test_messages_json' => 'json', 'test_signed_ciphertext' => 'wipe'],
         'tax_submission_status_events' => ['details_json' => 'json', 'event_type' => 'keep', 'status' => 'keep'],
         'tax_submissions' => ['form_code' => 'keep', 'form_variant' => 'keep', 'notes' => 'text', 'submission_ref' => 'keep', 'summary_json' => 'json', 'validation_errors' => 'json', 'xml_content' => 'text', 'xml_sha256' => 'keep'],
+        'anonymized_clone_submission_provenance' => ['source_xml_sha256' => 'keep', 'target_xml_sha256' => 'keep', 'transport_receipt_root' => 'keep'],
         'tax_unpaid_liability_addbacks' => ['note' => 'text'],
         'trip_categories' => ['code' => 'keep', 'label' => 'keep'],
         'trip_templates' => ['destination' => 'city', 'label' => 'text', 'origin' => 'city', 'purpose' => 'text'],

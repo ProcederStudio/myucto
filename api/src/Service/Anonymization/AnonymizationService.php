@@ -80,6 +80,7 @@ final class AnonymizationService
 
         try {
             $cloner->copyTables($plan, $options->target, $log);
+            $protectedRows = CloneProtectedRows::create($pdo, $options->target);
             $captureConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
             try {
                 $payrollInputs = PayrollCostCenterCloneScrubber::capture($captureConnection);
@@ -88,21 +89,21 @@ final class AnonymizationService
                 $frameworkConversionInputs = FrameworkConversionCloneScrubber::captureInputs($captureConnection);
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
                 $membershipInputs = MembershipCloneScrubber::capture($captureConnection);
-                $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
-                if ($dppoInputs['snapshots'] !== [] || $dppoInputs['sources'] !== [] || $dppoInputs['events'] !== []
-                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false
-                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_cost_bindings LIMIT 1')->fetchColumn() !== false) {
-                    throw new \RuntimeException('Anonymizace finančního archivu DPPO 504 a daňových úspor není podporována. Zdrojová databáze zůstala zachovaná.');
-                }
+                // Stránkované posouzení J6 nemá typový přepis grafu; kopie se zastaví dřív,
+                // než by jeho otisky zůstaly k pseudonymizovaným podkladům neplatné.
                 foreach (['nonprofit_tax_drafts', 'nonprofit_tax_snapshot_manifests', 'nonprofit_tax_calculation_manifests', 'nonprofit_tax_source_evidence_manifests'] as $pagedTable) {
                     if ($captureConnection->pdo()->query('SELECT 1 FROM ' . $pagedTable . ' LIMIT 1')->fetchColumn() !== false) {
                         throw new \RuntimeException('Anonymizace stránkovaného daňového posouzení neziskové organizace není podporována. Zdrojová databáze zůstala zachovaná.');
                     }
                 }
+                $log('Zachytávám finanční archivy DPPO 504…');
+                $archiveCount = NonprofitDppoArchiveCloneCapture::capture($captureConnection, $protectedRows);
+                NonprofitTaxSavingsCloneScrubber::capture($captureConnection);
+                $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
             finally { $captureConnection->close(); }
-            $report = $this->anonymize($pdo, $options, $log);
+            $report = $this->anonymize($pdo, $options, $log, $protectedRows);
             $log('Vypínám odchozí integrace…');
             foreach (AnonymizationPolicy::POST_SQL as $sql) {
                 $pdo->exec($sql);
@@ -125,9 +126,14 @@ final class AnonymizationService
                 $legalHashes = NonprofitDppoCloneScrubber::runProfiles($targetConnection, $this->scrubber, $dppoInputs);
                 MembershipCloneScrubber::run($targetConnection, $this->scrubber, $membershipInputs, $legalHashes);
                 NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs, $legalHashes);
+                $log('Přepisuji finanční archivy DPPO 504…');
+                $archivedSubmissions = (new NonprofitDppoArchiveCloneAdapter($targetConnection, $this->scrubber, $protectedRows))->run();
+                NonprofitTaxSavingsCloneScrubber::run($targetConnection, $this->scrubber);
+                $transport = (new TaxSubmissionTransportCloneScrubber($targetConnection))->run($archivedSubmissions);
             } finally {
                 $targetConnection->close();
             }
+            $protectedRows->drop();
             $this->resealAuditChain($options->target, $log);
             foreach ($plan['system_versioned'] as $table) {
                 $pdo->exec('DELETE HISTORY FROM ' . DatabaseCloner::quote($table));
@@ -136,7 +142,15 @@ final class AnonymizationService
             $cloner->finalize($plan, $options->target);
             $pdo->prepare('REPLACE INTO app_meta (k, v) VALUES (?, ?)')->execute([
                 self::MARKER_KEY,
-                (string) json_encode(['created_at' => gmdate('c'), 'tool' => 'anonymize-clone'], JSON_UNESCAPED_SLASHES),
+                (string) json_encode([
+                    'created_at' => gmdate('c'),
+                    'tool' => 'anonymize-clone',
+                    'financial_archive' => [
+                        'archives' => $archiveCount,
+                        'submissions' => $transport['count'],
+                        'transport_root' => $transport['root'],
+                    ],
+                ], JSON_UNESCAPED_SLASHES),
             ]);
         } catch (\Throwable $e) {
             $pdo->exec('DROP DATABASE IF EXISTS ' . DatabaseCloner::quote($options->target));
@@ -167,7 +181,7 @@ final class AnonymizationService
      * @param callable(string):void $log
      * @return array{truncated:int, changed_rows:array<string,int>, dictionary:int}
      */
-    private function anonymize(PDO $pdo, AnonymizationOptions $options, callable $log): array
+    private function anonymize(PDO $pdo, AnonymizationOptions $options, callable $log, ?CloneProtectedRows $protectedRows = null): array
     {
         $secret = $options->seed !== null && $options->seed !== ''
             ? hash('sha256', 'myucto-anonymize:' . $options->seed, true)
@@ -206,7 +220,7 @@ final class AnonymizationService
                 if ($selected === []) {
                     continue;
                 }
-                $count = $this->processTable($pdo, $scrubber, $table, $selected, $meta[$table] ?? [], $keys[$table] ?? []);
+                $count = $this->processTable($pdo, $scrubber, $table, $selected, $meta[$table] ?? [], $keys[$table] ?? [], $protectedRows);
                 if ($count > 0) {
                     $changed[$table] = ($changed[$table] ?? 0) + $count;
                 }
@@ -225,8 +239,15 @@ final class AnonymizationService
      * @param array<string, array{nullable:bool, type:string, max:?int, json:bool}> $meta
      * @param list<array{name:string, integer:bool}> $primaryKey
      */
-    private function processTable(PDO $pdo, TextScrubber $scrubber, string $table, array $columns, array $meta, array $primaryKey): int
-    {
+    private function processTable(
+        PDO $pdo,
+        TextScrubber $scrubber,
+        string $table,
+        array $columns,
+        array $meta,
+        array $primaryKey,
+        ?CloneProtectedRows $protectedRows = null,
+    ): int {
         if ($primaryKey === []) {
             throw new \RuntimeException("Tabulka {$table} nemá primární klíč — nelze ji pseudonymizovat po řádcích.");
         }
@@ -266,14 +287,28 @@ final class AnonymizationService
             $pdo->query("SELECT {$selectSql} FROM " . DatabaseCloner::quote($table) . " ORDER BY {$order}")->fetchAll(PDO::FETCH_ASSOC),
             self::PAGE,
         );
+        // Zachycené archivy DPPO 504 přepisuje typově NonprofitDppoArchiveCloneAdapter; obecný
+        // průchod je přeskočí po stránkách, aby se jejich zapečetěný obsah nezměnil napůl.
+        $protectedTable = $keyset && $protectedRows !== null && $pkNames === ['id'] ? FinancialArchiveProtectedTable::tryFrom($table) : null;
         while (true) {
-            if ($keyset) {
+            $pageEnd = null;
+            if ($protectedTable !== null) {
+                $pageEnd = $protectedRows->lastIdOfPage($protectedTable, $last === null ? null : (int) $last, self::PAGE);
+                if ($pageEnd === null) {
+                    break;
+                }
+                $rows = $protectedRows->selectUnprotectedRange($protectedTable, $select, $last === null ? null : (int) $last, $pageEnd);
+            } elseif ($keyset) {
                 $sql = "SELECT {$selectSql} FROM " . DatabaseCloner::quote($table)
                     . ($last === null ? '' : ' WHERE ' . $order . ' > ' . (int) $last)
                     . " ORDER BY {$order} LIMIT " . self::PAGE;
                 $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
             } else {
                 $rows = array_shift($pending) ?? [];
+            }
+            if ($rows === [] && $pageEnd !== null) {
+                $last = $pageEnd;
+                continue;
             }
             if ($rows === []) {
                 break;
@@ -312,6 +347,10 @@ final class AnonymizationService
             } catch (\Throwable $e) {
                 $pdo->rollBack();
                 throw new \RuntimeException("Pseudonymizace tabulky {$table} selhala: " . $e->getMessage(), 0, $e);
+            }
+            if ($pageEnd !== null) {
+                $last = $pageEnd;
+                continue;
             }
             $last = $keyset ? end($rows)[$pkNames[0]] : null;
             if ($keyset ? count($rows) < self::PAGE : $pending === []) {
