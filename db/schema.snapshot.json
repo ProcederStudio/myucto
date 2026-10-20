@@ -1070,7 +1070,8 @@
         "2086_nonprofit_tax_legacy_sidecar_conversion.sql",
         "2087_nonprofit_tax_legacy_sidecar_receipt_guard.sql",
         "2088_nonprofit_dppo_calculation_acceptance.sql",
-        "2089_accounting_securities_debt_sale.sql"
+        "2089_accounting_securities_debt_sale.sql",
+        "2090_depreciation_entries_voided.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -4591,7 +4592,8 @@
                 "residual_value_end": "decimal(14,2) NOT NULL",
                 "status": "enum('confirmed','posted') NOT NULL DEFAULT 'confirmed'",
                 "supplier_id": "int(10) unsigned NOT NULL",
-                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "voided_at": "datetime NULL DEFAULT NULL"
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
