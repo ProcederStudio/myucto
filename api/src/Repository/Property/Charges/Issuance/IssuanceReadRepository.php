@@ -11,7 +11,38 @@ use PDO;
 
 final class IssuanceReadRepository
 {
+    /** Pod limitem zástupných parametrů MariaDB i u firmy s tisíci předpisů. */
+    private const CHUNK = 500;
+
     public function __construct(private readonly Connection $db) {}
+
+    /** Předpisy vybraných jednotek po indexu (supplier_id, unit_id, source_key, revision_no). */
+    public function forUnits(int $supplier,array $unitIds,bool $current=false): array
+    {
+        foreach($unitIds as $id) PropertyInput::id($id,'unit_id');
+        $unitIds=array_values(array_unique($unitIds)); sort($unitIds,SORT_NUMERIC); $out=[];
+        foreach(array_chunk($unitIds,self::CHUNK) as $chunk) {
+            $marks=implode(',',array_fill(0,count($chunk),'?'));
+            $stmt=$this->db->pdo()->prepare('SELECT * FROM unit_charges WHERE supplier_id=? AND unit_id IN ('.$marks.') ORDER BY id'.$this->lock($current));
+            $stmt->execute([$supplier,...$chunk]);
+            $rows=array_map($this->decodeCharge(...),$stmt->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertMaterialized($supplier,$rows,$current);
+            array_push($out,...$rows);
+        }
+        usort($out,fn(array $a,array $b):int=>$a['id']<=>$b['id']);
+        return $out;
+    }
+
+    /** Navazující aktivní revize téhož případu jednotky; storno zamyká jen tuto rodinu předpisů. */
+    public function activeSuccessor(int $supplier,array $charge): ?int
+    {
+        $stmt=$this->db->pdo()->prepare("SELECT id FROM unit_charges WHERE supplier_id=? AND unit_id=? AND source_key=? AND revision_no>? ORDER BY revision_no".$this->lock(true));
+        $stmt->execute([$supplier,$charge['unit_id'],$charge['source_key'],$charge['revision_no']]);
+        $active=null;
+        foreach($this->findMany($supplier,array_map('intval',$stmt->fetchAll(PDO::FETCH_COLUMN)),true) as $next)
+            if($active===null&&in_array($next['status'],['draft','posted'],true)) $active=$next['id'];
+        return $active;
+    }
 
     public function charges(int $supplier, bool $current = false): array
     {
@@ -160,6 +191,10 @@ final class IssuanceReadRepository
     private function assertMaterialized(int $supplier,array $charges,bool $current): void
     {
         if($charges===[]) return;
+        if(count($charges)>self::CHUNK) {
+            foreach(array_chunk($charges,self::CHUNK) as $chunk) $this->assertMaterialized($supplier,$chunk,$current);
+            return;
+        }
         $ids=array_column($charges,'id'); sort($ids,SORT_NUMERIC);
         $marks=implode(',',array_fill(0,count($ids),'?'));
         $actual=['lines'=>[],'parties'=>[],'notices'=>[]];
