@@ -158,11 +158,14 @@ async function moreHistory() {
 </script>
 
 <template>
-  <main class="p-4 sm:p-6 space-y-5">
-    <div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-xl font-semibold">{{ t('jointAllocations.title') }}</h1>
+  <div class="p-4 sm:p-6 space-y-5">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold">{{ t('jointAllocations.title') }}</h1>
+        <p class="text-sm text-neutral-500 mt-0.5">{{ t('jointAllocations.intro') }}</p>
+      </div>
       <button v-if="canWrite" :class="btnOutline('primary')" :disabled="busy" @click="editorOpen = !editorOpen"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.plus" /></svg>{{ t('jointAllocations.keyEditor') }}</button>
     </div>
-    <p class="text-sm text-neutral-500">{{ t('jointAllocations.intro') }}</p>
     <div v-if="error" role="alert" class="rounded border border-danger-200 bg-danger-50 p-3 space-y-2">
       <p>{{ error }}</p>
       <p v-if="errorDetails.type_ids">{{ errorDetails.type_ids.map(typeName).join(', ') }}</p>
@@ -248,5 +251,5 @@ async function moreHistory() {
           <button type="submit" :class="btnFilled('danger')" :disabled="busy || !cancelDate || !cancelReason.trim()"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.x" /></svg>{{ t('jointAllocations.cancel') }}</button></div>
       </form>
     </section>
-  </main>
+  </div>
 </template>
