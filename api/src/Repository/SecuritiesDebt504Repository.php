@@ -268,6 +268,11 @@ final class SecuritiesDebt504Repository
         T::need((new AccountingFrameworkService($this->db,new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplier,$date)==='cz_504','debt_framework_required');
     }
 
+    public function frameworkSupported(int $supplier,string $date): bool
+    {
+        return (new AccountingFrameworkService($this->db,new AccountingFrameworkRepository($this->db)))->forDate($supplier,$date)==='cz_504';
+    }
+
     public function account(int $supplier,string $code,string $type): void
     {
         $rows=$this->rows('SELECT id FROM chart_of_accounts WHERE supplier_id=? AND account_code=? AND account_type=? AND is_active=1 FOR UPDATE',[$supplier,$code,$type]);
