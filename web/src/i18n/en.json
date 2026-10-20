@@ -37809,7 +37809,41 @@
     "ack": "I reviewed the contract, date, ledger lines and operation amount.",
     "debit": "Debit",
     "credit": "Credit",
-    "history": "Confirmed operations"
+    "history": "Confirmed operations",
+    "sale": "Assign sale",
+    "proceedsHelp": "Select the proceeds line on account 653 from a bank statement or cash document. The entry derecognises the whole carrying amount including accrued interest to 553.",
+    "sold_on": "Sold",
+    "earned": "Total accrued interest",
+    "amortised": "Amortised discount or premium",
+    "principal_book": "Principal carrying amount",
+    "interest_book": "Interest carrying amount",
+    "frequency": "Coupon payments per year",
+    "frequencyOptions": {
+      "1": "Annual",
+      "2": "Semi-annual",
+      "4": "Quarterly",
+      "12": "Monthly"
+    },
+    "dayCountActAct": "ACT/ACT (ICMA), fixed coupon per period",
+    "removePeriod": "Remove period",
+    "sold": "Derecognised by sale",
+    "reversed": "Reversed",
+    "lineSide": "Side",
+    "frameworkUnsupported": "Debt securities records are intended for entities keeping accounts under Decree No. 504/2002 Coll. (associations, foundations, owners associations and other non-profit entities). As of today this company keeps accounts under Decree No. 500/2002 Coll., so nothing can be posted here. Change the accounting framework in Accounting settings.",
+    "errors": {
+      "debt_sold": "The security has already been sold. No further interest or amortisation is posted for it.",
+      "debt_sale_invalid": "A sale can only be posted before maturity for a holding that has not been redeemed or sold yet.",
+      "debt_sale_accrual_required": "Before the sale, post accrued interest and, for HTM, the amortisation up to the sale date.",
+      "debt_sale_currency_unsupported": "A sale is currently supported only for securities in CZK.",
+      "debt_reverse_date_invalid": "A bound payment can only be unbound on the same day it was assigned.",
+      "debt_reverse_dependency": "Only the latest operation of the position can be reversed.",
+      "debt_coupon_period_irregular": "The coupon period does not match the selected payment frequency. Review an irregular period with your accountant.",
+      "debt_coupon_frequency_required": "For the ACT/ACT convention select the number of coupon payments per year.",
+      "debt_framework_required": "The operation is available only for an accounting period in which the company keeps accounts under Decree No. 504/2002 Coll.",
+      "debt_payment_date_invalid": "The date of the money document must match the accounting date of the operation.",
+      "debt_source_used_twice": "The selected ledger line is already assigned to another operation.",
+      "debt_no_change": "There is nothing to post as of this date."
+    }
   },
   "nonprofitMembership": {
     "title": "Association membership dues",

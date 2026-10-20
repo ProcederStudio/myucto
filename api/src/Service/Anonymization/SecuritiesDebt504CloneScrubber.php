@@ -59,7 +59,8 @@ final class SecuritiesDebt504CloneScrubber
                 $supplier=(int)$row['supplier_id'];$request=self::text(R::decode($row['request_json']),$scrubber);$receipt=self::text(R::decode($row['receipt_json']),$scrubber);
                 if(isset($receipt['ledger']))$receipt['ledger']=$native[$supplier][$receipt['ledger']['entry']['id']];
                 if(isset($receipt['payment'])){
-                    $saved=$receipt['payment'];$entry=$saved['ledger']['entry']['id'];$actual=(new SecuritiesDebt504PaymentProof($db))->current($supplier,$entry,$saved['line']['id'],$factsByLot[$supplier][(int)$row['lot_id']]['asset']);
+                    $saved=$receipt['payment'];$entry=$saved['ledger']['entry']['id'];$account=$row['operation']==='sale'?\MyInvoice\Service\Accounting\Closing\SecuritiesDebt504Policy::SALE_REVENUE_ACCOUNT:null;
+                    $actual=(new SecuritiesDebt504PaymentProof($db))->current($supplier,$entry,$saved['line']['id'],$factsByLot[$supplier][(int)$row['lot_id']]['asset'],$account);
                     $before=$inputs['payments'][$supplier][$entry.':'.$saved['line']['id']]??null;
                     if($before===null||self::source($before)!==self::source($actual))throw new \LogicException('Debt clone financial source changed.');$receipt['payment']=$actual;
                 }

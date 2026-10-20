@@ -61,7 +61,7 @@ final class SecuritiesDebt504UseGuard
     {
         $state=(new \MyInvoice\Repository\SecuritiesDebt504Repository($this->db))->current($supplier,$lot,$date);
         $last=$state['events']===[]?null:$state['events'][array_key_last($state['events'])];
-        SecuritiesDebt504Terms::need($last!==null && $last['id']===$event && ($last['receipt']['ledger']['entry']['id']??null)===$entry && !isset($last['receipt']['payment']) && $date>=$state['max_event_date'],'debt_reverse_dependency');
+        SecuritiesDebt504Terms::need($last!==null && $last['id']===$event && ($last['receipt']['ledger']['entry']['id']??null)===$entry && (!isset($last['receipt']['payment']) || $last['request']['operation']==='sale') && $date>=$state['max_event_date'],'debt_reverse_dependency');
         $key=$this->key($supplier,$entry);SecuritiesDebt504Terms::need(!isset(self::$reversing[$key]),'debt_reverse_dependency');self::$reversing[$key]=true;
         try{return $reverse();}finally{unset(self::$reversing[$key]);}
     }

@@ -29,7 +29,7 @@ describe('Debt securities workspace', () => {
   mocks.detail.mockResolvedValueOnce({ ...structuredClone(state), book_czk: '2031.00' })
   const calendar = w.findAllComponents(DateInput).find(c => c.attributes('data-field') === 'date')!
   calendar.vm.$emit('update:modelValue','2026-01-15'); calendar.vm.$emit('change'); await flushPromises()
-  expect(mocks.detail).toHaveBeenLastCalledWith(5,9,'2026-01-15'); expect(w.text()).toContain('2031.00'); w.unmount()
+  expect(mocks.detail).toHaveBeenLastCalledWith(5,9,'2026-01-15'); expect(w.text()).toMatch(/2\s031,00\sKč/); w.unmount()
  })
  it('loads the next source page without losing previously available physical lines', async () => {
   const w = mounted(); await choose(w); await w.get('[data-field="operation"]').setValue('principal_redemption')
@@ -46,4 +46,66 @@ describe('Debt securities workspace', () => {
  it('fails closed while native financial hooks are unavailable', async () => { mocks.list.mockResolvedValue({ rows: [], financial_enabled: false, can_write: true }); const w = mounted(); await flushPromises(); expect(w.get('[data-action="new"]').attributes('disabled')).toBeDefined(); expect(w.text()).toContain(cs.securitiesDebt.guardUnavailable); expect(mocks.preview).not.toHaveBeenCalled(); w.unmount() })
  it('uses the exact canonical last generated event for owner reversal', async () => { const w = mounted(); await choose(w); await w.get('[data-field="operation"]').setValue('reverse'); await w.get('[data-field="reverse_event"]').setValue('71'); await review(w); expect(mocks.preview.mock.calls[0]?.[1]).toMatchObject({ operation: 'reverse', event_id: 71, lot_id: 9 }); w.unmount() })
  it('loads period IDs from server choices and discards responses after unmount', async () => { const w = mounted(); await choose(w); await w.get('[data-field="operation"]').setValue('valuation'); await w.get('[data-action="profile"]').trigger('click'); await flushPromises(); await review(w); expect(mocks.preview.mock.calls[0]?.[1].profile.category_facts[0].period_id).toBe(81); await w.get('[data-action="cancel"]').trigger('click'); let resolve!: (p: DebtPreview) => void; mocks.preview.mockImplementationOnce(() => new Promise<DebtPreview>(r => { resolve = r })); await w.get('[data-action="preview"]').trigger('click'); w.unmount(); resolve(preview); await flushPromises(); expect(mocks.execute).not.toHaveBeenCalled() })
+
+ it('explains a company outside Decree 504 instead of a generic error and blocks new records', async () => {
+  mocks.list.mockResolvedValue({ rows: [], financial_enabled: true, framework_supported: false, can_write: true })
+  const w = mounted()
+  await flushPromises()
+  expect(w.get('[data-section="framework"]').text()).toBe(cs.securitiesDebt.frameworkUnsupported)
+  expect(w.get('[data-action="new"]').attributes('disabled')).toBeDefined()
+  w.unmount()
+ })
+
+ it('formats amounts and dates in the summary, preview and history', async () => {
+  const w = mounted()
+  await choose(w)
+  expect(w.get('[data-section="summary"]').text()).toMatch(/1\s031,00\sKč/)
+  expect(w.get('[data-section="history"]').text()).toMatch(/31\.\s?12\.\s?2025/)
+  expect(w.get('[data-section="history"]').text()).not.toContain('2025-12-31')
+  await review(w)
+  expect(w.get('[data-section="preview-lines"]').text()).toMatch(/17,00\sKč/)
+  w.unmount()
+ })
+
+ it('binds sale proceeds from the 653 source list', async () => {
+  const w = mounted()
+  await choose(w)
+  await w.get('[data-field="operation"]').setValue('sale')
+  await w.get('[data-action="sources"]').trigger('click')
+  await flushPromises()
+  expect(mocks.sources).toHaveBeenLastCalledWith(5, 'proceeds', expect.any(String), null)
+  await w.get('[data-field="source"]').setValue('31:41')
+  await review(w)
+  expect(mocks.preview.mock.calls[0]?.[1]).toMatchObject({ operation: 'sale', lot_id: 9, entry_id: 31, line_id: 41 })
+  w.unmount()
+ })
+
+ it('maps a known server error code to a translated explanation', async () => {
+  mocks.preview.mockRejectedValue({ response: { status: 409, data: { error: { code: 'debt_sale_accrual_required', message: 'raw' } } } })
+  const w = mounted()
+  await choose(w)
+  await w.get('[data-action="preview"]').trigger('click')
+  await flushPromises()
+  expect(w.get('[role="alert"]').text()).toBe(cs.securitiesDebt.errors.debt_sale_accrual_required)
+  w.unmount()
+ })
+
+ it('sends the coupon frequency for ACT/ACT periods on a mobile-friendly single column form', async () => {
+  mocks.sources.mockResolvedValueOnce({ rows: [{ id: 30, line_id: 40, document_no: 'Synthetic purchase', entry_date: '2025-07-01', account_code: '063', amount: '980000.00', currency_code: null, amount_foreign: null }] })
+  const w = mounted()
+  await flushPromises()
+  await w.get('[data-action="new"]').trigger('click')
+  await w.get('[data-action="period"]').trigger('click')
+  expect(w.get('[data-section="coupon-periods"] article').classes()).toContain('grid-cols-1')
+  expect((w.get('[data-field="frequency-0"]').element as HTMLSelectElement).value).toBe('1')
+  await w.get('[data-field="frequency-0"]').setValue('2')
+  await w.get('[data-action="sources"]').trigger('click')
+  await flushPromises()
+  await w.get('[data-field="source"]').setValue('30:40')
+  await w.get('[data-action="preview"]').trigger('click')
+  await flushPromises()
+  const command = mocks.preview.mock.calls[0]?.[1]
+  expect(command.terms.coupon_periods[0]).toMatchObject({ day_count: 'ACT/ACT-ICMA', frequency: 2 })
+  w.unmount()
+ })
 })
