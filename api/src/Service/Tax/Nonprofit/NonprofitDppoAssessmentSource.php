@@ -101,6 +101,13 @@ final readonly class NonprofitDppoAssessmentSource
             'result' => $this->result($providers, $receipt)];
     }
 
+    /** Aktuální revize období vznikla stránkovanou cestou a nemá legacy snímek podkladů. */
+    public function currentIsPagedOnly(int $supplierId, int $periodId): bool
+    {
+        $assessment = $this->legacy->latest($supplierId, $periodId, true);
+        return $assessment !== null && $assessment['status'] === 'confirmed' && self::pagedOnly($assessment);
+    }
+
     /** Revize bez původního legacy JSON (vznikla stránkovanou cestou). */
     public static function pagedOnly(array $assessment): bool
     {

@@ -848,6 +848,29 @@ rok nebo zkrácené období s přílohou ztrát vyžaduje samostatné zpracován
 Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
 Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
 
+#### Použití daňové úspory v následujícím období
+
+Daňová úspora vznikne finalizací přiznání, které uplatní snížení základu daně podle
+§ 20 odst. 7. Úsporu použijete v bezprostředně následujícím účetním období v sekci
+**Použití daňové úspory podle § 20** na stejné obrazovce:
+
+1. Zvolte zdrojovou úsporu. Obrazovka ukáže její výši a zbývající částku.
+2. Vyberte zaúčtovaný náklad následujícího období. Nabídka obsahuje jen náklady, které
+   aktuální potvrzené daňové posouzení tohoto období vede jako způsobilé. Posouzení
+   může být v obou formátech, nabídku i dostupnou částku ověřuje server.
+3. Zadejte použitou částku a doložený účel a stiskněte **Zkontrolovat použití úspory**.
+4. V kontrole před potvrzením zaškrtněte, že jste uvedené skutečnosti ověřili, a použití
+   potvrďte.
+
+Použití lze později zrušit stejným postupem přes **Zkontrolovat zrušení použití**
+s uvedením důvodu; původní záznam zůstává v historii. Dokud použití trvá, náklad, na
+který navazuje, nelze změnit ani stornovat.
+
+DPPO následujícího období převezme evidenci použití automaticky. Je-li úspora použita
+celá, k základu daně se nic nepřičítá. Nepoužitou část aplikace přičte k základu daně
+v poměru nepoužité úspory k celé úspoře: například při snížení 100 000 Kč, úspoře
+21 000 Kč a použití 10 500 Kč přičte 50 000 Kč.
+
 Pracovní plocha pro posouzení neziskové organizace načítá podklady po stránkách. Nejprve
 zobrazí pouze souhrn zdrojů a potvrzenou historii. Koncept otevřete výslovně po volbě
 právního profilu a jeho důkazu; teprve potom procházíte účetní řádky, rozhodnutí,
@@ -883,6 +906,10 @@ zápis nespouští.
 
 DPPO 504 přebírá aktuální potvrzenou revizi v obou formátech. Pokud se po potvrzení
 změnily účetní podklady období, výpočet DPPO posouzení odmítne a je potřeba je potvrdit znovu.
+Výpočet, finalizace i XML DPPO navazujícího období a kontrola posouzení v roční uzávěrce
+fungují i tehdy, když jsou předchozí období posouzená v novém formátu. Starším
+formátem ale navazující období posoudit nelze: aplikace takové posouzení odmítne
+a vyzve k potvrzení v novém formátu.
 
 U SVJ jsou doložené příspěvky vlastníků na správu domu a pozemku a úhrady služeb
 vedeny odděleně jako příjmy mimo předmět daně. Toto zařazení nelze změnit ani ručním
