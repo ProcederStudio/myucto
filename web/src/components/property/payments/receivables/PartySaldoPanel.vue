@@ -15,6 +15,8 @@ const scope = useBusyScope()
 const date = ref(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Prague' }).format(new Date()))
 const limit = ref(50)
 const page = ref<PartySaldoPage | null>(null)
+// Součty domu vrací jen první stránka, další stránky je přebírají.
+const totals = ref<PartySaldoPage['totals']>(null)
 const cursors = ref<Array<string | undefined>>([undefined])
 const position = ref(0)
 const loading = ref(false)
@@ -27,6 +29,7 @@ const unitCodes = computed(() => new Map(props.units.map(unit => [unit.id, unit.
 function clear() {
   epoch++
   page.value = null
+  totals.value = null
   cursors.value = [undefined]
   position.value = 0
   error.value = ''
@@ -49,6 +52,7 @@ async function load(index = 0) {
     const result = await api.partySaldo(props.supplier, { date: date.value, limit: limit.value, ...(after ? { after } : {}) })
     if (ticket === epoch) {
       page.value = result
+      if (result.totals) totals.value = result.totals
       position.value = index
       cursors.value = cursors.value.slice(0, index + 1)
       if (result.next_cursor) cursors.value.push(result.next_cursor)
@@ -99,11 +103,11 @@ const actions = computed<ActionItem[]>(() => [
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <template v-if="page">
-      <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-2" data-party-totals>
+      <dl v-if="totals" class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-2" data-party-totals>
         <dt>{{ t('propertySaldo.parties.totalReceivable') }}</dt>
-        <dd data-total="receivable">{{ moneyText(page.totals.receivable, t('propertyPayments.unknown')) }}</dd>
+        <dd data-total="receivable">{{ moneyText(totals.receivable, t('propertyPayments.unknown')) }}</dd>
         <dt>{{ t('propertySaldo.parties.totalCredit') }}</dt>
-        <dd data-total="credit">{{ moneyText(page.totals.credit, t('propertyPayments.unknown')) }}</dd>
+        <dd data-total="credit">{{ moneyText(totals.credit, t('propertyPayments.unknown')) }}</dd>
       </dl>
       <article v-for="item in page.items" :key="item.party_ids.join(',') || '-'" class="space-y-2 rounded-lg border border-neutral-200 p-4" data-party-row>
         <h3 class="font-semibold">{{ partyText(item) }}</h3>

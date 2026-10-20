@@ -188,22 +188,90 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
     {
         $service = new \MyInvoice\Service\Property\Receivables\PropertyPartyReconciliation($this->db);
         $names = array_flip($this->people);
-        $rows = [];
-        $cursor = null;
-        do {
-            $page = $service->at($this->supplier, $date, 5, $cursor);
-            self::assertSame(['receivable' => $house['receivable'], 'credit' => $house['credit']], $page['totals']);
-            foreach ($page['items'] as $item) {
-                $key = implode('+', array_map(fn (int $id) => $names[$id], $item['party_ids']));
-                self::assertArrayNotHasKey($key, $rows, 'Stránkování vrátilo osobu dvakrát.');
-                $rows[$key] = [$item['receivable_cents'], $item['credit_cents']];
-            }
-            $cursor = $page['next_cursor'];
-        } while ($cursor !== null);
-        ksort($rows);
-        self::assertSame(['A' => ['0', '50000'], 'B' => ['50000', '0'], 'C' => ['500000', '0'], 'P01a+P01b' => ['0', '100000'],
+        $expected = ['A' => ['0', '50000'], 'B' => ['50000', '0'], 'C' => ['500000', '0'], 'P01a+P01b' => ['0', '100000'],
             'P02a+P02b+P02c' => ['350000', '0'], 'P03' => ['100000', '0'], 'P06' => ['200000', '0'], 'P07' => ['0', '50000'],
-            'P08' => ['200000', '0'], 'P10' => ['50000', '0'], 'P11' => ['0', '50000'], 'Q06' => ['0', '350000']], $rows);
+            'P08' => ['200000', '0'], 'P10' => ['50000', '0'], 'P11' => ['0', '50000'], 'Q06' => ['0', '350000']];
+        $order = null;
+        // Limit 1 a 2 staví každou množinu (i SJM P01a+P01b a spoluvlastníky U02) na hranu stránky.
+        foreach ([5, 2, 1] as $limit) {
+            $rows = [];
+            $cursors = [];
+            $cursor = null;
+            do {
+                $page = $service->at($this->supplier, $date, $limit, $cursor);
+                $totals = $cursor === null ? ['receivable' => $house['receivable'], 'credit' => $house['credit']] : null;
+                self::assertSame($totals, $page['totals'], 'Součty domu nese jen první stránka.');
+                self::assertLessThanOrEqual($limit, count($page['items']));
+                foreach ($page['items'] as $item) {
+                    $key = implode('+', array_map(fn (int $id) => $names[$id], $item['party_ids']));
+                    self::assertArrayNotHasKey($key, $rows, 'Stránkování vrátilo osobu dvakrát.');
+                    $rows[$key] = [$item['receivable_cents'], $item['credit_cents']];
+                }
+                $cursor = $page['next_cursor'];
+                if ($cursor !== null) $cursors[$key] = $cursor;
+            } while ($cursor !== null);
+            $order ??= array_keys($rows);
+            self::assertSame($order, array_keys($rows), 'Pořadí řádků nezávisí na velikosti stránky.');
+            ksort($rows);
+            self::assertSame($expected, $rows, 'limit ' . $limit);
+        }
+        $this->assertPartyPageReadsOnlyItsUnits($service, $date, $expected, $order, $cursors);
+    }
+
+    /**
+     * Stránka čte historii jen jednotek svých osob: poškozený kredit U11 (osoba P11) nesmí
+     * shodit stránku jiné množiny osob. Dřívější čtení celé firmy tady padalo na kontrole
+     * původu kreditu. Stránka, která P11 obsahuje, i první stránka se součty domu dál
+     * poškození odhalí.
+     *
+     * @param array<string,array{string,string}> $expected řádky podle jmen osob
+     * @param list<string> $order pořadí řádků podle jmen osob
+     * @param array<string,string> $cursors kurzor za řádkem při limitu 1
+     */
+    private function assertPartyPageReadsOnlyItsUnits(
+        \MyInvoice\Service\Property\Receivables\PropertyPartyReconciliation $service,
+        string $date,
+        array $expected,
+        array $order,
+        array $cursors,
+    ): void {
+        $p11 = array_search('P11', $order, true);
+        self::assertIsInt($p11);
+        $credit = (int) $this->pdo->query('SELECT id FROM unit_credit_lots WHERE supplier_id=' . $this->supplier
+            . ' AND unit_id=' . $this->f['units']['U11'] . ' ORDER BY id LIMIT 1')->fetchColumn();
+        self::assertGreaterThan(0, $credit);
+        $intruder = $this->people['P12'];
+        $this->pdo->exec('SAVEPOINT party_page_corruption');
+        $this->pdo->prepare('INSERT INTO unit_credit_parties (supplier_id,credit_id,client_id,party_json) VALUES (?,?,?,?)')
+            ->execute([$this->supplier, $credit, $intruder, json_encode(['id' => $intruder, 'label' => 'Syntetický vetřelec'], JSON_THROW_ON_ERROR)]);
+
+        // Řádek, jehož stránka (limit 1 bere dva otisky z indexu) se jednotky U11 nedotkne.
+        $keys = new \MyInvoice\Repository\Property\Receivables\PartyClaimKeyRepository($this->db);
+        $target = null;
+        foreach ($order as $i => $name) {
+            if ($i === 0 || $name === 'P11') continue;
+            $after = $cursors[$order[$i - 1]];
+            if (!in_array($this->f['units']['U11'], $keys->unitsForKeys($this->supplier, $keys->keysAfter($this->supplier, $after, 2)), true)) {
+                $target = [$name, $after];
+                break;
+            }
+        }
+        self::assertNotNull($target, 'Referenční dům má řádek mimo jednotku U11.');
+        [$name, $after] = $target;
+        $page = $service->at($this->supplier, $date, 1, $after);
+        self::assertCount(1, $page['items']);
+        self::assertSame($name, implode('+', array_map(fn (int $id) => array_flip($this->people)[$id], $page['items'][0]['party_ids'])));
+        self::assertSame($expected[$name], [$page['items'][0]['receivable_cents'], $page['items'][0]['credit_cents']]);
+        foreach ([null, $p11 === 0 ? null : $cursors[$order[$p11 - 1]]] as $cursor) {
+            try {
+                $service->at($this->supplier, $date, 1, $cursor);
+                self::fail('Poškozená historie U11 se nesmí ztratit.');
+            } catch (\DomainException $e) {
+                // Kredit U11 vznikl z vyúčtování služeb, jeho původ ověřuje důkaz vyúčtování.
+                self::assertSame('settlement_credit_origin', $e->getMessage());
+            }
+        }
+        $this->pdo->exec('ROLLBACK TO SAVEPOINT party_page_corruption');
     }
 
     // ---------------------------------------------------------------- vyúčtování vody 2027

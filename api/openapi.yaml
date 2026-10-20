@@ -790,7 +790,8 @@ paths:
         datu po množinách osob napříč jednotkami. Nárok patří skupinám v roli dlužníka platným k datu (po potvrzeném
         přechodu dluhu novému dlužníkovi), ručitel se nezapočítává. SJM a spoluvlastníci téhož nároku tvoří jeden
         řádek, takže součet řádků se rovná hrubým zůstatkům domu. Pohledávky a kredity téže osoby se nezapočítávají.
-        Interně se načítá finanční historie celé firmy, stránkuje se výsledek.
+        Řádky jsou seřazené podle otisku množiny osob; stránka čte finanční historii jen jednotek osob na stránce.
+        Součty domu nese jen první stránka (bez after).
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - name: date
@@ -812,7 +813,8 @@ paths:
         required: false
         schema:
           type: string
-        description: Kurzor next_cursor z předchozí stránky.
+          pattern: ^[0-9a-f]{64}$
+        description: Kurzor next_cursor z předchozí stránky (otisk množiny osob posledního řádku).
       responses:
         '200':
           description: OK
@@ -35278,11 +35280,15 @@ components:
           type:
           - string
           - 'null'
+          pattern: ^[0-9a-f]{64}$
           description: Hodnota pro parametr after další stránky.
         totals:
-          type: object
+          type:
+          - object
+          - 'null'
           additionalProperties: false
-          description: Součet všech řádků firmy (ne jen stránky); rovná se hrubým zůstatkům domu z rekonciliace.
+          description: Součet všech řádků firmy (ne jen stránky); rovná se hrubým zůstatkům domu z rekonciliace. Vrací
+            jen první stránka, další stránky mají null.
           required:
           - receivable
           - credit
