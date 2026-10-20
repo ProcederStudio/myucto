@@ -20,7 +20,7 @@ final class Statement504DataRepository
     {
         $accountDefinitions=AccountDefinitionRepository::relation($asOf,$supplierId);
         $anchor = $this->ledger->openingAnchor($supplierId, $startsOn);
-        [$source, $params] = $dimension?->lineSource($supplierId, 'l') ?? ['journal_entry_lines l', []];
+        [$source, $params] = $dimension?->lineSource($supplierId, 'l', $anchor, $asOf) ?? ['journal_entry_lines l', []];
         $origin = JournalTaxOrigin::sourceTypeSql();
         $stmt = $this->db->pdo()->prepare('WITH RECURSIVE ' . JournalTaxOrigin::cte($supplierId) . "
             SELECT a.id, a.account_code AS code, a.name, a.account_type,
@@ -87,7 +87,7 @@ final class Statement504DataRepository
         $filtered = null;
         $foreignSplits = [];
         if ($dimension !== null && $dimension->typeId !== $typeId) {
-            [$sql, $params] = $dimension->lineSource($supplierId, 'f');
+            [$sql, $params] = $dimension->lineSource($supplierId, 'f', $from, $to);
             $stmt = $this->db->pdo()->prepare("SELECT f.id,CAST(SUM(f.signed_amount) * 100 AS SIGNED) AS cents,
                 EXISTS(SELECT 1 FROM journal_entry_line_dimension_splits s WHERE s.line_id=f.id AND s.dimension_type_id=?) AS has_split
                 FROM {$sql}

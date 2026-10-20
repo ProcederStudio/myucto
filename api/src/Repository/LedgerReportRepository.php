@@ -48,7 +48,8 @@ final class LedgerReportRepository
         $accountDefinitions=AccountDefinitionRepository::relation($to,$supplierId);
         $anchor = $this->openingAnchor($supplierId, $from);
         [$filterSql, $filterParams] = $this->counterpartyFilter($filters, 'e');
-        [$linesSql, $linesParams] = $this->lineSource($supplierId, $filters['dimension'] ?? null);
+        // Rozvahové účty čtou od kotvy, výsledkové od začátku období; bez kotvy celou historii.
+        [$linesSql, $linesParams] = $this->lineSource($supplierId, $filters['dimension'] ?? null, $anchor !== null ? min($anchor, $periodStart) : null, $to);
         // Inventarizace/rozvaha k rozvahovému dni potřebuje zůstatky PŘED uzavřením knih —
         // close_books zápis (source_type='closing', source_id = period_id < STOCK_SLOT_BASE, UZ)
         // převádí rozvahové účty na 702/710 a jinak by je vynuloval. Otevírací
@@ -145,7 +146,7 @@ final class LedgerReportRepository
     {
         $accountDefinitions=AccountDefinitionRepository::relation($to,$supplierId);
         [$filterSql, $filterParams] = $this->counterpartyFilter($filters, 'e');
-        [$linesSql, $linesParams] = $this->lineSource($supplierId, $filters['dimension'] ?? null);
+        [$linesSql, $linesParams] = $this->lineSource($supplierId, $filters['dimension'] ?? null, $from, $to);
         $closingSql = $excludeClosing ? " AND " . JournalTaxOrigin::includedSql() : '';
         $closingParams = $excludeClosing ? [ClosingSourceId::STOCK_SLOT_BASE] : [];
         $openingSql = $excludeAllOpenings
@@ -385,7 +386,7 @@ final class LedgerReportRepository
     {
         $closingSql = $excludeClosing ? " AND " . JournalTaxOrigin::includedSql() : '';
         $closingParams = $excludeClosing ? [ClosingSourceId::STOCK_SLOT_BASE] : [];
-        [$linesSql, $linesParams] = $this->lineSource($supplierId, $dimension);
+        [$linesSql, $linesParams] = $this->lineSource($supplierId, $dimension, $from, $to);
         $stmt = $this->db->pdo()->prepare(
             ($excludeClosing ? "WITH RECURSIVE " . JournalTaxOrigin::cte($supplierId) . " " : "") . "SELECT COALESCE(SUM(CASE WHEN l.side = 'debit'  THEN l.signed_amount ELSE 0 END), 0) AS md,
                     COALESCE(SUM(CASE WHEN l.side = 'credit' THEN l.signed_amount ELSE 0 END), 0) AS d
@@ -445,7 +446,8 @@ final class LedgerReportRepository
         $accountDefinitions=AccountDefinitionRepository::relation($asOf,$supplierId);
         $anchor = $this->openingAnchor($supplierId, $asOf);
         $plCond = '';
-        [$linesSql, $linesParams] = $this->lineSource($supplierId, $dimension);
+        $lowerBound = $anchor !== null && $plFrom !== null ? min($anchor, $plFrom) : null;
+        [$linesSql, $linesParams] = $this->lineSource($supplierId, $dimension, $lowerBound, $asOf);
         $params = [...$linesParams, $supplierId, ClosingSourceId::STOCK_SLOT_BASE, $asOf];
         if ($plFrom !== null) {
             $plCond = " AND (a.account_type NOT IN ('revenue','expense') OR e.entry_date >= ?)";
@@ -459,9 +461,9 @@ final class LedgerReportRepository
         // všechny řádky deníku firmy za celou historii; s indexem (supplier_id, entry_date)
         // čte jen dotčené období. Bez kotvy nebo bez plFrom mez neexistuje.
         $lowerBoundSql = '';
-        if ($anchor !== null && $plFrom !== null) {
+        if ($lowerBound !== null) {
             $lowerBoundSql = ' AND e.entry_date >= ?';
-            $params[] = min($anchor, $plFrom);
+            $params[] = $lowerBound;
         }
         // Agregace per LIST účet (a.id) + jeho syntetika — roll-up i případný D2 split
         // (kladné/záporné saldo per analytika) se dopočítá v PHP.
@@ -711,13 +713,14 @@ final class LedgerReportRepository
 
     /**
      * Zdroj řádků deníku pod aliasem `l`: bez filtru tabulka sama, s filtrem na dimenzi
-     * řádky dané hodnoty včetně poměrného dílu řádků s rozpadem ({@see DimensionFilter::lineSource()}).
+     * řádky dané hodnoty včetně poměrného dílu řádků s rozpadem ({@see DimensionFilter::lineSource()})
+     * omezené na interval dat zápisu, který sestava čte.
      *
      * @return array{0:string, 1:list<int|string>}
      */
-    private function lineSource(int $supplierId, ?DimensionFilter $dimension): array
+    private function lineSource(int $supplierId, ?DimensionFilter $dimension, ?string $from, string $to): array
     {
-        return $dimension !== null ? $dimension->lineSource($supplierId, 'l') : ['journal_entry_lines l', []];
+        return $dimension !== null ? $dimension->lineSource($supplierId, 'l', $from, $to) : ['journal_entry_lines l', []];
     }
 
     private static function escapeLike(string $value): string
