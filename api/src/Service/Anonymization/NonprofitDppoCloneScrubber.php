@@ -5,7 +5,7 @@ namespace MyInvoice\Service\Anonymization;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
-use MyInvoice\Service\Tax\Nonprofit\{NonprofitDppoStoredProof,NonprofitLegalProfileService,NonprofitTaxRules,NonprofitTaxSavingsLedger};
+use MyInvoice\Service\Tax\Nonprofit\{NonprofitLegalProfileService,NonprofitTaxRules};
 use PDO;
 
 final class NonprofitDppoCloneScrubber
@@ -16,14 +16,9 @@ final class NonprofitDppoCloneScrubber
         return(new DimensionPeriodGuard($db))->transaction(function()use($db):array{
             $pdo=$db->pdo();$profiles=[];$legal=new NonprofitLegalProfileService($db);
             foreach($pdo->query('SELECT DISTINCT supplier_id,period_id FROM nonprofit_legal_profiles ORDER BY supplier_id,period_id')->fetchAll(PDO::FETCH_ASSOC)as$owner){$supplier=(int)$owner['supplier_id'];(new DimensionPeriodGuard($db))->lockPeriods($supplier);array_push($profiles,...$legal->history($supplier,(int)$owner['period_id'],true));}
-            $snapshots=[];
-            foreach($pdo->query('SELECT * FROM income_tax_return_snapshots ORDER BY supplier_id,id')->fetchAll(PDO::FETCH_ASSOC)as$row){$snapshot=json_decode($row['snapshot_json'],true,512,JSON_THROW_ON_ERROR);if(($snapshot['podklady']['accounting_decree']??null)!=='504')continue;
-                if(!hash_equals($row['source_sha256'],hash('sha256',$row['source_manifest']))||!hash_equals($row['xml_sha256'],hash('sha256',$row['xml_content'])))throw new \LogicException('DPPO clone source archive hash is invalid.');
-                NonprofitDppoStoredProof::verify($snapshot,json_decode($row['source_manifest'],true,512,JSON_THROW_ON_ERROR),$row['xml_content']);$snapshots[]=$row;
-            }
-            $sources=[];$events=[];$ledger=new NonprofitTaxSavingsLedger($db);
-            foreach($pdo->query('SELECT DISTINCT supplier_id FROM nonprofit_tax_saving_sources ORDER BY supplier_id')->fetchAll(PDO::FETCH_COLUMN)as$supplier){(new DimensionPeriodGuard($db))->lockPeriods((int)$supplier);foreach($ledger->sources((int)$supplier)as$source){$sources[]=$source;$events[$source['id']]=$ledger->events((int)$supplier,$source['id']);}}
-            return['database'=>(string)$pdo->query('SELECT DATABASE()')->fetchColumn(),'profiles'=>$profiles,'snapshots'=>$snapshots,'sources'=>$sources,'events'=>$events,'assessments'=>$pdo->query('SELECT id,supplier_id,period_id,input_hash,request_hash,snapshot_json,result_json FROM nonprofit_tax_assessments ORDER BY supplier_id,period_id,revision_no')->fetchAll(PDO::FETCH_ASSOC)];
+            // Archivy 504 a evidenci úspor zachytávají po dávkách NonprofitDppoArchiveCloneCapture
+            // a NonprofitTaxSavingsCloneScrubber; tady zůstávají jen historie právních profilů.
+            return['database'=>(string)$pdo->query('SELECT DATABASE()')->fetchColumn(),'profiles'=>$profiles];
         });
     }
 

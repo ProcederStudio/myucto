@@ -39,6 +39,79 @@ final class NonprofitDppoStoredProof
         return match($record['version']){3=>'v3',2=>'v2',default=>self::invalid()};
     }
 
+    /**
+     * Přenese zmrazený důkaz 504 na pseudonymizované podklady anonymizované kopie.
+     *
+     * Verze záznamu se zachová (v3 si nechá původní form_manifest a přepočte jen
+     * line_coverage, v2 ani neverzovaný záznam pole v3 nikdy nedostanou). Nový záznam
+     * musí dát přesně stejnou finanční projekci, stejné buňky výkazů, stejnou přílohu E,
+     * období i vazby na posouzení a profil; jinak jde o podvržený výpočet, ne o pseudonymizaci.
+     */
+    public static function rebaseHistorical(array $original,array $data,array $inputs,array $entityProof):array
+    {
+        $profile=self::comparisonProfile($original);
+        if(!is_array($original['data']??null)||!is_array($original['inputs']??null)||!is_array($original['entity_proof']??null))self::invalid();
+        $constants=self::constantsForRecord($original);
+        $calculator=new DppoReturnCalculator();
+        $before=$calculator->compute($original['data'],$original['inputs'],$constants);
+        self::assertCalculation($before,$original);
+        if($profile!=='v3'&&self::hasVersionThreeFields($original))self::invalid();
+
+        $record=$original;
+        unset($record['filing_proof_hash']);
+        $record['data']=$data;
+        $record['inputs']=$inputs;
+        $record['entity_proof']=$entityProof;
+        if($profile==='v3'){
+            $record['line_coverage']=self::lineCoverage($data);
+            self::assertVersionThree($record,false);
+        }elseif(self::hasVersionThreeFields($record))self::invalid();
+
+        $after=$calculator->compute($record['data'],$record['inputs'],$constants);
+        if(self::financial($before)!==self::financial($after)||self::semanticProjection($original)!==self::semanticProjection($record))self::invalid();
+        $record['filing_proof_hash']=self::filingProofHash($record);
+        self::assertCalculation($after,$record);
+        return$record;
+    }
+
+    /**
+     * Typované hodnoty záznamu, které pseudonymizace nesmí změnit: období, příloha E,
+     * buňky výkazů, řádky můstku, úpravy, úspora a identita posouzení i profilu.
+     */
+    public static function semanticProjection(array $record):array
+    {
+        $data=$record['data']??null;
+        $nonprofit=is_array($data)?($data['nonprofit']??null):null;
+        if(!is_array($data)||!is_array($nonprofit))self::invalid();
+        $adjustments=[];
+        foreach($nonprofit['adjustments']??[]as$adjustment){
+            if(!is_array($adjustment))self::invalid();
+            $adjustments[]=['kind'=>$adjustment['kind']??null,'line'=>$adjustment['line']??null,'amount_cents'=>$adjustment['amount_cents']??null,
+                'source_id'=>$adjustment['source_id']??null,'source_ids'=>$adjustment['source_ids']??null,'asset_id'=>$adjustment['asset_id']??null];
+        }
+        $receipt=$data['j6_receipt']??null;
+        return[
+            'version'=>$record['version']??null,
+            'period'=>$data['period']??null,
+            'loss_appendix'=>$data['loss_appendix']??null,
+            'statements'=>self::statementProjection($data),
+            'vh'=>$data['vh']??null,
+            'net_turnover_annual_kc'=>$data['net_turnover_annual_kc']??null,
+            'line_cents'=>$nonprofit['bridge']['line_cents']??null,
+            'source_lines'=>$nonprofit['bridge']['source_lines']??null,
+            'adjustments'=>$adjustments,
+            'unused_reduction_addback_kc'=>$nonprofit['unused_reduction_addback_kc']??null,
+            'saving_due_addback_kc'=>$nonprofit['saving_due']['addback_kc']??null,
+            'assessment_id'=>$nonprofit['assessment']['id']??null,
+            'assessment_period_id'=>$nonprofit['assessment']['period_id']??null,
+            'legal_profile_id'=>$nonprofit['legal_profile']['id']??null,
+            'legal_profile_kind'=>$nonprofit['legal_profile']['profile']['kind']??null,
+            'j6_receipt'=>is_array($receipt)?['version'=>$receipt['version']??null,'assessment_id'=>$receipt['assessment_id']??null,'period'=>$receipt['period']??null]:null,
+            'constants'=>$record['constants']??null,
+            'form_manifest'=>$record['form_manifest']??null,
+        ];
+    }
+
     public static function assertCalculation(array $computed,array $record):void
     {
         $hash=$record['filing_proof_hash']??null;unset($record['filing_proof_hash']);
@@ -144,6 +217,21 @@ final class NonprofitDppoStoredProof
         $lines=[];foreach($computed['lines']??[]as$row){if(!is_array($row)||!is_int($row['line']??null)||!is_numeric($row['value']??null)||isset($lines[$row['line']]))self::invalid();$lines[$row['line']]=(string)(int)$row['value'];}ksort($lines,SORT_NUMERIC);
         return['lines'=>$lines,'tax'=>(string)(int)($computed['tax']??-1),'advances_paid'=>(string)(int)($computed['advances_paid']??-1),'balance_due'=>(string)(int)($computed['balance_due']??-1),'saving'=>$computed['nonprofit']['saving']??null,'filing_obligation'=>$computed['nonprofit']['filing_obligation']??null];
     }
+    private static function statementProjection(array $data):array
+    {
+        $statements=$data['statements']??null;
+        if(!is_array($statements)||!is_array($statements['balance_sheet']??null)||!is_array($statements['income_statement']??null))self::invalid();
+        $cells=$statements;
+        unset($cells['balance_sheet']['entity'],$cells['income_statement']['entity']);
+        return['cells'=>$cells,'epo'=>(new NonprofitDppoStatementRows())->build($statements['balance_sheet'],$statements['income_statement'])];
+    }
+
+    private static function hasVersionThreeFields(array $record):bool
+    {
+        return array_key_exists('form_manifest',$record)||array_key_exists('line_coverage',$record)||array_key_exists('proof_hash_mode',$record)
+            ||array_key_exists('j6_receipt',$record['data']??[])||array_key_exists('loss_appendix',$record['data']??[]);
+    }
+
     private static function yearLoss(array $computed):float
     {$base=(float)($computed['summary']['base']??0);return$base<0?round(-$base,2):0.0;}
     private static function invalid():never

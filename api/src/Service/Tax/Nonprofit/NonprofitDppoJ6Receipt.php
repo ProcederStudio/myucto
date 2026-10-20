@@ -81,6 +81,45 @@ final class NonprofitDppoJ6Receipt
         return $receipt + ['receipt_hash' => NonprofitTaxRules::hash($receipt)];
     }
 
+    /**
+     * Receipt zmrazeného archivu převázaný na totéž posouzení po jeho přepisu v anonymizované
+     * kopii. Číslo posouzení i období zůstávají, mění se jen otisky. Stránkovaný receipt
+     * (verze 2) se takto přenést nedá, jeho graf by se musel přestavět celý.
+     */
+    public static function rebase(array $receipt, array $assessment): array
+    {
+        $period = $receipt['period'] ?? null;
+        if (($receipt['version'] ?? null) !== 1
+            || !is_array($period)
+            || ($receipt['assessment_id'] ?? null) !== ($assessment['id'] ?? null)
+            || ($period['id'] ?? null) !== ($assessment['period_id'] ?? null)
+            || !is_array($assessment['snapshot'] ?? null)
+            || !is_array($assessment['assessment'] ?? null)
+            || !is_array($assessment['result'] ?? null)
+            || !is_string($assessment['input_hash'] ?? null)
+            || !is_string($assessment['request_hash'] ?? null)) {
+            self::invalid();
+        }
+        $hash = $receipt['receipt_hash'] ?? null;
+        $unsigned = $receipt;
+        unset($unsigned['receipt_hash']);
+        if (!is_string($hash) || !hash_equals($hash, NonprofitTaxRules::hash($unsigned))) {
+            self::invalid();
+        }
+        $rebased = [
+            'version' => 1,
+            'ruleset' => $receipt['ruleset'],
+            'assessment_id' => $receipt['assessment_id'],
+            'period' => $period,
+            'input_hash' => $assessment['input_hash'],
+            'request_hash' => $assessment['request_hash'],
+            'snapshot_hash' => NonprofitTaxRules::hash($assessment['snapshot']),
+            'assessment_hash' => NonprofitTaxRules::hash($assessment['assessment']),
+            'result_hash' => NonprofitTaxRules::hash($assessment['result']),
+        ];
+        return $rebased + ['receipt_hash' => NonprofitTaxRules::hash($rebased)];
+    }
+
     public static function verify(array $receipt, array $period, array $result): void
     {
         $hash = $receipt['receipt_hash'] ?? null;
