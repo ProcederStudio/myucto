@@ -1,0 +1,448 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Tests\Integration\Accounting;
+
+use MyInvoice\Action\Invoice\IssueInvoiceAction;
+use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Repository\AccountingPeriodRepository;
+use MyInvoice\Repository\InvoiceRepository;
+use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\PurchaseInvoiceCalculator;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceReceiver;
+use MyInvoice\Tests\Support\IsolatedSupplierTrait;
+use PDO;
+use PHPUnit\Framework\TestCase;
+use Slim\Psr7\Factory\ServerRequestFactory;
+use Slim\Psr7\Response as Psr7Response;
+
+/**
+ * Referenční obchodní společnost „Vzorová obchodní s.r.o.“ (plátce DPH, měsíční období,
+ * podvojné účetnictví, rámec 500) přes dva kalendářní roky produkčními službami a akcemi:
+ * doklady, import výpisu, pokladna, majetek, výkazy DPH, uzávěrka, DPPO a otevření roku.
+ *
+ * Očekávané hodnoty jsou spočtené ručně z účetní a daňové logiky (rozpis v komentářích
+ * u jednotlivých kroků), ne opsané z výstupu aplikace. Všechny osoby a částky jsou syntetické.
+ */
+final class CommercialReferenceCompanyEndToEndTest extends TestCase
+{
+    use IsolatedSupplierTrait;
+
+    private const BANK_ACCOUNT = '2000000042';
+    private const BANK_CODE = '0800';
+
+    private \DI\Container $container;
+    private Connection $db;
+    private PDO $pdo;
+    private int $supplier;
+    private int $actor;
+    private int $czk;
+    private int $eur;
+    private int $vat21;
+    private int $vat12;
+    private int $vat0;
+    private int $period2024;
+    /** @var array<string,int> protistrany podle referenčního značení */
+    private array $parties = [];
+    /** @var array<string,int> doklady podle referenčního značení */
+    private array $docs = [];
+    private int $statementSeq = 0;
+
+    protected function setUp(): void
+    {
+        $this->container = Bootstrap::buildContainer();
+        $this->db = $this->container->get(Connection::class);
+        $this->pdo = $this->db->pdo();
+        self::assertStringEndsWith('_test', (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn());
+        $this->pdo->exec("SET SESSION sql_mode='STRICT_ALL_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+        $this->pdo->beginTransaction();
+
+        $seed = (int) $this->pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetchColumn();
+        $this->actor = (int) $this->pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        $this->supplier = $this->createIsolatedSupplier($this->pdo, $seed);
+        $this->pdo->prepare("UPDATE supplier SET company_name='Vzorová obchodní s.r.o.', accounting_mode='double_entry', taxpayer_type='po',
+                stock_enabled=0, vat_period='monthly', ic='12345679', dic='CZ12345679', financial_office_code='451',
+                proforma_payment_document='always_tax_document' WHERE id=?")
+            ->execute([$this->supplier]);
+        $this->setVatPayerAt($this->pdo, $this->supplier, '1900-01-01', true);
+        $this->pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework) VALUES(?,'2024-01-01','cz_500')")
+            ->execute([$this->supplier]);
+        $this->czk = $this->currency('CZK', 'Česká koruna', 1);
+        $this->eur = $this->currency('EUR', 'euro', 0);
+        $this->pdo->prepare('UPDATE supplier SET default_currency_id=? WHERE id=?')->execute([$this->czk, $this->supplier]);
+        $this->pdo->prepare("INSERT INTO supplier_bank_accounts (supplier_id,label,account_number,bank_code,bank_code_norm,currency,account_canonical,kind,source,is_active)
+                VALUES (?,'Běžný účet',?,?,?,'CZK',?,'current','manual',1)")
+            ->execute([$this->supplier, self::BANK_ACCOUNT, self::BANK_CODE, self::BANK_CODE, self::BANK_ACCOUNT]);
+
+        (new ChartOfAccountsSeeder($this->db))->seedForSupplier($this->supplier, '2024-01-01');
+        $this->period2024 = (new AccountingPeriodRepository($this->db))->create($this->supplier, 2024, '2024-01-01', '2024-12-31');
+        foreach (['document.invoice', 'document.purchase', 'bank.payment.matched'] as $operation) {
+            $this->pdo->prepare("INSERT INTO auto_posting_policy (supplier_id, operation_type, level, updated_by) VALUES (?, ?, 'auto', ?)
+                    ON DUPLICATE KEY UPDATE level='auto'")
+                ->execute([$this->supplier, $operation, $this->actor]);
+        }
+
+        $rate = static fn (PDO $pdo, string $percent): int => (int) $pdo->query(
+            "SELECT id FROM vat_rates WHERE country='CZ' AND rate_percent={$percent} AND is_reverse_charge=0 AND valid_to IS NULL ORDER BY id LIMIT 1"
+        )->fetchColumn();
+        $this->vat21 = $rate($this->pdo, '21');
+        $this->vat12 = $rate($this->pdo, '12');
+        $this->vat0 = $rate($this->pdo, '0');
+
+        $this->parties = [
+            'alfa' => $this->party('Odběratel Alfa s.r.o.', 'CZ', '76543214', 'CZ76543214', true, false),
+            'gamma' => $this->party('Syntetische Kunde GmbH', 'DE', null, 'DE123456789', true, false),
+            'beta' => $this->party('Strojírna Beta s.r.o.', 'CZ', '11111119', 'CZ11111119', false, true),
+            'delta' => $this->party('Služby Delta s.r.o.', 'CZ', '22222227', 'CZ22222227', false, true),
+            'stavby' => $this->party('Stavby Epsilon s.r.o.', 'CZ', '33333335', 'CZ33333335', false, true),
+            'cloud' => $this->party('Synthetic Cloud Ltd', 'IE', null, 'IE1234567T', false, true),
+            'pojistovna' => $this->party('Pojišťovna Zeta a.s.', 'CZ', '44444443', 'CZ44444443', false, true),
+        ];
+    }
+
+    protected function tearDown(): void
+    {
+        if (isset($this->pdo) && $this->pdo->inTransaction()) $this->pdo->rollBack();
+    }
+
+    public function testReferenceCompanyTwoYears(): void
+    {
+        $this->opening2024();
+        $this->firstQuarter2024();
+        self::assertSame(['022' => '120000.00', '211' => '22420.00', '221' => '454700.00', '311' => '56000.00', '343' => '-21120.00',
+            '411' => '-200000.00', '428' => '-220000.00', '501' => '30000.00', '511' => '30000.00', '518' => '40000.00', '602' => '-312000.00'],
+            $this->balances('2024-03-31'));
+        $this->restOf2024();
+        self::assertSame(['022' => '120000.00', '211' => '21210.00', '221' => '475600.00', '311' => '44165.00', '343' => '-24375.00',
+            '411' => '-200000.00', '428' => '-220000.00', '501' => '31000.00', '511' => '30000.00', '518' => '65000.00', '548' => '36500.00',
+            '602' => '-378500.00', '663' => '-600.00'], $this->balances('2024-12-31'));
+        $this->assertVatReports2024();
+    }
+
+    /**
+     * Přiznání DPH (hodnoty, jak jdou do XML), kontrolní a souhrnné hlášení 2024.
+     * Leden: ř. 1 = FV-1 200 000 + hotovost 2 000, ř. 40 a 47 = stroj 120 000.
+     * Únor: ř. 2 = ubytování 50 000, ř. 40 = služby 40 000 + notebook 30 000.
+     * Březen: ř. 1 = daňový doklad k záloze 60 000 (vyúčtování ho odečte na nulu), ř. 10 a 43 = § 92a 30 000.
+     * Duben: ř. 1 = dobropis −20 000, ř. 5 a 43 = služba z EU 25 000, ř. 21 = služba do EU 50 000.
+     */
+    private function assertVatReports2024(): void
+    {
+        self::assertEquals(['dan23' => '42420', 'obrat23' => '202000', 'nar_maj' => '120000', 'odp_sum_nar' => '25200', 'odp_tuz23_nar' => '25200',
+            'pln23' => '120000', 'dan_zocelk' => '42420', 'dano_da' => '17220', 'odp_zocelk' => '25200'], $this->dph(2024, 1));
+        self::assertEquals(['dan5' => '6000', 'obrat5' => '50000', 'odp_sum_nar' => '14700', 'odp_tuz23_nar' => '14700', 'pln23' => '70000',
+            'dan_zocelk' => '6000', 'dano_no' => '8700', 'odp_zocelk' => '14700'], $this->dph(2024, 2));
+        self::assertEquals(['dan23' => '12600', 'dan_rpren23' => '6300', 'obrat23' => '60000', 'rez_pren23' => '30000', 'nar_zdp23' => '30000',
+            'od_zdp23' => '6300', 'odp_sum_nar' => '6300', 'dan_zocelk' => '18900', 'dano_da' => '12600', 'odp_zocelk' => '6300'], $this->dph(2024, 3));
+        self::assertEquals(['dan23' => '-4200', 'dan_psl23_e' => '5250', 'obrat23' => '-20000', 'p_sl23_e' => '25000', 'pln_sluzby' => '50000',
+            'nar_zdp23' => '25000', 'od_zdp23' => '5250', 'odp_sum_nar' => '5250', 'dan_zocelk' => '1050', 'dano_no' => '4200', 'odp_zocelk' => '5250'],
+            $this->dph(2024, 4));
+        self::assertEquals(['odp_sum_nar' => '210', 'odp_tuz23_nar' => '210', 'pln23' => '1000', 'dano_no' => '210', 'odp_zocelk' => '210'], $this->dph(2024, 6));
+        self::assertEquals(['dan23' => '7665', 'obrat23' => '36500', 'dan_zocelk' => '7665', 'dano_da' => '7665'], $this->dph(2024, 12));
+
+        self::assertSame(['A4' => [['76543214', '200000.00', '42000.00', '0.00', '0.00']], 'A5' => [['', '2000.00', '420.00', '0.00', '0.00']],
+            'B2' => [['11111119', '120000.00', '25200.00', '0.00', '0.00']]], $this->kh(2024, 1));
+        self::assertSame(['A4' => [['76543214', '0.00', '0.00', '50000.00', '6000.00']],
+            'B2' => [['11111119', '30000.00', '6300.00', '0.00', '0.00'], ['22222227', '40000.00', '8400.00', '0.00', '0.00']]], $this->kh(2024, 2));
+        self::assertSame(['A4' => [['76543214', '60000.00', '12600.00', '0.00', '0.00']], 'B1' => [['33333335', '30000.00', '6300.00', '0.00', '0.00']]],
+            $this->kh(2024, 3));
+        self::assertSame(['A2' => [['1234567T', '25000.00', '5250.00', '0.00', '0.00']], 'A4' => [['76543214', '-20000.00', '-4200.00', '0.00', '0.00']]],
+            $this->kh(2024, 4));
+        self::assertSame(['B3' => [['', '1000.00', '210.00', '0.00', '0.00']]], $this->kh(2024, 6));
+        self::assertSame(['A4' => [['76543214', '36500.00', '7665.00', '0.00', '0.00']]], $this->kh(2024, 12));
+
+        $sh = $this->container->get(\MyInvoice\Service\Report\SouhrnneHlaseniBuilder::class)->build($this->supplier, 2024, 4);
+        self::assertSame([['k_stat' => 'DE', 'vat_id' => '123456789', 'sh_type' => '3', 'amount' => 50000.0, 'count' => 1]],
+            array_map(static fn (array $row): array => array_intersect_key($row, array_flip(['k_stat', 'vat_id', 'sh_type', 'amount', 'count'])), $sh['summary']['rows']));
+    }
+
+    /** @return array<string,string> nenulové hodnoty řádků přiznání DPH z XML */
+    private function dph(int $year, int $month): array
+    {
+        $built = $this->container->get(\MyInvoice\Service\Report\DphPriznaniBuilder::class)->build($this->supplier, $year, $month);
+        $form = (new \SimpleXMLElement($built['xml']))->DPHDP3;
+        $out = [];
+        foreach (['Veta1', 'Veta2', 'Veta4', 'Veta6'] as $veta) {
+            foreach ($form->{$veta}->attributes() ?? [] as $name => $value) {
+                if (!in_array((string) $value, ['', '0'], true)) $out[(string) $name] = (string) $value;
+            }
+        }
+        return $out;
+    }
+
+    /** @return array<string,list<list<string>>> řádky kontrolního hlášení: DIČ, základ a daň 21 %, základ a daň 12 % */
+    private function kh(int $year, int $month): array
+    {
+        $built = $this->container->get(\MyInvoice\Service\Report\KontrolniHlaseniBuilder::class)->build($this->supplier, $year, $month);
+        $form = (new \SimpleXMLElement($built['xml']))->DPHKH1;
+        $out = [];
+        foreach (['A1', 'A2', 'A4', 'A5', 'B1', 'B2', 'B3'] as $section) {
+            foreach ($form->{'Veta' . $section} as $row) {
+                $out[$section][] = [(string) ($row['dic_odb'] ?? $row['dic_dod'] ?? $row['vatid_dod'] ?? ''), (string) ($row['zakl_dane1'] ?? '0.00'),
+                    (string) ($row['dan1'] ?? '0.00'), (string) ($row['zakl_dane2'] ?? '0.00'), (string) ($row['dan2'] ?? '0.00')];
+            }
+            if (isset($out[$section])) sort($out[$section]);
+        }
+        return $out;
+    }
+
+    // ---------------------------------------------------------------- rok 2024
+
+    /** Počáteční rozvaha 1. 1. 2024: banka 400 000, pokladna 20 000 | ZK 200 000, nerozdělený zisk 220 000. */
+    private function opening2024(): void
+    {
+        $this->container->get(PostingService::class)->postDocument($this->supplier, 'opening', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => '400000.00'],
+            ['account_code' => '211', 'side' => 'debit', 'amount' => '20000.00'],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => '200000.00'],
+            ['account_code' => '428', 'side' => 'credit', 'amount' => '220000.00'],
+        ], ['entry_date' => '2024-01-01', 'document_no' => 'PS-2024', 'description' => 'Počáteční stavy', 'posted' => true,
+            'posted_by' => $this->actor, 'user_id' => $this->actor]);
+    }
+
+    private function firstQuarter2024(): void
+    {
+        // PF-DM: stroj 120 000 + 21 % 25 200 = 145 200 → 042 / 343 / 321; zařazení 15. 1. → 022 / 042.
+        $this->docs['PF-DM'] = $this->purchase('beta', 'PF-BETA-2401', '2024-01-10', [
+            ['Syntetický obráběcí stroj', 120000, $this->vat21, ['expense_kind' => 'fixed_asset', 'is_fixed_asset' => 1]],
+        ], ['is_fixed_asset' => 1, 'varsymbol' => '2401']);
+        $assets = $this->container->get(\MyInvoice\Service\Accounting\Assets\AssetService::class);
+        $asset = $assets->create($this->supplier, ['inventory_number' => 'DM-001', 'name' => 'Syntetický obráběcí stroj', 'input_price' => 120000.00,
+            'acquisition_date' => '2024-01-10', 'tax_method' => 'straight', 'tax_group' => 2, 'acc_useful_life_months' => 60,
+            'purchase_invoice_id' => $this->docs['PF-DM']], ['user_id' => $this->actor]);
+        $this->docs['DM'] = (int) $asset['asset']['id'];
+        $assets->putIntoUse($this->supplier, $this->docs['DM'], '2024-01-15', true, ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+        // FV-1: služby 200 000 + 21 % 42 000 = 242 000.
+        $this->docs['FV-1'] = $this->issued('alfa', '2024-01-20', [['Syntetické poradenství leden', 200000, $this->vat21]]);
+        // Pokladna: tržba 2 000 + 21 % 420 = 2 420 (KH A.5).
+        $registers = $this->container->get(\MyInvoice\Service\Accounting\Cash\CashRegisterService::class);
+        $this->docs['POK'] = $registers->create($this->supplier, ['name' => 'Hlavní pokladna', 'account_code' => '211', 'is_default' => true]);
+        $this->cash(['purpose' => 'sale', 'doc_type' => 'in', 'issue_date' => '2024-01-25', 'total_amount' => 2420.00, 'vat_mode' => 'vat',
+            'vat_lines' => [['vat_rate' => 21, 'base_amount' => 2000.00, 'vat_amount' => 420.00]], 'description' => 'Syntetická hotovostní tržba']);
+
+        // PF-1: služby 40 000 + 21 % 8 400; FV-2: ubytování 50 000 + 12 % 6 000; PF-DrM: notebook 30 000 + 21 % 6 300 (drobný majetek 501).
+        $this->docs['PF-1'] = $this->purchase('delta', 'PF-DELTA-2402', '2024-02-05', [['Syntetické služby', 40000, $this->vat21]], ['varsymbol' => '2402']);
+        $this->docs['FV-2'] = $this->issued('alfa', '2024-02-10', [['Syntetické ubytování', 50000, $this->vat12]]);
+        $this->docs['PF-DrM'] = $this->purchase('beta', 'PF-BETA-2403', '2024-02-15', [
+            ['Syntetický notebook', 30000, $this->vat21, ['expense_kind' => 'small_asset']],
+        ], ['varsymbol' => '2403']);
+        $this->bank('2024-02-28', [
+            [242000.00, 'FV-1', 'Odberatel Alfa'],
+            [-145200.00, 'PF-DM', 'Strojirna Beta'],
+            [-48400.00, 'PF-1', 'Sluzby Delta'],
+        ]);
+
+        // PF-RC: stavební práce § 92a 30 000, daň 6 300 přizná odběratel (ř. 10 a 43, KH B.1).
+        $this->docs['PF-RC'] = $this->purchase('stavby', 'PF-EPS-2404', '2024-03-10', [['Syntetické stavební práce', 30000, $this->vat21,
+            ['expense_account_code' => '511']]], ['reverse_charge' => 1, 'varsymbol' => '2404']);
+        // ZF-1: záloha 60 000 + 21 % = 72 600, uhrazena 12. 3.; daňový doklad k platbě a vyúčtování 25. 3.
+        $this->docs['ZF-1'] = $this->issued('alfa', '2024-03-01', [['Syntetický projekt', 60000, $this->vat21]], ['invoice_type' => 'proforma']);
+        $this->bank('2024-03-12', [[72600.00, 'ZF-1', 'Odberatel Alfa']]);
+        $ddkp = (int) $this->pdo->query("SELECT id FROM invoices WHERE parent_invoice_id={$this->docs['ZF-1']} AND invoice_type='tax_document'")->fetchColumn();
+        self::assertGreaterThan(0, $ddkp, 'Úhrada zálohy založí daňový doklad k platbě.');
+        $this->issue($ddkp);
+        $this->docs['DDKP-1'] = $ddkp;
+        $this->docs['FV-ZF'] = $this->container->get(\MyInvoice\Service\Invoice\FinalFromProformaCreator::class)
+            ->create($this->docs['ZF-1'], $this->actor, '2024-03-25', '2024-04-08');
+        $this->issue($this->docs['FV-ZF']);
+        $this->bank('2024-03-31', [
+            [-30000.00, 'PF-RC', 'Stavby Epsilon'],
+            [-36300.00, 'PF-DrM', 'Strojirna Beta'],
+        ]);
+    }
+
+    private function restOf2024(): void
+    {
+        // DOB-1: dobropis k FV-1 −20 000 − 21 % 4 200 = −24 200, vrácen odběrateli 30. 4.
+        $this->docs['DOB-1'] = $this->issued('alfa', '2024-04-15', [['Syntetická sleva z poradenství', 20000, $this->vat21, ['quantity' => -1]]],
+            ['invoice_type' => 'credit_note', 'parent_invoice_id' => $this->docs['FV-1']]);
+        // FV-EU: služba do Německa 2 000 EUR × 25,00 = 50 000 Kč, daň přiznává příjemce (ř. 21, SH kód 3).
+        $this->rate('2024-04-19', '25.000');
+        $this->docs['FV-EU'] = $this->issued('gamma', '2024-04-20', [['Synthetic consulting', 2000, $this->vat0]],
+            ['currency_id' => $this->eur, 'reverse_charge' => 1, 'vat_classification_code' => '22', 'exchange_rate' => 25.0, 'exchange_rate_date' => '2024-04-19']);
+        // PF-EU: služba z Irska 1 000 EUR × 25,00 = 25 000 Kč, daň 5 250 přizná odběratel (ř. 5 a 43, KH A.2).
+        $this->docs['PF-EU'] = $this->purchase('cloud', 'IE-2024-0425', '2024-04-25', [['Synthetic cloud service', 1000, $this->vat21]],
+            ['currency_id' => $this->eur, 'exchange_rate' => 25.0, 'exchange_rate_date' => '2024-04-24', 'reverse_charge' => 1, 'varsymbol' => '2405']);
+        $this->bank('2024-04-30', [
+            [-24200.00, 'DOB-1', 'Odberatel Alfa', 'invoice_id'],
+            [-25000.00, 'PF-EU', 'Synthetic Cloud'],
+        ]);
+        // Úhrada FV-EU v Kč 50 600 → kurzový zisk 600 (663); úhrada FV-2 56 000.
+        $this->bank('2024-05-31', [
+            [50600.00, 'FV-EU', 'Synthetische Kunde'],
+            [56000.00, 'FV-2', 'Odberatel Alfa'],
+        ]);
+        // Pokladna: kancelářské potřeby 1 000 + 21 % 210 = 1 210 (KH B.3).
+        $this->cash(['purpose' => 'purchase', 'doc_type' => 'out', 'issue_date' => '2024-06-10', 'total_amount' => 1210.00, 'vat_mode' => 'vat',
+            'vat_lines' => [['vat_rate' => 21, 'base_amount' => 1000.00, 'vat_amount' => 210.00]], 'description' => 'Syntetické kancelářské potřeby']);
+        // PF-POJ: pojistné 36 500 (osvobozené) na 1. 10. 2024 – 30. 9. 2025, 365 dnů → do roku 2025 patří 273 dnů = 27 300 (381).
+        $this->docs['PF-POJ'] = $this->purchase('pojistovna', 'POJ-2024-10', '2024-10-01', [['Syntetické pojištění majetku', 36500, $this->vat0,
+            ['expense_account_code' => '548', 'accrual_from' => '2024-10-01', 'accrual_to' => '2025-09-30']]], ['vat_deduction' => 'none', 'varsymbol' => '2406']);
+        $this->bank('2024-10-15', [[-36500.00, 'PF-POJ', 'Pojistovna Zeta']]);
+        // FV-LIC: licence 36 500 + 21 % 7 665 na 1. 12. 2024 – 30. 11. 2025, 365 dnů → do roku 2025 patří 334 dnů = 33 400 (384).
+        $this->docs['FV-LIC'] = $this->issued('alfa', '2024-12-01', [['Syntetická roční licence', 36500, $this->vat21,
+            ['accrual_from' => '2024-12-01', 'accrual_to' => '2025-11-30']]]);
+    }
+
+    // ---------------------------------------------------------------- doklady
+
+    /** @param list<array{0:string,1:float|int,2:int,3?:array<string,mixed>}> $items */
+    private function issued(string $party, string $date, array $items, array $header = []): int
+    {
+        $repo = $this->container->get(InvoiceRepository::class);
+        $id = $repo->createDraft($header + ['client_id' => $this->parties[$party], 'issue_date' => $date, 'tax_date' => $date,
+            'due_date' => date('Y-m-d', strtotime($date . ' +14 days')), 'currency_id' => $this->czk], $this->actor);
+        if (isset($header['exchange_rate'])) $repo->setExchangeRate($id, (float) $header['exchange_rate'], (string) $header['exchange_rate_date']);
+        $repo->replaceItems($id, array_map(static fn (array $item): array => ($item[3] ?? []) + ['description' => $item[0], 'quantity' => 1,
+            'unit' => 'ks', 'unit_price_without_vat' => $item[1], 'vat_rate_id' => $item[2]], $items));
+        $this->container->get(InvoiceCalculator::class)->recompute($id);
+        $this->issue($id, ($header['invoice_type'] ?? 'invoice') !== 'proforma');
+        return $id;
+    }
+
+    private function issue(int $invoiceId, bool $posted = true): void
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/invoices/' . $invoiceId . '/issue')
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->actor, 'role' => 'admin']);
+        $response = $this->container->get(IssueInvoiceAction::class)->__invoke($request, new Psr7Response(), ['id' => (string) $invoiceId]);
+        $response->getBody()->rewind();
+        self::assertLessThan(300, $response->getStatusCode(), 'Vystavení #' . $invoiceId . ': ' . (string) $response->getBody());
+        if ($posted) $this->assertPosted('invoice', $invoiceId);
+    }
+
+    /** @param list<array{0:string,1:float|int,2:int,3?:array<string,mixed>}> $items */
+    private function purchase(string $party, string $number, string $date, array $items, array $header = []): int
+    {
+        $repo = $this->container->get(PurchaseInvoiceRepository::class);
+        $id = $repo->createDraft($header + ['vendor_id' => $this->parties[$party], 'vendor_invoice_number' => $number, 'issue_date' => $date,
+            'tax_date' => $date, 'received_at' => $date, 'received_at_source' => 'manual', 'due_date' => date('Y-m-d', strtotime($date . ' +14 days')),
+            'currency_id' => $this->czk], $this->actor, $this->supplier);
+        $repo->replaceItems($id, array_map(static fn (array $item): array => ($item[3] ?? []) + ['description' => $item[0], 'quantity' => 1,
+            'unit' => 'ks', 'unit_price_without_vat' => $item[1], 'vat_rate_id' => $item[2]], $items));
+        (new PurchaseInvoiceCalculator($this->db))->recompute($id);
+        self::assertTrue($this->container->get(PurchaseInvoiceReceiver::class)->receiveDraft($this->supplier, $id, $this->actor));
+        $this->assertPosted('purchase_invoice', $id);
+        return $id;
+    }
+
+    private function assertPosted(string $sourceType, int $id): int
+    {
+        $q = $this->pdo->prepare('SELECT id FROM journal_entries WHERE supplier_id=? AND source_type=? AND source_id=? AND reversed_by IS NULL AND posted_at IS NOT NULL ORDER BY id DESC LIMIT 1');
+        $q->execute([$this->supplier, $sourceType, $id]);
+        $entry = (int) $q->fetchColumn();
+        if ($entry === 0) {
+            $reason = $sourceType === 'bank'
+                ? json_encode($this->pdo->query("SELECT amount,variable_symbol,matched_invoice_id,match_status,match_reason,processing_error FROM bank_transactions WHERE id={$id}")->fetch(PDO::FETCH_ASSOC))
+                : $this->pdo->query("SELECT payload FROM activity_log WHERE action='accounting.auto_post_failed' AND entity_id={$id} ORDER BY id DESC LIMIT 1")->fetchColumn();
+            self::fail("Doklad {$sourceType} #{$id} se nezaúčtoval: " . (is_string($reason) ? $reason : '?'));
+        }
+        return $entry;
+    }
+
+    private function cash(array $document): int
+    {
+        $created = $this->container->get(\MyInvoice\Service\Accounting\Cash\CashDocumentService::class)
+            ->create($this->supplier, $document + ['register_id' => $this->docs['POK'], 'post' => true], $this->actor);
+        self::assertSame('posted', $created['status'], json_encode($created));
+        return (int) $created['id'];
+    }
+
+    private function vs(string $doc): string
+    {
+        $q = $this->pdo->prepare('SELECT varsymbol FROM invoices WHERE supplier_id=? AND id=?');
+        $q->execute([$this->supplier, $this->docs[$doc]]);
+        return (string) $q->fetchColumn();
+    }
+
+    /**
+     * Import výpisu GPC produkčním importem a ruční spárování každého pohybu s dokladem
+     * (akce párování, která pohyb rovnou zaúčtuje). Účet firmy je v registru vlastních
+     * účtů, výpis tedy patří této firmě. Připojený import přes měnový účet si otevírá
+     * vlastní transakci, a ta v obalové testové transakci nejde; automatické párování
+     * podle VS hledá firmu právě jen přes měnové účty, proto test páruje ručně.
+     *
+     * @param list<array{0:float,1:string,2:string,3?:string|null}> $rows částka (záporná = odchozí), doklad, protistrana, druh párování
+     * @return list<int> pohyby výpisu
+     */
+    private function bank(string $date, array $rows): array
+    {
+        $number = ++$this->statementSeq;
+        $account = str_pad(self::BANK_ACCOUNT, 16, '0', STR_PAD_LEFT);
+        $day = (new \DateTimeImmutable($date))->format('dmy');
+        $zero = str_pad('0', 14, '0', STR_PAD_LEFT) . '+';
+        $lines = ['074' . $account . str_pad('VZOROVA OBCHODNI', 20) . $day . $zero . $zero . $zero . $zero . str_pad((string) $number, 3, '0', STR_PAD_LEFT) . $day];
+        foreach ($rows as $index => [$amount, $doc, $name]) {
+            $vs = isset($this->docs[$doc]) ? (string) $this->docs[$doc] : '0';
+            $lines[] = '075' . $account . str_pad('1000000005', 16, '0', STR_PAD_LEFT) . str_pad((string) ($number * 100 + $index), 13, '0', STR_PAD_LEFT)
+                . str_pad((string) (int) round(abs($amount) * 100), 12, '0', STR_PAD_LEFT) . ($amount < 0 ? '1' : '2')
+                . str_pad($vs, 10, '0', STR_PAD_LEFT) . '00' . '0100' . '0000' . str_pad('', 10, '0')
+                . $day . str_pad(substr($name, 0, 20), 20) . '00203' . $day;
+        }
+        $result = $this->container->get(\MyInvoice\Service\Bank\StatementImporter::class)
+            ->import(implode("\r\n", $lines) . "\r\n", 'vypis-' . $number . '.gpc', $this->actor);
+        self::assertSame(count($rows), $result['transactions'], json_encode($result));
+        $q = $this->pdo->prepare('SELECT id FROM bank_transactions WHERE statement_id=? ORDER BY id');
+        $q->execute([$result['statement_id']]);
+        $ids = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+        foreach ($rows as $index => $row) {
+            $kind = $row[3] ?? ($row[0] < 0 ? 'purchase_invoice_id' : 'invoice_id');
+            if ($kind === null) continue;
+            $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/bank/transactions/' . $ids[$index] . '/match')
+                ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
+                ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->actor, 'role' => 'admin'])
+                ->withParsedBody([$kind => $this->docs[$row[1]]]);
+            $response = $this->container->get(\MyInvoice\Action\Bank\BankStatementAction::class)
+                ->manualMatch($request, new Psr7Response(), ['id' => (string) $ids[$index]]);
+            $response->getBody()->rewind();
+            self::assertLessThan(300, $response->getStatusCode(), 'Párování ' . $row[1] . ': ' . (string) $response->getBody());
+            $this->assertPosted('bank', $ids[$index]);
+        }
+        return $ids;
+    }
+
+    // ---------------------------------------------------------------- fixtury firmy
+
+    private function rate(string $date, string $rate): void
+    {
+        $this->pdo->prepare("INSERT INTO exchange_rates (rate_date, currency_code, rate) VALUES (?, 'EUR', ?) ON DUPLICATE KEY UPDATE rate = VALUES(rate)")
+            ->execute([$date, $rate]);
+    }
+
+    private function currency(string $code, string $name, int $default): int
+    {
+        $this->pdo->prepare('INSERT INTO currencies (supplier_id, code, label, symbol, name_cs, name_en, decimals, is_active, is_default) VALUES (?,?,?,?,?,?,2,1,?)')
+            ->execute([$this->supplier, $code, $code, $code === 'CZK' ? 'Kč' : '€', $name, $name, $default]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function party(string $name, string $country, ?string $ic, string $dic, bool $customer, bool $vendor): int
+    {
+        $countryId = (int) $this->pdo->query("SELECT id FROM countries WHERE iso2='{$country}' LIMIT 1")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO clients (supplier_id, company_name, street, city, zip, country_id, currency_default_id, ic, dic, main_email,
+                is_customer, is_vendor, is_vat_payer) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)')
+            ->execute([$this->supplier, $name, 'Syntetická 1', 'Syntetické město', '10000', $countryId, $this->czk, $ic, $dic,
+                strtolower(substr($dic, 2)) . '@example.test', $customer ? 1 : 0, $vendor ? 1 : 0]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    // ---------------------------------------------------------------- deník
+
+    /** Zůstatky syntetických účtů (MD − D) ke dni, jen nenulové. */
+    private function balances(string $date, ?string $from = null): array
+    {
+        $q = $this->pdo->prepare("SELECT LEFT(a.account_code,3) code, SUM(CASE l.side WHEN 'debit' THEN l.amount ELSE -l.amount END) balance
+            FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id
+            JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id
+            WHERE l.supplier_id=? AND e.posted_at IS NOT NULL AND e.entry_date>=? AND e.entry_date<=? GROUP BY LEFT(a.account_code,3) ORDER BY code");
+        $q->execute([$this->supplier, $from ?? '1900-01-01', $date]);
+        return array_filter(array_column($q->fetchAll(PDO::FETCH_ASSOC), 'balance', 'code'), fn ($v) => bccomp((string) $v, '0', 2) !== 0);
+    }
+}
