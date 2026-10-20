@@ -37729,6 +37729,7 @@
   "nonprofitFunding": {
     "title": "Grants and restricted gifts",
     "help": "Record the provider, purpose and approved funding budget. Actual use comes from confirmed funding links in the tax assessment. This record does not create a journal entry.",
+    "readOnly": "You have view access. Recording and editing restricted sources requires permission to close accounting periods.",
     "new": "New restricted source",
     "reload": "Refresh overview",
     "period": "Accounting period for confirmation",

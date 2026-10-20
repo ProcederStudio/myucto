@@ -37729,6 +37729,7 @@
   "nonprofitFunding": {
     "title": "Granty a účelové dary",
     "help": "Evidujte poskytovatele, účel a schválený rozpočet zdroje. Skutečné použití vychází z potvrzených vazeb financování v daňovém posouzení. Evidence sama netvoří účetní zápis.",
+    "readOnly": "Máte oprávnění k prohlížení. Evidence a úpravy účelových zdrojů vyžadují oprávnění k uzavírání účetních období.",
     "new": "Nový účelový zdroj",
     "reload": "Obnovit přehled",
     "period": "Účetní období pro potvrzení",

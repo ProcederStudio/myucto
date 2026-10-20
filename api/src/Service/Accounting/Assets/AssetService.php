@@ -726,7 +726,7 @@ final class AssetService
                 $lines[] = ['account_code' => (string) $asset['asset_account_code'], 'side' => 'credit', 'amount' => $increasedPc];
             }
 
-            $this->posting->postDocument($supplierId, 'asset_disposal', $id, $lines, [
+            $disposalEntryId = $this->posting->postDocument($supplierId, 'asset_disposal', $id, $lines, [
                 'entry_date' => $date,
                 'document_no' => (string) $asset['inventory_number'],
                 'description' => 'Vyřazení majetku ' . $asset['name'],
@@ -736,6 +736,10 @@ final class AssetService
                 'ip' => $meta['ip'] ?? null,
                 'user_agent' => $meta['user_agent'] ?? null,
             ]);
+
+            // Zbytek investičního zdroje (901) zaniká s majetkem: zúčtuje se 901/649
+            // proti zůstatkové ceně ve stejné transakci jako vyřazení.
+            $this->capital()->onDisposal($supplierId, $id, $disposalEntryId, $meta['posted_by'] ?? $meta['user_id'] ?? null);
 
             // 4) karta
             $this->assets->update($supplierId, $id, [
@@ -841,6 +845,15 @@ final class AssetService
                 throw new AssetException('invalid_status', 'Vyřadit lze jen majetek v užívání.');
             }
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetLifecycleChange($supplierId, $id, $lockedAsset, 'disposed', $date);
+            if ($this->capital()->hasRemainingAssetSource($supplierId, $id)) {
+                // Zápis vyřazení z deníku nevlastní modul majetku, zbytek investičního
+                // zdroje by proti němu zůstal na 901 i po zániku majetku.
+                throw new AssetException(
+                    'nonprofit_capital_disposal_requires_module',
+                    'Majetek financuje investiční zdroj s nerozpuštěným zůstatkem. Vyřaďte ho v modulu majetku, aby se zbytek zdroje zúčtoval ve stejné operaci.',
+                    409,
+                );
+            }
             $assetView = $lockedAsset;
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
@@ -1109,6 +1122,16 @@ final class AssetService
                 $restored = $this->depreciationPosting->buildContext(array_replace($asset, ['disposal_date' => null]));
                 ImportedDepreciationPlan::rows($restored, 'accounting');
             }
+            $yearAccounting = $disposalEntry !== null ? $this->entries->findYear($id, 'accounting', $year) : null;
+            $capital = $this->capital();
+            $capital->onDisposalRevert(
+                $supplierId,
+                $id,
+                $disposalEntry !== null ? (int) $disposalEntry['id'] : null,
+                $yearAccounting !== null ? (int) $yearAccounting['id'] : null,
+                $disposalDate,
+                $meta['posted_by'] ?? $meta['user_id'] ?? null,
+            );
             if ($disposalEntry !== null) {
                 (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [(int) $disposalEntry['id']]);
                 (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [(int) $disposalEntry['id']]);
@@ -1125,14 +1148,29 @@ final class AssetService
 
             $taxEntry = $this->entries->findYear($id, 'tax', $year);
             if ($disposalEntry !== null) {
-                $accEntry = $this->entries->findYear($id, 'accounting', $year);
+                $accEntry = $yearAccounting;
+                $accJournal = null;
                 if ($accEntry !== null) {
                     $accJournal = $this->journal->findBySource($supplierId, 'depreciation', (int) $accEntry['id']);
                     if ($accJournal !== null && ($accJournal['reversed_by'] ?? null) === null) {
                         $this->posting->reverse($supplierId, (int) $accJournal['id'], $reverseMeta);
                     }
                 }
-                $this->entries->deleteOne($id, 'accounting', $year);
+                if ($accEntry !== null && $capital->retainsDepreciation($supplierId, (int) $accEntry['id'])) {
+                    // Na řádek odkazuje neměnná historie investičního zdroje, proto se
+                    // nemaže: vynuluje se a jeho stornovaný zápis uvolní klíč
+                    // ('depreciation', id), aby šel rok znovu zaúčtovat čerstvým výpočtem.
+                    $pdo->prepare(
+                        'UPDATE depreciation_entries SET amount = 0, full_amount = 0, months_count = NULL, detail = NULL
+                          WHERE supplier_id = ? AND id = ?'
+                    )->execute([$supplierId, (int) $accEntry['id']]);
+                    if ($accJournal !== null) {
+                        $pdo->prepare('UPDATE journal_entries SET source_id = NULL WHERE id = ? AND supplier_id = ?')
+                            ->execute([(int) $accJournal['id'], $supplierId]);
+                    }
+                } else {
+                    $this->entries->deleteOne($id, 'accounting', $year);
+                }
                 if ($taxEntry !== null && !$taxEntry['is_paused'] && !DepreciationEntryRepository::isOverridden($taxEntry)) {
                     $this->entries->deleteOne($id, 'tax', $year);
                 }
@@ -2199,10 +2237,15 @@ final class AssetService
         return checkdate((int) substr($date, 5, 2), (int) substr($date, 8, 2), (int) substr($date, 0, 4));
     }
 
+    private function capital(): \MyInvoice\Service\Nonprofit\Capital\CapitalService
+    {
+        return new \MyInvoice\Service\Nonprofit\Capital\CapitalService($this->db, $this->posting);
+    }
+
     /** PostingException → AssetException se zachováním kódu a HTTP statusu (pro Action A4). */
     private function translate(\Throwable $e): \Throwable
     {
-        if ($e instanceof PostingException) {
+        if ($e instanceof PostingException || $e instanceof \MyInvoice\Service\Nonprofit\Capital\CapitalException) {
             return new AssetException($e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         return $e;
