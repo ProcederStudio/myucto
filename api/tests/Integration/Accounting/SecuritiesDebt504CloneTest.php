@@ -72,6 +72,27 @@ final class SecuritiesDebt504CloneTest extends TestCase
         $q=$p->prepare("SELECT payload FROM accounting_closing_steps WHERE supplier_id=? AND step_key='fx_revaluation'");$q->execute([$this->supplier()]);$payload=R::decode($q->fetchColumn());self::assertTrue($payload['fx504_anonymized']);self::assertArrayNotHasKey('fx504',$payload);foreach(['accounting_securities_debt_lots','accounting_securities_debt_fx_carries'] as $table)self::assertStringNotContainsString('private-eur-contract@synthetic.invalid',json_encode($p->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC),JSON_THROW_ON_ERROR));
     }
 
+    public function testUnboundCouponReceiptIsNotRevalidatedAgainstLaterEditedBankDocument(): void
+    {
+        $terms=$this->call('coupon');$lot=$this->call('register',$terms);
+        $this->call('applyCommand',['operation'=>'accrual','lot_id'=>$lot,'accounting_date'=>'2025-12-31','evidence'=>'Synthetic accrual']);
+        $bank=$this->call('bank','20.00','2026-01-15','253');
+        $receipt=$this->call('applyCommand',['operation'=>'coupon_receipt','lot_id'=>$lot,'accounting_date'=>'2026-01-15','evidence'=>'Synthetic receipt']+$bank);
+        $this->call('applyCommand',['operation'=>'reverse','lot_id'=>$lot,'accounting_date'=>'2026-01-15','event_id'=>$receipt['event_id'],'evidence'=>'Synthetic unbind private-unbind@synthetic.invalid']);
+        $posting=(new \ReflectionProperty($this->fixture,'posting'))->getValue($this->fixture);
+        $posting->reverse($this->supplier(),$bank['entry_id'],['entry_date'=>'2026-01-15']);
+        $before=(new R($this->source))->current($this->supplier(),$lot,'2026-01-15');$this->source->pdo()->commit();$fingerprint=$this->fingerprint($this->source);
+        (new AnonymizationService($this->config))->run(new AnonymizationOptions($this->owned[0],$this->owned[1],seed:'synthetic-unbound-debt-clone'),static function():void{});
+        self::assertSame($fingerprint,$this->fingerprint($this->source));$cfg=$this->config->all();$cfg['db']['name']=$this->owned[1];
+        $this->target=Connection::withoutSharedTestConnection(fn()=>new Connection(new Config($cfg,$this->config->dataDir())));$this->target->pdo()->beginTransaction();
+        $after=(new R($this->target))->current($this->supplier(),$lot,'2026-01-15');
+        foreach(['book_czk','earned','unpaid_interest','principal_balance'] as $field)self::assertSame($before[$field],$after[$field]);
+        $q=$this->target->pdo()->prepare("SELECT receipt_json,receipt_hash FROM accounting_securities_debt_events WHERE supplier_id=? AND id=? AND operation='coupon_receipt'");$q->execute([$this->supplier(),$receipt['event_id']]);$row=$q->fetch(PDO::FETCH_ASSOC);
+        $frozen=R::decode($row['receipt_json']);self::assertSame(R::hash($frozen),$row['receipt_hash']);
+        self::assertSame($bank['entry_id'],$frozen['payment']['ledger']['entry']['id']);self::assertNull($frozen['payment']['ledger']['entry']['reversed_by']);
+        self::assertStringNotContainsString('private-unbind@synthetic.invalid',json_encode($this->target->pdo()->query('SELECT * FROM accounting_securities_debt_events')->fetchAll(PDO::FETCH_ASSOC),JSON_THROW_ON_ERROR));
+    }
+
     public function testRehashedFakeNativeReceiptIsRejectedBeforeCloneTransformation(): void
     {
         $this->prepare();$p=$this->source->pdo();$row=$p->query("SELECT id,receipt_json FROM accounting_securities_debt_events WHERE operation='accrual' ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);$receipt=R::decode($row['receipt_json']);$receipt['amount']='18.00';$p->prepare('UPDATE accounting_securities_debt_events SET receipt_json=?,receipt_hash=? WHERE id=?')->execute([R::json($receipt),R::hash($receipt),$row['id']]);$before=$this->fingerprint($this->source);
