@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\Nonprofit;
 
 use MyInvoice\Repository\Nonprofit\FundingRepository;
 use MyInvoice\Service\Nonprofit\Catalog\NonprofitResourceCatalog;
+use MyInvoice\Service\Nonprofit\Funding\FundingService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 use MyInvoice\Tests\Support\NonprofitResourceCaseFixture;
@@ -126,6 +127,68 @@ final class FundingCatalogBoundedReadTest extends TestCase
         } catch (NonprofitTaxAssessmentException $e) {
             self::assertSame('nonprofit_funding_integrity', $e->errorCode);
         }
+    }
+
+    public function testRehashedHundredThousandMemberRevisionFailsBeforeOversizedJsonReachesPhp(): void
+    {
+        $this->fundingSource(false);
+        $template = $this->container->get(FundingRepository::class)->latest($this->supplier)['PRIVATE-SOURCE-KEY'];
+        $members = [];
+        for ($member = 1; $member <= 100001; ++$member) {
+            $members[] = 'line:' . $member;
+        }
+        $policy = $template['policy'];
+        $policy['source_anchor'] = $members[0];
+        $policy['source_members'] = $members;
+        $basis = ['assessment_id' => $template['assessment_id']];
+        $request = ['expected_revision' => 0];
+        $row = [
+            'supplier_id' => $this->supplier,
+            'period_id' => $this->period,
+            'source_key' => 'OVERSIZED-SOURCE',
+            'revision_no' => 1,
+            'previous_id' => null,
+            'parent_hash' => str_repeat('0', 64),
+            'provider_id' => $template['provider_id'],
+            'assessment_id' => $template['assessment_id'],
+            'policy' => $policy,
+            'basis' => $basis,
+            'reason' => 'Synthetic oversized historic revision',
+            'idempotency_key' => 'oversized-source',
+            'request_hash' => NonprofitTaxRules::hash($request),
+            'created_by' => $this->actor,
+            'request' => $request,
+        ];
+        $row['record_hash'] = FundingRepository::recordHash($row);
+        $this->db->pdo()->prepare(
+            'INSERT INTO nonprofit_funding_revisions
+                (supplier_id,period_id,source_key,revision_no,previous_id,parent_hash,provider_id,assessment_id,
+                 policy_json,basis_json,request_json,reason,idempotency_key,request_hash,record_hash,created_by)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        )->execute([
+            $row['supplier_id'], $row['period_id'], $row['source_key'], $row['revision_no'], $row['previous_id'],
+            $row['parent_hash'], $row['provider_id'], $row['assessment_id'], NonprofitTaxRules::canonicalJson($policy),
+            NonprofitTaxRules::canonicalJson($basis), NonprofitTaxRules::canonicalJson($request), $row['reason'],
+            $row['idempotency_key'], $row['request_hash'], $row['record_hash'], $row['created_by'],
+        ]);
+        unset($members, $policy, $basis, $request, $row, $template);
+        gc_collect_cycles();
+        memory_reset_peak_usage();
+        $before = memory_get_usage(true);
+
+        foreach ([
+            fn () => $this->container->get(NonprofitResourceCatalog::class)->funding($this->supplier, limit: 100),
+            fn () => $this->container->get(FundingService::class)->read($this->supplier),
+        ] as $read) {
+            try {
+                $read();
+                self::fail('Oversized rehashed funding revision was materialized.');
+            } catch (NonprofitTaxAssessmentException $failure) {
+                self::assertSame('nonprofit_funding_integrity', $failure->errorCode);
+            }
+        }
+
+        self::assertLessThan(8 * 1024 * 1024, memory_get_peak_usage(true) - $before);
     }
 
     private function sessionStatus(): array

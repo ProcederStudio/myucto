@@ -2593,6 +2593,7 @@ final class Routes
             $g->get('/catalog/context', [\MyInvoice\Action\Accounting\Catalog\AccountingContextAction::class, 'get']);
             $g->get('/catalog/nonprofit-funding', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
             $g->get('/catalog/nonprofit-funding/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
+            $g->get('/catalog/nonprofit-funding/{id:[0-9]+}/evidence', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'fundingEvidence']);
             $g->get('/catalog/nonprofit-capital', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'capital']);
             $g->get('/catalog/nonprofit-capital/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'capital']);
             $g->get('/catalog/nonprofit-capital/{id:[0-9]+}/events', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'events']);

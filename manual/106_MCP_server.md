@@ -1304,7 +1304,12 @@ osnovu nebo dimenze a nemění účetnictví. Podrobnosti jsou v kapitole
 
 `list_property_fund_operations` čte operace financování vlastníků včetně storen. `property_fund_balances` vrací doložené zůstatky, ledger a rozdíly k datu; volitelný `known_at` omezuje skutečně zaznamenané a zaúčtované podklady. Částky, neúplnost a nepokryté řádky zachovejte. Žádný z těchto nástrojů nepotvrzuje právní titul ani neprovádí účetní nebo platební operaci.
 Granty a dary zpřístupňují pouze čtecí nástroje `list_nonprofit_funding`
-a `get_nonprofit_funding`. Investiční zdroje a fondy zpřístupňují
+a `get_nonprofit_funding`. Nástroj `get_nonprofit_funding_evidence` čte
+z potvrzeného posouzení J6 ověřitelné podklady jednoho zdroje: přijetí
+a rozhodnutí o osvobození (`purpose`), souhrn čerpání (`usage`) a čerpané
+náklady (`uses`). Slouží k přípravě potvrzení o daru nebo zprávy
+poskytovateli externím nástrojem; stránky procházejte podle `next_cursor`.
+Investiční zdroje a fondy zpřístupňují
 `list_nonprofit_capital`, `get_nonprofit_capital` a
 `list_nonprofit_capital_events`. Zobrazují nativní zaznamenané částky a
 číselné vazby bez osobních a právních textů. Zachovávají `null` a výslovné

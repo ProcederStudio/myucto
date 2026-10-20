@@ -7,6 +7,7 @@ namespace MyInvoice\Repository\Nonprofit\Catalog;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Nonprofit\FundingRepository;
 use MyInvoice\Service\Nonprofit\Funding\FundingPolicy;
+use MyInvoice\Service\Nonprofit\Funding\FundingRevisionShape;
 use PDO;
 
 final class FundingCatalogReadRepository
@@ -45,7 +46,7 @@ final class FundingCatalogReadRepository
         $verified = 0;
         do {
             $query = $this->db->pdo()->prepare(
-                "SELECT * FROM nonprofit_funding_revisions FORCE INDEX(uq_nfr_chain)
+                "SELECT " . FundingRevisionShape::selectColumns() . " FROM nonprofit_funding_revisions FORCE INDEX(uq_nfr_chain)
                   WHERE supplier_id=? AND source_key IN ({$marks})
                     AND (source_key>? OR (source_key=? AND id>?))
                   ORDER BY source_key,id LIMIT 501"
