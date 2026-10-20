@@ -29174,7 +29174,7 @@
       "openingMissing": "The opening import is not included yet.",
       "person": "Person (optional)",
       "personLiability": "person’s liability",
-      "servicesMissing": "Service settlements are not included yet.",
+      "servicesMissing": "Some service settlements are not applied yet, so the card is incomplete.",
       "title": "Receivables and credits card",
       "totals": {
         "available_credit_cents": "Available credits",
@@ -29422,7 +29422,7 @@
         "openingMissing": "The opening import is not included yet.",
         "person": "Person (optional)",
         "personLiability": "person’s liability",
-        "servicesMissing": "Service settlements are not included yet.",
+        "servicesMissing": "Some service settlements are not applied yet, so the card is incomplete.",
         "title": "Receivables and credits card",
         "totals": {
           "available_credit_cents": "Available credits",

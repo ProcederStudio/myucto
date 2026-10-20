@@ -29174,7 +29174,7 @@
       "openingMissing": "Počáteční import zatím není zahrnut.",
       "person": "Osoba (nepovinné)",
       "personLiability": "odpovědnost osoby",
-      "servicesMissing": "Vyúčtování služeb zatím není zahrnuto.",
+      "servicesMissing": "Některá vyúčtování služeb ještě nejsou uplatněná, karta je proto neúplná.",
       "title": "Karta pohledávek a kreditů",
       "totals": {
         "available_credit_cents": "Dostupné kredity",
@@ -29422,7 +29422,7 @@
         "openingMissing": "Počáteční import zatím není zahrnut.",
         "person": "Osoba (nepovinné)",
         "personLiability": "odpovědnost osoby",
-        "servicesMissing": "Vyúčtování služeb zatím není zahrnuto.",
+        "servicesMissing": "Některá vyúčtování služeb ještě nejsou uplatněná, karta je proto neúplná.",
         "title": "Karta pohledávek a kreditů",
         "totals": {
           "available_credit_cents": "Dostupné kredity",
