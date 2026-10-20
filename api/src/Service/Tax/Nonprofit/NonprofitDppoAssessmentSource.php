@@ -30,6 +30,7 @@ final readonly class NonprofitDppoAssessmentSource
         private J6FundingCapacity $fundingCapacity,
         private J6CurrentProviderFactory $current,
         private J6HistoricProviderFactory $historic,
+        private \MyInvoice\Infrastructure\Database\Connection $db,
     ) {}
 
     /**
@@ -37,24 +38,67 @@ final readonly class NonprofitDppoAssessmentSource
      */
     public function current(int $supplierId, array $period, array $legacySnapshot): array
     {
-        $assessment = $this->legacy->latest($supplierId, (int) $period['id'], true);
+        $view = $this->currentView($supplierId, (int) $period['id']);
+        if (($view['storage_version'] ?? null) !== 'paged_v2' || !isset($view['graph_receipt_hash'])) {
+            return [$view, NonprofitDppoJ6Receipt::capture($period, $legacySnapshot, $view)];
+        }
+        return [$view, NonprofitDppoJ6Receipt::capturePaged($period, $view, $view['graph_receipt_hash'])];
+    }
+
+    /**
+     * Aktuální potvrzené posouzení období ve tvaru legacy (result.rows, snapshot.legal_profile),
+     * ověřené proti dnešním účetním podkladům. Používá DPPO i použití daňové úspory.
+     */
+    public function currentView(int $supplierId, int $periodId): array
+    {
+        $assessment = $this->legacy->latest($supplierId, $periodId, true);
         if ($assessment === null || $assessment['status'] !== 'confirmed') {
             throw new TaxReturnException('nonprofit_dppo_assessment_required', 'DPPO 504 vyžaduje aktuální potvrzené posouzení J6.', 422);
         }
         if (!self::pagedOnly($assessment)) {
             $this->fundingCapacity->assertCurrentReceipt($supplierId, $assessment);
-            return [$assessment, NonprofitDppoJ6Receipt::capture($period, $legacySnapshot, $assessment)];
+            return $assessment;
         }
-        $row = $this->paged->find($supplierId, $assessment['id'], true);
+        [$row, $receipt] = $this->pagedRow($supplierId, $assessment['id']);
+        $fingerprint = $this->current->fingerprint($supplierId, $periodId, true);
+        if ($fingerprint->findingCount !== 0 || !hash_equals($fingerprint->inputHash, $receipt->snapshotInputHash)) self::stale();
+        return $this->pagedView($row, $receipt);
+    }
+
+    /**
+     * Konkrétní (i historická) potvrzená revize ve tvaru legacy pro ověření dříve
+     * zaznamenaného použití úspory. Neověřuje aktuálnost podkladů, jen neměnnost revize.
+     */
+    public function historicalView(int $supplierId, int $assessmentId): array
+    {
+        $assessment = $this->legacy->find($supplierId, $assessmentId);
+        if (!self::pagedOnly($assessment)) {
+            $this->fundingCapacity->assertHistoricalReceipt($supplierId, $assessment);
+            return $assessment;
+        }
+        [$row, $receipt] = $this->pagedRow($supplierId, $assessmentId);
+        return $this->pagedView($row, $receipt);
+    }
+
+    /** @return array{0: array<string,mixed>, 1: J6AssessmentGraphReceipt} */
+    private function pagedRow(int $supplierId, int $assessmentId): array
+    {
+        $row = $this->paged->find($supplierId, $assessmentId, true);
         $receipt = $row['graph_receipt'] ?? null;
         if (!$receipt instanceof J6AssessmentGraphReceipt || $row['status'] !== 'confirmed') self::stale();
-        $fingerprint = $this->current->fingerprint($supplierId, (int) $period['id'], true);
-        if ($fingerprint->findingCount !== 0 || !hash_equals($fingerprint->inputHash, $receipt->snapshotInputHash)) self::stale();
-        $view = ['id' => $row['id'], 'supplier_id' => $row['supplier_id'], 'period_id' => $row['period_id'],
+        return [$row, $receipt];
+    }
+
+    private function pagedView(array $row, J6AssessmentGraphReceipt $receipt): array
+    {
+        $providers = $this->historic->create($this->paged->binding($row), J6ReadMode::HISTORIC);
+        return ['id' => $row['id'], 'supplier_id' => $row['supplier_id'], 'period_id' => $row['period_id'],
             'revision_no' => $row['revision_no'], 'status' => $row['status'], 'ruleset' => $row['ruleset'],
             'storage_version' => 'paged_v2', 'input_hash' => $receipt->snapshotInputHash,
-            'request_hash' => $row['request_hash'], 'result' => $this->result($row, $receipt)];
-        return [$view, NonprofitDppoJ6Receipt::capturePaged($period, $view, (string) $receipt->toArray()['receipt_hash'])];
+            'request_hash' => $row['request_hash'], 'graph_receipt_hash' => (string) $receipt->toArray()['receipt_hash'],
+            // Stránkovaný zdroj právní profil nenese; použije se potvrzený profil období jako v legacy snímku.
+            'snapshot' => ['legal_profile' => (new NonprofitLegalProfileService($this->db))->assessmentContext($row['supplier_id'], $row['period_id'], true)['legal_profile'] ?? null],
+            'result' => $this->result($providers, $receipt)];
     }
 
     /** Revize bez původního legacy JSON (vznikla stránkovanou cestou). */
@@ -63,14 +107,13 @@ final readonly class NonprofitDppoAssessmentSource
         return ($assessment['storage_version'] ?? null) === 'paged_v2' && ($assessment['legacy_input_hash'] ?? null) === null;
     }
 
-    private function result(array $row, J6AssessmentGraphReceipt $receipt): array
+    private function result(\MyInvoice\Service\Tax\Nonprofit\Authoritative\J6HistoricProviderSet $providers, J6AssessmentGraphReceipt $receipt): array
     {
         if ($receipt->ruleset !== NonprofitTaxRules::VERSION) self::stale();
         if (($receipt->counts['result'] ?? PHP_INT_MAX) > self::MAX_RESULT_ROWS) {
             throw new TaxReturnException('nonprofit_dppo_assessment_too_large',
                 'Posouzení má příliš mnoho řádků pro jeden výpočet DPPO 504.', 422);
         }
-        $providers = $this->historic->create($this->paged->binding($row), J6ReadMode::HISTORIC);
         $rows = [];
         foreach ($providers->calculation->pages('result', 500) as $page) {
             foreach ($page as $result) {

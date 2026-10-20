@@ -151,6 +151,15 @@ final class NonprofitTaxSourceRepository
     {
         $history = $references = [];
         foreach ($this->assessments->effectiveOtherPeriods($supplierId, $periodId, $currentRead) as $revision) {
+            if (\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoAssessmentSource::pagedOnly($revision)) {
+                // Stránkovaná revize nemá legacy snímek. Pozdější období historii financování
+                // neovlivňuje; předchozí stránkované období legacy výpočet neumí doložit.
+                $stmt = $this->db->pdo()->prepare('SELECT ends_on FROM accounting_periods WHERE supplier_id=? AND id=?');
+                $stmt->execute([$supplierId, $revision['period_id']]);
+                if ((string) $stmt->fetchColumn() >= $startsOn) continue;
+                throw new NonprofitTaxAssessmentException('nonprofit_tax_paged_history_required',
+                    'Předchozí období je posouzené ve stránkovaném formátu. Navazující posouzení potvrďte také stránkovanou cestou.', 409);
+            }
             if ($revision['snapshot']['period']['ends_on'] >= $startsOn) continue;
             try {
                 $priorSnapshot = $this->buildSnapshot($supplierId, $revision['period_id'], $currentRead, $memo);

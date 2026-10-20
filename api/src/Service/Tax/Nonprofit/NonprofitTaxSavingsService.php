@@ -6,7 +6,6 @@ namespace MyInvoice\Service\Tax\Nonprofit;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
-use MyInvoice\Repository\NonprofitTaxAssessmentRepository;
 use MyInvoice\Repository\TaxReturnRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\Funding\CostCoverage;
@@ -83,7 +82,7 @@ final class NonprofitTaxSavingsService
         $evidence=NonprofitTaxRules::evidence($input['evidence']??null);$ledger=new NonprofitTaxSavingsLedger($this->db);$source=$ledger->source($supplier,$id);$events=$ledger->events($supplier,$id);if($ledger->isVoid($events))$this->invalid();$this->assertSourceCurrent($supplier,$source);
         $period=$ledger->nextPeriod($supplier,$source);$this->openPeriod($supplier,$period['id']);$native=(new NativeCostCoverage($this->db))->financingCost($supplier,$input['cost_line_id']);
         if(!$native['eligible']||(int)$native['ledger']['entry']['period_id']!==$period['id'])$this->invalid();
-        $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);$assessment=$c->get(NonprofitTaxAssessmentRepository::class)->latest($supplier,$period['id'],true);if($assessment===null||$assessment['status']!=='confirmed')$this->invalid();$c->get(J6FundingCapacity::class)->assertCurrentReceipt($supplier,$assessment);
+        $assessment=$this->assessmentSource()->currentView($supplier,(int)$period['id']);
         [$row,$legal,$purposes]=$this->qualification($source,$assessment,$input['cost_line_id']);$purpose=$input['purpose']??null;
         if($row===null||!in_array($purpose,$purposes,true))$this->invalid();
         $capacity=(new CostCoverage($this->db))->capacity($supplier,$input['cost_line_id']);$remaining=bcsub($source['saving_cents'],$this->used($events),0);
@@ -92,6 +91,10 @@ final class NonprofitTaxSavingsService
             'proof'=>['cost_native'=>$native,'assessment'=>['id'=>$assessment['id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'row'=>$row],'legal_profile'=>$legal,'purpose'=>$purpose,'evidence'=>$evidence,'cost_capacity_hash'=>NonprofitTaxRules::hash($capacity),'cost_capacity'=>$capacity]];
         return$plan+['preview_hash'=>NonprofitTaxRules::hash($plan)];
     }
+
+    /** Stejná čtecí cesta k posouzení J6 jako DPPO 504 (legacy i stránkované revize). */
+    private function assessmentSource():NonprofitDppoAssessmentSource
+    {$c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);return$c->get(NonprofitDppoAssessmentSource::class);}
 
     private function qualification(array $source,array $assessment,int $line):array
     {
@@ -110,8 +113,7 @@ final class NonprofitTaxSavingsService
         try{
             $this->assertSourceCurrent($supplier,$source);
             $period=(new NonprofitTaxSavingsLedger($this->db))->nextPeriod($supplier,$source);$out['next_period']=$period;$this->openPeriod($supplier,$period['id']);
-            $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);$assessment=$c->get(NonprofitTaxAssessmentRepository::class)->latest($supplier,$period['id'],true);
-            if($assessment===null||$assessment['status']!=='confirmed')throw new TaxReturnException('nonprofit_dppo_assessment_required','Potvrďte aktuální posouzení J6 následujícího období.',422);$c->get(J6FundingCapacity::class)->assertCurrentReceipt($supplier,$assessment);
+            $assessment=$this->assessmentSource()->currentView($supplier,(int)$period['id']);
             foreach($assessment['result']['rows']as$cost){
                 if($cost['kind']!=='expense'||$cost['amount_cents']<=0)continue;[$row,$legal,$purposes]=$this->qualification($source,$assessment,(int)$cost['line_id']);if($row===null||$purposes===[])continue;
                 try{$capacity=(new CostCoverage($this->db))->capacity($supplier,(int)$row['line_id']);
