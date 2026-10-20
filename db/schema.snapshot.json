@@ -1071,7 +1071,8 @@
         "2087_nonprofit_tax_legacy_sidecar_receipt_guard.sql",
         "2088_nonprofit_dppo_calculation_acceptance.sql",
         "2089_accounting_securities_debt_sale.sql",
-        "2090_depreciation_entries_voided.sql"
+        "2090_depreciation_entries_voided.sql",
+        "2091_anonymized_clone_submission_provenance.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2268,6 +2269,38 @@
                 "chk_ais_conf": "`confidence` >= 0 and `confidence` <= 0.40",
                 "payload_json": "json_valid(`payload_json`)"
             }
+        },
+        "anonymized_clone_submission_provenance": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "artifact_count": "int(10) unsigned NOT NULL",
+                "attempt_count": "int(10) unsigned NOT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "outbox_attempt_count": "int(10) unsigned NOT NULL DEFAULT 0",
+                "outbox_count": "int(10) unsigned NOT NULL",
+                "source_xml_sha256": "char(64) NOT NULL COLLATE ascii_bin",
+                "status_event_count": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_xml_sha256": "char(64) NOT NULL COLLATE ascii_bin",
+                "tax_submission_id": "int(10) unsigned NOT NULL",
+                "transport_class": "enum('no_transport','cancelled_before_dispatch','source_provenance') NOT NULL",
+                "transport_receipt_root": "char(64) NOT NULL COLLATE ascii_bin"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_acsp_submission": "BTREE (tax_submission_id)",
+                "idx_acsp_source_xml": "BTREE (supplier_id, source_xml_sha256, tax_submission_id)",
+                "idx_acsp_target_xml": "BTREE (supplier_id, target_xml_sha256, tax_submission_id)",
+                "uq_acsp_submission": "UNIQUE BTREE (supplier_id, tax_submission_id)"
+            },
+            "foreign_keys": {
+                "fk_acsp_submission": "(tax_submission_id) -> tax_submissions (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_acsp_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
         },
         "api_request_log": {
             "type": "BASE TABLE",
@@ -25927,7 +25960,8 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_generated_at": "BTREE (generated_at)",
                 "idx_status_period": "BTREE (supplier_id, form_code, period_year, status)",
-                "idx_supplier_form_period": "BTREE (supplier_id, form_code, period_year, period_month, period_quarter)"
+                "idx_supplier_form_period": "BTREE (supplier_id, form_code, period_year, period_month, period_quarter)",
+                "idx_tax_submission_archive_xml": "BTREE (supplier_id, form_code, period_year, xml_sha256, id)"
             },
             "foreign_keys": [],
             "checks": {
