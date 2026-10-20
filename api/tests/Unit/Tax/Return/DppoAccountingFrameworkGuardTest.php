@@ -146,6 +146,23 @@ final class DppoAccountingFrameworkGuardTest extends TestCase
         self::assertContains('accounting_decree_unsupported', array_column($findings, 'key'));
     }
 
+    /** Rámec podvojného zná jen 500/504; ručně nastavená vyhláška 501–503 musí dál varovat. */
+    #[DataProvider('unsupportedManualDecrees')]
+    public function testDetectorKeepsWarningForManualDecreeOutsideFramework(string $decree): void
+    {
+        $findings = UnsupportedCaseDetector::detectForSupplier(
+            ['tax_accounting_decree' => $decree], 'po', ['accounting_decree' => '500'],
+        );
+        self::assertContains('accounting_decree_unsupported', array_column($findings, 'key'));
+    }
+
+    public static function unsupportedManualDecrees(): iterable
+    {
+        yield 'banky' => ['501'];
+        yield 'pojišťovny' => ['502'];
+        yield 'zdravotní pojišťovny' => ['503'];
+    }
+
     private function submission(string $startsOn, string $endsOn, ?string $decree = '500'): array
     {
         $decreeAttribute = $decree === null ? '' : ' uv_vyhl="' . $decree . '"';

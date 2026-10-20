@@ -1197,6 +1197,7 @@ final class TaxReturnService
     {
         $type = 'po';
         $supplier = $this->loadSupplier($supplierId);
+        $manualDecree = $supplier['tax_accounting_decree'] ?? null;
         $supplier['tax_accounting_decree'] = (new AccountingDecreeService($this->db))->assertDppoSupported($supplierId, $year, Dppo504CapabilityService::EXPORT_XML);
         $appVersion = $this->loadAppVersion();
         $amendMeta = $this->amendmentXmlMeta($type, $variant, $computation['result']);
@@ -1227,8 +1228,16 @@ final class TaxReturnService
         }
         $formCode = 'dppdp9';
 
+        // Detektor dostane ruční vyhlášku firmy; s rámcem ji srovná sám (501–503 rámec nevyjádří).
+        $detectorSupplier = $supplier['tax_accounting_decree'] === '504'
+            ? $supplier
+            : ['tax_accounting_decree' => $manualDecree] + $supplier;
         $unsupported = UnsupportedCaseDetector::detectForSupplier(
-            $supplier, $type, $computation['podklady'], $computation['result'], $inputs
+            $detectorSupplier,
+            $type,
+            ['accounting_decree' => $supplier['tax_accounting_decree']] + $computation['podklady'],
+            $computation['result'],
+            $inputs
         );
 
         $summary = $computation['result']['summary'] ?? [];
