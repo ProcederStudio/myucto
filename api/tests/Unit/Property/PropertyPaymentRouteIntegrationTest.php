@@ -42,6 +42,7 @@ final class PropertyPaymentRouteIntegrationTest extends TestCase
     {
         $ops = PaymentOperationsAction::class;
         $flow = PaymentWorkflowAction::class;
+        $bank = \MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class;
         foreach ([
             ['GET', '/api/property/payments/debts', 'page', 'property', AccessLevel::READ],
             ['GET', '/api/property/payments/debts/7', 'detail', 'property', AccessLevel::READ],
@@ -73,6 +74,11 @@ final class PropertyPaymentRouteIntegrationTest extends TestCase
             ['GET', '/api/property/payments/history', 'history', 'property', AccessLevel::READ, $flow],
             ['POST', '/api/property/payments/preview', 'preview', 'property.payments.manage', AccessLevel::WRITE, $flow],
             ['POST', '/api/property/payments/confirm', 'confirm', 'property.payments.post', AccessLevel::WRITE, $flow],
+            ['POST', '/api/property/payments/reservations/7/release-unexecuted', 'releaseUnexecuted', 'property.payments.manage', AccessLevel::WRITE],
+            ['GET', '/api/property/payments/bank-proposals', 'queue', 'property', AccessLevel::READ, $bank],
+            ['GET', '/api/property/payments/bank-proposals/7', 'detail', 'property', AccessLevel::READ, $bank],
+            ['POST', '/api/property/payments/bank-proposals/7/plan', 'plan', 'property.payments.manage', AccessLevel::WRITE, $bank],
+            ['GET', '/api/property/payments/bank-links', 'links', 'property', AccessLevel::READ, $bank],
          ] as $contract) {
             [$method, $path, $action, $permission, $level] = $contract;
             $class = $contract[5] ?? $ops;
@@ -149,6 +155,8 @@ final class PropertyPaymentRouteIntegrationTest extends TestCase
             [PaymentWorkflowAction::class, 'revisionConfirm', false],
             [PaymentWorkflowAction::class, 'preview', false],
             [PaymentWorkflowAction::class, 'confirm', false],
+            [PaymentOperationsAction::class, 'releaseUnexecuted', true],
+            [\MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class, 'plan', true],
         ] as [$class, $method, $hasArgs]) {
             yield $class . '::' . $method => [$class, $method, $hasArgs];
         }

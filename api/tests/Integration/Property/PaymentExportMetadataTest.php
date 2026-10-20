@@ -56,10 +56,10 @@ final class PaymentExportMetadataTest extends TestCase
     public function testMixedCancellationMetadataPreservesTheImmutableExportAndEveryCurrentStatus():void
     {
         $reservations=$this->reservations(2);$export=$this->export($reservations);$supplier=$this->f['supplier'];$repo=$this->repo();
-        $repo->cancelSubmission($supplier,$reservations[0]['id'],2,'Synthetic cancellation','Synthetic bank confirmation','metadata-cancel',$this->f['actor']);
+        $this->cancelAndRelease($reservations[0]['id']);
         $before=$this->counts();$metadata=$repo->metadataForReservation($supplier,$reservations[0]['id']);
         self::assertSame($export['id'],$metadata['id']);self::assertSame($export['filename'],$metadata['filename']);
-        self::assertSame([$reservations[0]['id']=>'cancelled',$reservations[1]['id']=>'submitted'],$metadata['reservation_statuses']);
+        self::assertSame([$reservations[0]['id']=>'failed',$reservations[1]['id']=>'submitted'],$metadata['reservation_statuses']);
         self::assertSame($metadata,$repo->metadataForReservation($supplier,$reservations[1]['id']));
         self::assertSame($export['content_base64'],$repo->find($supplier,$metadata['id'])['content_base64']);
         self::assertSame($before,$this->counts());
@@ -68,7 +68,7 @@ final class PaymentExportMetadataTest extends TestCase
     public function testMissingMaterializedLinkIsNotAbsenceEvenAfterCancellation():void
     {
         $reservations=$this->reservations();$this->export($reservations);$supplier=$this->f['supplier'];$id=$reservations[0]['id'];
-        $this->repo()->cancelSubmission($supplier,$id,2,'Synthetic cancellation','Synthetic bank confirmation','metadata-cancel',$this->f['actor']);
+        $this->cancelAndRelease($id);
         $this->db->pdo()->prepare('DELETE FROM unit_payment_export_items WHERE supplier_id=? AND reservation_id=?')->execute([$supplier,$id]);
         $this->db->pdo()->prepare("DELETE FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND object_id=? AND action='submitted'")->execute([$supplier,$id]);
         try{$this->repo()->metadataForReservation($supplier,$id);self::fail('Missing receipt materialization accepted.');}
@@ -78,7 +78,7 @@ final class PaymentExportMetadataTest extends TestCase
     public function testMissingSnapshotDiscoveryStillFailsFromTheRecordedSubmission():void
     {
         $reservations=$this->reservations();$export=$this->export($reservations);$supplier=$this->f['supplier'];$id=$reservations[0]['id'];
-        $this->repo()->cancelSubmission($supplier,$id,2,'Synthetic cancellation','Synthetic bank confirmation','metadata-cancel',$this->f['actor']);
+        $this->cancelAndRelease($id);
         $this->db->pdo()->prepare('DELETE FROM unit_payment_export_items WHERE supplier_id=? AND reservation_id=?')->execute([$supplier,$id]);
         $this->db->pdo()->prepare("UPDATE unit_payment_exports SET snapshot_json=JSON_SET(snapshot_json,'$.reservations',JSON_ARRAY()) WHERE supplier_id=? AND id=?")->execute([$supplier,$export['id']]);
         try{$this->repo()->metadataForReservation($supplier,$id);self::fail('Recorded export hidden as absent.');}
@@ -112,6 +112,13 @@ final class PaymentExportMetadataTest extends TestCase
         return $repo->confirm($supplier,$request,$preview['preview_hash'],'metadata-export',$this->f['actor']);
     }
     private function repo():PaymentExportRepository {return $this->paymentFixtureContainer()->get(PaymentExportRepository::class);}
+    /** Odeslaný příkaz uvolní jen výpis bez provedené vratky; samotná žádost o zrušení ho drží. */
+    private function cancelAndRelease(int $id):void
+    {
+        $supplier=$this->f['supplier'];$cancel=$this->repo()->cancelSubmission($supplier,$id,2,'Synthetic cancellation','Synthetic bank confirmation','metadata-cancel',$this->f['actor']);
+        $this->db->pdo()->prepare("INSERT INTO bank_statements (supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date) VALUES (?,'Synthetic non-execution proof',?,'1000000005','0100','CZK','2026-02-02')")->execute([$supplier,hash('sha256',random_bytes(20))]);
+        $this->repo()->releaseUnexecuted($supplier,$id,$cancel['row_version'],(int)$this->db->pdo()->lastInsertId(),'Synthetic statement without the refund','metadata-release',$this->f['actor']);
+    }
     private function counts():array
     {
         $out=[];foreach(['unit_payment_exports','unit_payment_export_items','unit_payment_audit','journal_entries'] as $table){$q=$this->db->pdo()->prepare('SELECT COUNT(*) FROM '.$table.' WHERE supplier_id=?');$q->execute([$this->f['supplier']]);$out[$table]=(int)$q->fetchColumn();}return $out;

@@ -34,7 +34,8 @@ const actions = () => [{ key: 'reserve', label: t('propertyPayments.reservation.
           <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.amount') }}<input v-model="state.amount" required inputmode="decimal" :class="inputClass" data-field="reserve-amount"></label>
           <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.disposition') }}<input v-model="state.disposition" required :class="inputClass" data-field="reserve-disposition"></label>
           <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyPayments.reservation.delivery') }}<select v-model="state.delivery" :class="inputClass" data-field="reserve-delivery"><option value="bank">{{ t('propertyPayments.deliveryMethod.bank') }}</option><option value="cash">{{ t('propertyPayments.deliveryMethod.cash') }}</option></select></label>
-          <label class="flex min-w-0 flex-col gap-1 text-sm" v-if="state.delivery === 'bank'">{{ t('propertyPayments.reservation.account') }}<input v-model="state.account" required :class="inputClass" data-field="reserve-account"></label>
+          <label class="flex min-w-0 flex-col gap-1 text-sm" v-if="state.delivery === 'bank'">{{ t('propertyPayments.reservation.account') }}<input v-model="state.account" required :class="inputClass" data-field="reserve-account"></label>          <p v-if="state.delivery === 'bank'" class="sm:col-span-2 text-xs text-neutral-500">{{ t('propertyPayments.reservation.accountHelp') }}</p>
+
         </div>
         <template v-if="state.delivery === 'cash'">
           <div class="space-y-1" data-field="reserve-recipient"><span class="text-sm font-medium">{{ t('propertyPayments.reservation.recipient') }}</span><PropertyPartyPicker :supplier-id="supplier" :model-value="state.recipient_id" @update:model-value="state.recipient_id = $event" /></div>

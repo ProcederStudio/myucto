@@ -25,12 +25,16 @@ final class PaymentOperationsReadRepository
             if($unit!==null){
                 $where.=' AND '.match($kind){
                     'charges','credits'=>'r.unit_id=?',
-                    'debts'=>'EXISTS (SELECT 1 FROM unit_payment_debts d LEFT JOIN unit_charges c ON c.supplier_id=d.supplier_id AND c.id=d.charge_id LEFT JOIN property_opening_items i ON i.supplier_id=d.supplier_id AND i.id=d.opening_item_id WHERE d.supplier_id=r.supplier_id AND d.id=r.id AND COALESCE(c.unit_id,i.unit_id)=?)',
+                    // Dluh má původ buď v předpisu, nebo v otevření (chk_unit_debt_origin); každá větev jde po indexu jednotky.
+                    'debts'=>'(r.charge_id IN (SELECT c.id FROM unit_charges c WHERE c.supplier_id=r.supplier_id AND c.unit_id=?)'
+                        .' OR r.opening_item_id IN (SELECT i.id FROM property_opening_items i WHERE i.supplier_id=r.supplier_id AND i.unit_id=?))',
                     'reservations'=>'EXISTS (SELECT 1 FROM unit_credit_lots c WHERE c.supplier_id=r.supplier_id AND c.id=r.credit_id AND c.unit_id=?)',
                     'corrections'=>'EXISTS (SELECT 1 FROM unit_charges c WHERE c.supplier_id=r.supplier_id AND c.id=r.adjustment_charge_id AND c.unit_id=?)',
                     'operations'=>'EXISTS ('.self::operationUnitRelationsSql('r.supplier_id','r.id,r.original_operation_id','?').')',
                 };
-                $params[]=$unit;if($kind==='operations')array_push($params,$unit,$unit);
+                $params[]=$unit;
+                if($kind==='debts')$params[]=$unit;
+                if($kind==='operations')array_push($params,...array_fill(0,self::OPERATION_UNIT_BRANCHES-1,$unit));
             }
             $size=$limit+1;$rows=$this->all("SELECT r.* FROM $table r WHERE $where ORDER BY r.id LIMIT $size",$params);
             $more=count($rows)>$limit;if($more)array_pop($rows);
@@ -41,12 +45,20 @@ final class PaymentOperationsReadRepository
         }catch(\Throwable $e){if($owned&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();throw $e;}
     }
 
+    /** Počet větví {@see operationUnitRelationsSql()}; každá nese vlastní parametry firmy, operací a jednotky. */
+    public const OPERATION_UNIT_BRANCHES=4;
+
     public static function operationUnitRelationsSql(string $supplier,string $operations,?string $unit=null):string
     {
-        $unitFilter=$unit===null?'':' AND c.unit_id='.$unit;
-        return 'SELECT c.operation_id,c.unit_id FROM unit_credit_lots c WHERE c.supplier_id='.$supplier.' AND c.operation_id IN ('.$operations.')'.$unitFilter
-            .' UNION ALL SELECT a.operation_id,c.unit_id FROM unit_payment_allocations a JOIN (SELECT d.id,d.supplier_id,COALESCE(ch.unit_id,i.unit_id) unit_id FROM unit_payment_debts d LEFT JOIN unit_charges ch ON ch.supplier_id=d.supplier_id AND ch.id=d.charge_id LEFT JOIN property_opening_items i ON i.supplier_id=d.supplier_id AND i.id=d.opening_item_id) c ON c.supplier_id=a.supplier_id AND c.id=a.debt_id WHERE a.supplier_id='.$supplier.' AND a.operation_id IN ('.$operations.')'.$unitFilter
-            .' UNION ALL SELECT e.operation_id,c.unit_id FROM unit_credit_events e JOIN unit_credit_lots c ON c.supplier_id=e.supplier_id AND c.id=e.credit_id WHERE e.supplier_id='.$supplier.' AND e.operation_id IN ('.$operations.')'.$unitFilter;
+        $filter=static fn(string $column):string=>$unit===null?'':' AND '.$column.'='.$unit;
+        // Jednotka dluhu se čte zvlášť z předpisu a zvlášť z otevření, ne přes COALESCE
+        // odvozené tabulky: každá větev pak jde po indexu operace i jednotky.
+        return 'SELECT c.operation_id,c.unit_id FROM unit_credit_lots c WHERE c.supplier_id='.$supplier.' AND c.operation_id IN ('.$operations.')'.$filter('c.unit_id')
+            .' UNION ALL SELECT a.operation_id,ch.unit_id FROM unit_payment_allocations a JOIN unit_payment_debts d ON d.supplier_id=a.supplier_id AND d.id=a.debt_id'
+            .' JOIN unit_charges ch ON ch.supplier_id=d.supplier_id AND ch.id=d.charge_id WHERE a.supplier_id='.$supplier.' AND a.operation_id IN ('.$operations.')'.$filter('ch.unit_id')
+            .' UNION ALL SELECT a.operation_id,i.unit_id FROM unit_payment_allocations a JOIN unit_payment_debts d ON d.supplier_id=a.supplier_id AND d.id=a.debt_id'
+            .' JOIN property_opening_items i ON i.supplier_id=d.supplier_id AND i.id=d.opening_item_id WHERE a.supplier_id='.$supplier.' AND a.operation_id IN ('.$operations.')'.$filter('i.unit_id')
+            .' UNION ALL SELECT e.operation_id,c.unit_id FROM unit_credit_events e JOIN unit_credit_lots c ON c.supplier_id=e.supplier_id AND c.id=e.credit_id WHERE e.supplier_id='.$supplier.' AND e.operation_id IN ('.$operations.')'.$filter('c.unit_id');
     }
 
     public function detail(int $supplier,string $kind,int $id):array
@@ -132,8 +144,10 @@ final class PaymentOperationsReadRepository
         }elseif($kind==='reservations'){
             $creditIds=array_values(array_unique(array_map('intval',array_column($rows,'credit_id'))));$creditMarks=implode(',',array_fill(0,count($creditIds),'?'));
             $credits=$this->map("SELECT id,unit_id,snapshot_json,snapshot_hash FROM unit_credit_lots WHERE supplier_id=? AND id IN ($creditMarks)",[$supplier,...$creditIds]);
+            $cancelRequested=array_fill_keys(array_map('intval',array_column($this->all("SELECT DISTINCT object_id FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND action='cancel_requested' AND object_id IN ($marks)",[$supplier,...$ids]),'object_id')),true);
             foreach($rows as $row){$credit=$credits[$row['credit_id']]??null;if(!$credit)PaymentException::reject('history_corrupt');$fact=$this->fact($credit,'snapshot');$id=(int)$row['id'];
-                $out[]=['id'=>$id,'credit_id'=>(int)$row['credit_id'],'row_version'=>(int)$row['row_version'],'status'=>$row['status'],'amount_cents'=>$row['amount_cents'],'paid_cents'=>$row['paid_cents'],'remaining_cents'=>in_array($row['status'],['reserved','submitted'],true)?bcsub($row['amount_cents'],$row['paid_cents'],0):'0','unit_id'=>(int)$credit['unit_id'],'parties'=>$this->partyLabels($fact['parties']),'request'=>$requests[$id]];
+                $out[]=['id'=>$id,'credit_id'=>(int)$row['credit_id'],'row_version'=>(int)$row['row_version'],'status'=>$row['status'],'amount_cents'=>$row['amount_cents'],'paid_cents'=>$row['paid_cents'],'remaining_cents'=>in_array($row['status'],['reserved','submitted'],true)?bcsub($row['amount_cents'],$row['paid_cents'],0):'0','unit_id'=>(int)$credit['unit_id'],'parties'=>$this->partyLabels($fact['parties']),'request'=>$requests[$id],
+                    'cancel_requested'=>$row['status']==='submitted'&&isset($cancelRequested[$id])];
             }
         }elseif($kind==='charges'){
             $lines=$this->all("SELECT l.id,l.charge_id,l.component_id,l.amount_cents,l.line_json,d.debt_id FROM unit_charge_lines l LEFT JOIN unit_payment_debt_lines d ON d.supplier_id=l.supplier_id AND d.charge_line_id=l.id WHERE l.supplier_id=? AND l.charge_id IN ($marks) ORDER BY l.id",[$supplier,...$ids]);$byCharge=[];
@@ -141,7 +155,7 @@ final class PaymentOperationsReadRepository
             foreach($rows as $row){$id=(int)$row['id'];$fact=$facts[$id];$out[]=['id'=>$id,'row_version'=>(int)$row['row_version'],'unit_id'=>(int)$row['unit_id'],'unit_label'=>$fact['registry']['revision']['state']['unit_no']??$fact['registry']['object']['code'],'accounting_date'=>$row['accounting_date'],'due_date'=>$row['due_date'],'status'=>$row['status'],'amount_cents'=>$row['amount_cents'],'previous_charge_id'=>$row['previous_charge_id']===null?null:(int)$row['previous_charge_id'],'lines'=>$byCharge[$id]??[],'parties'=>$this->partyLabels($fact['parties'])];}
         }elseif($kind==='operations'){
             $associationIds=$ids;foreach($rows as $row)if($row['original_operation_id']!==null)$associationIds[]=(int)$row['original_operation_id'];$associationIds=array_values(array_unique($associationIds));
-            $associationMarks=implode(',',array_fill(0,count($associationIds),'?'));$unitLinks=$this->all(self::operationUnitRelationsSql('?',$associationMarks),array_merge([$supplier],$associationIds,[$supplier],$associationIds,[$supplier],$associationIds));$associated=[];
+            $associationMarks=implode(',',array_fill(0,count($associationIds),'?'));$unitLinks=$this->all(self::operationUnitRelationsSql('?',$associationMarks),array_merge(...array_fill(0,self::OPERATION_UNIT_BRANCHES,[$supplier,...$associationIds])));$associated=[];
             foreach($unitLinks as $link)$associated[(int)$link['operation_id']][(int)$link['unit_id']]=true;
             $credits=$this->map("SELECT operation_id id,id credit_id,unit_id FROM unit_credit_lots WHERE supplier_id=? AND operation_id IN ($marks)",[$supplier,...$ids]);
             $allocations=$this->all("SELECT a.*,c.unit_id FROM unit_payment_allocations a JOIN (SELECT d.id,d.supplier_id,COALESCE(ch.unit_id,i.unit_id) unit_id FROM unit_payment_debts d LEFT JOIN unit_charges ch ON ch.supplier_id=d.supplier_id AND ch.id=d.charge_id LEFT JOIN property_opening_items i ON i.supplier_id=d.supplier_id AND i.id=d.opening_item_id) c ON c.supplier_id=a.supplier_id AND c.id=a.debt_id WHERE a.supplier_id=? AND a.operation_id IN ($marks) ORDER BY a.id",[$supplier,...$ids]);$parts=[];$units=[];

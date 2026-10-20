@@ -11,7 +11,7 @@ beforeEach(() => { vi.clearAllMocks(); Object.values(ops).forEach(fn => fn.mockR
 
 const card = {
   as_of: '2026-02-01T12:00:00+01:00', known_at: '2026-02-02T08:00:00+01:00', scope: 'house', precision: 'day', snapshot_hash: 'h',
-  coverage: { financial_complete: false, service_settlements: 'not_implemented', opening_import: 'not_implemented', scope: 'recorded_s3_s4', complete: false },
+  coverage: { financial_complete: false, service_settlements: 'pending', opening_import: 'not_implemented', scope: 'recorded_s3_s4', complete: false },
   totals: { gross_receivable_cents: '15000', gross_credit_cents: null, reserved_credit_cents: '0', available_credit_cents: null, guarantee_exposure_cents: null },
   claims: [
     { claim_key: 'claim.4', debt_id: 4, unit_id: 1, unit_label: 'Jednotka 1', title_ref: 'Advance 01/2026', due_date: '2026-01-15', amount_cents: '15000', person_liability_cents: null, precision: 'day', complete: false,
@@ -42,6 +42,7 @@ describe('receivables and credits card', () => {
     expect(wrapper.get('[data-claim-person]').text()).toContain('propertyPayments.unknown')
     expect(wrapper.find('[data-flag="day-precision"]').exists()).toBe(true)
     expect(wrapper.get('[data-flag="coverage"]').text()).toContain('propertyPayments.card.financialIncomplete')
+    expect(wrapper.get('[data-flag="coverage"]').text()).toContain('propertyPayments.card.servicesMissing')
     wrapper.unmount()
   })
   it('shows a joint spouse group once with its members instead of multiplying the claim', async () => {

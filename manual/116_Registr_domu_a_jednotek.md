@@ -70,6 +70,8 @@ Na záložce **Dluhy a kredity** otevřete **Registrace dluhu**. Vyberte předpi
 
 V detailu dluhu lze navázat již zaúčtovanou samostatnou pohledávku jako příslušenství. Vyberte její složku a doložte titul i odpovědnou skupinu osob. Samotné navázání nový úrok nevypočítává.
 
+Doručení upomínky zapsané v detailu předpisu se při úhradě bere jako upomenutí všech dluhů z tohoto předpisu. Platí jen vůči osobě, kterou doručení zastupovalo, a jen pokud bylo doručeno před přijetím platby. Při výběru dluhu podle § 1933 má upomenutý dluh přednost před ostatními.
+
 ### Přijetí, výplata a rozpis platby
 
 Na záložce **Přijmout / vyplatit** vyberte bankovní nebo pokladní platbu, případně pořiďte nový pokladní doklad. Rozpis může obsahovat úhrady vybraných dluhů, doložené kredity a vratky rezervovaných kreditů.
@@ -87,19 +89,29 @@ vratky, dluhy v cizí měně a jiné měny vyžadují samostatný doložený pos
 aplikace je v tomto toku odmítne. Jejich rozdíl se automaticky neúčtuje
 jako kurzový zisk nebo ztráta.
 
+Platbu vyhledáte podle variabilního nebo specifického symbolu, protistrany, popisu nebo částky. Seznam ukazuje u každého pohybu datum, částku, symboly a protistranu.
+
 U úhrady určete skutečného plátce, dlužníka, okamžik přijetí a hrazené dluhy. Okamžik zahrnuje čas i časový posun a jeho místní datum musí odpovídat zdroji platby. Platí-li třetí osoba, doložte její právní důvod. Volbu dluhů dlužníkem, porovnání zajištění, doručené upomínky nebo zvláštní rozpis složek zadávejte podle podkladů; aplikace je neodhaduje z variabilního symbolu či jména plátce.
 
 Společné analytické zařazení rozdělte na přesné částky a úplné kombinace dimenzí. Nevyjasněnou jednotku ponechte nepřiřazenou. Tlačítkem **Zkontrolovat rozpis** připravte náhled a ověřte vypořádanou část i zbytek. **Potvrdit a zaúčtovat** uloží zdroj a rozpis společně. Po změně zadání je potřeba nový náhled.
 
 Nevyjasněný zbytek zůstává na zúčtování platby a sám nevytváří dluh jednotky ani kredit jiné osoby. Jeho volné analytické zařazení můžete opravit s doloženým důvodem do otevřeného data; již vypořádané části tím nepřepisujete. Historie potvrzených rozpisů uvádí částky platné při potvrzení, nikoli dnešní dostupný zůstatek.
 
+### Párování plateb z banky
+
+Po importu bankovního výpisu firmy s profilem SVJ aplikace u příchozích nespárovaných plateb v korunách rozpozná jednotku a uloží návrh úhrady. Jednotku určují identifikátory z registru platné k datu platby: variabilní a specifický symbol, spojovací číslo SIPO, účet uvedený u jednotky a text platby. Slabším vodítkem je účet, který je u osoby vedené k tomu dni jako vlastník nebo plátce jednotky. Návrh nic neúčtuje a nic nepotvrzuje; firma bez profilu SVJ importuje výpis beze změny.
+
+Návrhy najdete na záložce **Návrhy z banky**. Každý má stav **Jednotka určena**, **K posouzení** nebo **Neurčeno** a uvádí důvody. Pokud platbě odpovídá více jednotek, jednotku spoluvlastní více osob nebo vlastnictví k datu platby není jednoznačné, aplikace nic nepředvybere a jednotku či dlužníka zvolíte sami. Plátce, jehož účet není doložený u dlužníka, je v návrhu označený k potvrzení; platbu třetí osoby doplňte s jejím právním důvodem.
+
+V detailu výpisu a v přehledu nespárovaných pohybů má příchozí platba u firmy s profilem SVJ akci **Spárovat na jednotku SVJ**. Otevře **Platby jednotek** s předvybraným pohybem a úhradou předvyplněnou podle rozpoznané jednotky: částka, otevřené dluhy dlužníka, plátce, dlužník a okamžik přijetí. Úhradu zkontrolujte a potvrďte stejným náhledem jako ruční úhradu. Platba převyšující otevřené dluhy se předvyplní jen do jejich výše; o zbytku rozhodněte samostatnou částí úhrady, například jako o kreditu s oprávněnými osobami. Pohyb, který už úhrada SVJ použila, má v bance odkaz **Úhrada SVJ** a znovu se nenavrhuje.
+
 ### Kredity, zápočet a rezervace
 
-Při vytvoření kreditu výslovně určete jednotku, všechny oprávněné osoby, doklad nároku a splatnost. Příjemce kreditu se neodvozuje automaticky z plátce ani z aktuálního vlastníka. Společný nárok více osob zůstává jednou částkou.
+Při vytvoření kreditu výslovně určete jednotku, všechny oprávněné osoby, doklad nároku a splatnost. Příjemce kreditu se neodvozuje automaticky z plátce ani z aktuálního vlastníka. Oprávněnými osobami bez dalšího titulu jsou vlastníci jednotky podle registru k datu kreditu. Jinou osobu uveďte jen s doloženým titulem: postoupením, děděním, omylem přijatou platbou, vyúčtováním služeb nebo jiným doloženým důvodem. Společný nárok více osob zůstává jednou částkou.
 
 V přehledu kreditů rozlišujte zůstatek, rezervovanou a dostupnou částku. Pro **Zápočet kreditu** vyberte dluhy téže oprávněné osoby nebo skupiny a doložte vzájemnost, způsobilost, projev zápočtu, jeho doručení a účinek. Po kontrole náhledu zápočet zaúčtujte.
 
-Pro vrácení nejprve vytvořte rezervaci: uveďte částku, určení vratky a způsob vyplacení. Pro bankovní vratku zadejte účet příjemce, pro hotovostní skutečného příjemce a jeho podklad. Rezervovanou částku už nelze souběžně použít jinak. Zrušení nevyplacené rezervace nebo uvolnění jejího nevyplaceného zbytku vyžaduje důvod.
+Pro vrácení nejprve vytvořte rezervaci: uveďte částku, určení vratky a způsob vyplacení. Pro bankovní vratku zadejte účet příjemce, pro hotovostní skutečného příjemce a jeho podklad. Účet příjemce musí být ručně zapsaný v bankovních účtech některé z oprávněných osob v kontaktech; účet převzatý jen z bankovního výpisu oprávnění nedokládá. Rezervovanou částku už nelze souběžně použít jinak. Zrušení nevyplacené rezervace nebo uvolnění jejího nevyplaceného zbytku vyžaduje důvod.
 
 ### Vratka a soubor ABO
 
@@ -109,7 +121,7 @@ V části **Rezervace a vratky** označte bankovní rezervace ve stavu **Rezervo
 
 Existující export je u rezervace dostupný i po novém načtení stránky. Zobrazuje název souboru a aktuální stavy rezervací celé dávky; jeho stažení nevytváří nový příkaz. U dávky se zaplacenou nebo zrušenou rezervací se zobrazí archivní upozornění. Archivní soubor znovu neposílejte jako nový příkaz. Zjistí-li se změna stavu až při stahování, nejprve se zobrazí upozornění a stažení musíte znovu výslovně zvolit.
 
-Odmítnutý nebo zrušený bankovní příkaz řešte akcí pro zrušení předání s důvodem a dokladem. Ta neruší příkaz v bance; jeho stav nejprve ověřte a vyřešte také tam.
+Příkaz, který už odešel bance, zrušíte akcí **Zrušit odeslaný příkaz** s důvodem a dokladem o žádosti v bance. Akce příkaz v bance neruší a rezervaci neuvolní: rezervace má stav **Odesláno, zrušení čeká na potvrzení banky**, protože banka mohla platbu provést. Uvolní ji až akce **Uvolnit po doložení neprovedení** s výpisem účtu, ze kterého příkaz odešel. Výpis musí mít datum splatnosti příkazu nebo pozdější a nesmí obsahovat odchozí platbu příjemci v částce příkazu. Pokud banka platbu provedla, spárujte ji z výpisu jako vratku na záložce **Přijmout / vyplatit**.
 
 ### Opravy, storna a karta
 

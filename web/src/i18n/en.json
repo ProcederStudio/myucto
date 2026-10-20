@@ -4910,7 +4910,18 @@
     "statement_delete_has_matches": "The notice statement has matched items. You can delete it once the official statement takes them over or after you unmatch them.",
     "notice_superseded_hint": "The same transaction is on the official bank statement, which carries the payment. The notice is resolved and is not matched automatically again.",
     "notice_superseded_chip": "Replaced by statement: {count}",
-    "journal_documents": "Journal entry documents"
+    "journal_documents": "Journal entry documents",
+    "property_payment": {
+      "match_unit": "Match to an owners' association unit",
+      "open": "Open association payment",
+      "used": "Association payment",
+      "used_workflow": "Association payment no. {id}",
+      "proposal": {
+        "identified": "Proposal: association unit",
+        "review_required": "Association proposal to review",
+        "unidentified": "Association unit not identified"
+      }
+    }
   },
   "bank_accounts": {
     "account_added": "Bank account added.",
@@ -29163,7 +29174,7 @@
       "openingMissing": "The opening import is not included yet.",
       "person": "Person (optional)",
       "personLiability": "person’s liability",
-      "servicesMissing": "Service settlements are not included yet.",
+      "servicesMissing": "Some service settlements are not applied yet, so the card is incomplete.",
       "title": "Receivables and credits card",
       "totals": {
         "available_credit_cents": "Available credits",
@@ -29411,7 +29422,7 @@
         "openingMissing": "The opening import is not included yet.",
         "person": "Person (optional)",
         "personLiability": "person’s liability",
-        "servicesMissing": "Service settlements are not included yet.",
+        "servicesMissing": "Some service settlements are not applied yet, so the card is incomplete.",
         "title": "Receivables and credits card",
         "totals": {
           "available_credit_cents": "Available credits",
@@ -29609,8 +29620,8 @@
           "reserved": "Reserved",
           "submitted": "Submitted"
         },
-        "submissionEvidence": "Evidence of the instruction cancelled outside the system",
-        "submissionHelp": "Cancelling a submitted instruction requires evidence of the external cancellation. Only the unpaid remainder {amount} is released.",
+        "submissionEvidence": "Evidence of the cancellation request at the bank",
+        "submissionHelp": "A cancellation request for a submitted instruction is only recorded. The unpaid remainder {amount} stays reserved until a statement proves the bank did not execute the instruction, or until the refund is matched from a statement.",
         "submissionSubmit": "Cancel submitted instruction",
         "submit": "Reserve",
         "title": "Credit reservation"
@@ -29705,13 +29716,22 @@
         "cancelled": "Cancelled",
         "paid": "Paid",
         "reserved": "Reserved",
-        "submitted": "Submitted"
+        "submitted": "Submitted",
+        "cancel_requested": "Submitted, cancellation awaits bank confirmation",
+        "failed": "Not executed, reservation released"
       },
-      "submissionEvidence": "Evidence of the instruction cancelled outside the system",
-      "submissionHelp": "Cancelling a submitted instruction requires evidence of the external cancellation. Only the unpaid remainder {amount} is released.",
+      "submissionEvidence": "Evidence of the cancellation request at the bank",
+      "submissionHelp": "A cancellation request for a submitted instruction is only recorded. The unpaid remainder {amount} stays reserved until a statement proves the bank did not execute the instruction, or until the refund is matched from a statement.",
       "submissionSubmit": "Cancel submitted instruction",
       "submit": "Reserve",
-      "title": "Credit reservation"
+      "title": "Credit reservation",
+      "releaseUnexecuted": "Release after proving non-execution",
+      "releaseHelp": "The reservation {amount} is released only by a statement of the paying account dated on or after the due date that does not contain the refund.",
+      "releaseSubmit": "Release reservation",
+      "releaseStatement": "Statement proving non-execution",
+      "releaseEvidence": "Evidence description",
+      "statementNumber": "statement no. {number}",
+      "accountHelp": "The account must be documented manually for an entitled person in the contact. An account taken only from a bank statement is not enough."
     },
     "reverse": {
       "correctionHelp": "A used or reserved resulting credit prevents the reversal until it is resolved.",
@@ -29770,14 +29790,105 @@
       "operations": "Operations",
       "receive": "Receive / pay",
       "register": "Debt registration",
-      "reservations": "Reservations and refunds"
+      "reservations": "Reservations and refunds",
+      "proposals": "Bank proposals",
+      "saldo": "Balance"
     },
     "title": "Unit payments",
     "truncated": "Only a limited number of recent payments is shown.",
     "unassigned": "Unassigned",
     "unit": "Unit",
     "unitNumber": "Unit {number}",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "sourcePicker": {
+      "search": "Find a movement",
+      "placeholder": "VS, SS, counterparty, description or amount",
+      "searchAction": "Search",
+      "empty": "No movement matches the search.",
+      "vs": "VS {value}",
+      "ss": "SS {value}",
+      "kind": {
+        "bank": "Bank",
+        "cash": "Cash"
+      }
+    },
+    "creditThirdParty": {
+      "basis": "Creditor title outside owners",
+      "owners": "Unit owners per registry",
+      "evidence": "Title evidence",
+      "help": "The credit belongs to the unit owners per registry on the payment date. Another person can be entered only with a documented title.",
+      "bases": {
+        "assignment": "Assignment",
+        "inheritance": "Inheritance",
+        "mistaken_payment": "Payment received by mistake",
+        "settlement_title": "Service settlement",
+        "other_documented": "Other documented title"
+      }
+    },
+    "bankProposal": {
+      "title": "Payment proposal from the bank",
+      "close": "Close proposal",
+      "used": "The movement is already used by an association payment.",
+      "usedWorkflow": "The movement is already used by association payment no. {id}.",
+      "status": {
+        "identified": "Unit identified",
+        "review_required": "To review",
+        "unidentified": "Not identified"
+      },
+      "score": "Match strength {score}",
+      "noUnit": "Unit not identified",
+      "reasons": {
+        "no_identifier_match": "No registry identifier matches the payment.",
+        "multiple_units": "Several units match the payment. Choose the unit.",
+        "weak_signal": "Only a weak signal points to the unit (payment text or a person's account).",
+        "ownership_review_required": "Ownership of the unit on the payment date is not unambiguous.",
+        "debtor_choice_required": "The unit has several owners. Choose the debtor.",
+        "payer_not_proven": "The payer is not proven to be the debtor. Confirm the debtor paid, or record a third-party payment.",
+        "unit_chosen_manually": "The unit was chosen manually.",
+        "other": "The proposal needs a review."
+      },
+      "signals": {
+        "vs": "VS",
+        "ss": "SS",
+        "sipo_link": "SIPO",
+        "account": "unit account",
+        "payer_account": "person's account",
+        "text": "payment text",
+        "manual": "chosen manually"
+      },
+      "review": {
+        "unit_required": "Choose the unit the payment belongs to.",
+        "debtor_required": "Choose the unit debtor.",
+        "no_open_debts": "The debtor has no open debts. Process the amount {amount} CZK as a credit with entitled persons.",
+        "legal_review": "The payment needs a decision: {reason}.",
+        "principal_distribution_required": "A partial payment of a debt with several components needs the principal split according to the debtor's instruction.",
+        "debt_inventory_incomplete": "Some of the debtor's charges have no registered debt. Register the debts first.",
+        "liability_review": "Liability of persons for the debt needs a review.",
+        "other": "Complete the proposal in the payment below."
+      },
+      "legal": {
+        "ambiguous_priority": "the order of debts under section 1933 is not unambiguous",
+        "security_comparison_required": "the security of the debts must be compared",
+        "third_party_unproven": "the third-party payment is not documented",
+        "debtor_unproven": "the debtor is not documented",
+        "underlying_claim_unresolved": "the debt the damages relate to must be paid first",
+        "credit_entitlement_required": "Part of the payment exceeds the open debts. Process the surplus as a credit with entitled persons.",
+        "other": "another legal reason"
+      },
+      "remaining": "{amount} CZK of the movement stays unallocated. Decide about the overpayment in a separate part of the payment.",
+      "ready": "The preview is ready. Check the payment and confirm it as a manual payment.",
+      "chooseUnit": "Unit",
+      "useUnit": "Use unit",
+      "chooseDebtor": "Debtor",
+      "useDebtor": "Use debtor",
+      "help": "The proposal posts nothing. The payment is created only by confirming the preview.",
+      "queueTitle": "Payment proposals from the bank",
+      "queueHelp": "Incoming payments from imported statements with a recognised unit. Open, check and confirm each proposal.",
+      "queueEmpty": "No proposals to confirm.",
+      "filter": "Status",
+      "filterOpen": "To confirm",
+      "open": "Open proposal"
+    }
   },
   "propertyRegistry": {
     "active": "Active",

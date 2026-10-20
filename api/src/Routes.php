@@ -2520,6 +2520,7 @@ final class Routes
             $g->post('/payments/reservations/abo/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportPreview']);
             $g->post('/payments/reservations/abo/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportConfirm']);
             $g->post('/payments/reservations/{id:[0-9]+}/cancel-submission', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelExport']);
+            $g->post('/payments/reservations/{id:[0-9]+}/release-unexecuted', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'releaseUnexecuted']);
             $g->post('/payments/debts/register', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'registerDebt']);
             $g->post('/payments/credits/{id:[0-9]+}/reserve', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'reserve']);
             $g->post('/payments/reservations/{id:[0-9]+}/cancel', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelReservation']);
@@ -2537,6 +2538,10 @@ final class Routes
             $g->get('/payments/history', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'history']);
             $g->post('/payments/preview', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'preview']);
             $g->post('/payments/confirm', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'confirm']);
+            $g->get('/payments/bank-proposals', [\MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class, 'queue']);
+            $g->get('/payments/bank-proposals/{id:[0-9]+}', [\MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class, 'detail']);
+            $g->post('/payments/bank-proposals/{id:[0-9]+}/plan', [\MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class, 'plan']);
+            $g->get('/payments/bank-links', [\MyInvoice\Action\Property\Payments\PaymentBankProposalAction::class, 'links']);
 
             $g->get('/charges/issues', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'list']);
             $g->get('/charges/issues/context', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'context']);

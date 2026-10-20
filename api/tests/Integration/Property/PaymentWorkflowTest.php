@@ -382,7 +382,7 @@ final class PaymentWorkflowTest extends TestCase
         return ['source' => $source, 'clearing_cells' => [['key' => 'unresolved', 'amount_cents' => '10000', 'dimensions' => []]],
             'parts' => [['key' => 'documented-credit', 'request' => ['kind' => 'allocation', 'amount_cents' => '6000', 'accounting_date' => '2026-02-01',
                 'reason' => 'Synthetic evidenced credit independent of payer', 'debts' => [],
-                'credit_entitlement' => ['unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]],
+                'credit_entitlement' => ['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]],
                     'evidence' => 'Synthetic entitlement deed', 'due_date' => '2026-03-01']]]]];
     }
 
