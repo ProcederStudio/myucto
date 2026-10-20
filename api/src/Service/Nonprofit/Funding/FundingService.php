@@ -3,18 +3,16 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Nonprofit\Funding;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Nonprofit\FundingRepository;
-use MyInvoice\Repository\NonprofitTaxAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxSourceRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
-use MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 use PDO;
 final class FundingService
 {
     public function __construct(private readonly Connection $db,private readonly FundingRepository $repository,
-        private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources,
-        private readonly FundingEligibilityGuard $eligibility,private readonly DimensionPeriodGuard $periods,private readonly J6FundingCapacity $capacity) {}
+        private readonly FundingAssessmentEvidence $evidence,private readonly NonprofitTaxSourceRepository $sources,
+        private readonly FundingEligibilityGuard $eligibility,private readonly DimensionPeriodGuard $periods) {}
     public function read(int $supplier): array
     {
         return $this->overview($supplier,false);
@@ -29,22 +27,10 @@ final class FundingService
         $q=$this->db->pdo()->prepare("SELECT v.id,v.code,v.name FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id AND t.supplier_id=v.supplier_id WHERE v.supplier_id=? AND t.system_key='activity_kind' ORDER BY v.code,v.id");$q->execute([$supplier]);
         $activities=array_map(static fn($r)=>['id'=>(int)$r['id'],'label'=>$r['code'].' - '.$r['name']],$q->fetchAll(PDO::FETCH_ASSOC));
         $q=$this->db->pdo()->prepare("SELECT account_code,name FROM chart_of_accounts WHERE supplier_id=? AND account_code LIKE '5%' AND is_active=1 ORDER BY account_code");$q->execute([$supplier]);$accounts=array_map(static fn($r)=>['code'=>$r['account_code'],'label'=>$r['account_code'].' - '.$r['name']],$q->fetchAll(PDO::FETCH_ASSOC));
-        $snapshot=$this->sources->snapshot($supplier,$period);$receipt=$this->assessments->latest($supplier,$period);
-        $current=$receipt!==null&&$receipt['status']==='confirmed'&&$receipt['ruleset']===NonprofitTaxRules::VERSION&&$snapshot['findings']===[]&&hash_equals($receipt['input_hash'],$snapshot['input_hash']);
-        $options=[];
-        if($current){
-            $this->capacity->assertCurrentReceipt($supplier,$receipt);
-            $catalog=array_column($receipt['result']['rows'],null,'id')+($receipt['snapshot']['funding_reference_sources']??[]);$pools=$receipt['assessment']['funding_sources']??[];$claimed=[];
-            foreach($pools as $pool)foreach($pool['members']as$id)$claimed[$id]=true;
-            foreach($catalog as$id=>$row)if(!isset($claimed[$id])&&$row['kind']==='revenue'&&$row['amount_cents']>0&&(($row['reference_current']??true)===true))$pools[]=['anchor'=>$id,'members'=>[$id]];
-            foreach($pools as$pool){
-                $base=$catalog[$pool['anchor']]??null;$title=$base['decision']['title']??'';
-                if(!in_array($title,['gift','public_operating_grant'],true))continue;
-                $amount=0;foreach($pool['members']as$id)$amount+=$catalog[$id]['amount_cents'];if($amount<=0)continue;
-                $options[]=['anchor'=>$pool['anchor'],'members'=>$pool['members'],'kind'=>$title==='gift'?'gift':'operating_grant','date'=>$base['date'],'account_code'=>$base['account_code'],'amount_cents'=>$amount,'evidence'=>$base['decision']['evidence']];
-            }
-        }
-        return ['period'=>$periodRow,'assessment_current'=>$current,'providers'=>$providers,'providers_more'=>$more,'activities'=>$activities,'accounts'=>$accounts,'sources'=>$options];
+        $receipt=$this->evidence->periodReceipt($supplier,$period,false);
+        $current=$receipt!==null&&$receipt['current'];
+        [$options,$optionsMore]=$current?$this->evidence->candidates($receipt):[[],false];
+        return ['period'=>$periodRow,'assessment_current'=>$current,'providers'=>$providers,'providers_more'=>$more,'activities'=>$activities,'accounts'=>$accounts,'sources'=>$options,'sources_more'=>$optionsMore];
     }
     public function preview(int $supplier,int $period,string $sourceKey,array $input): array
     {
@@ -88,12 +74,13 @@ final class FundingService
             if(array_diff($previous['policy']['source_members'],$policy['source_members'])!==[])FundingPolicy::invalid('Původní členové zdroje musí zůstat v historii.');
         }
         foreach($this->repository->all($supplier,$lock) as $row)if($row['source_key']!==$key&&array_intersect($row['policy']['source_members'],$policy['source_members'])!==[])FundingPolicy::invalid('Tentýž účetní zdroj již patří jinému účelovému zdroji.','nonprofit_funding_source_already_used');
-        $receipts=$this->effective($supplier,$lock); $basis=null;
+        $receipts=$this->evidence->receipts($supplier,$lock); $basis=null;
+        $projections=$this->projections($receipts,[$policy]);
         foreach($receipts as $receipt){
             if(!$receipt['current'])continue;
-            $catalog=array_column($receipt['result']['rows'],null,'id')+($receipt['snapshot']['funding_reference_sources']??[]);
+            $catalog=$projections[$receipt['id']]['rows'];
             if(!isset($catalog[$policy['source_anchor']]))continue;
-            if(FundingPolicy::poolMembers($receipt['assessment'],$policy['source_anchor'])!==$policy['source_members'])continue;
+            if(FundingPolicy::poolMembers($projections[$receipt['id']]['pools'],$policy['source_anchor'])!==$policy['source_members'])continue;
             $members=[]; $amount=0;
             foreach($policy['source_members'] as $id){
                 if(!isset($catalog[$id]))FundingPolicy::invalid('Člen zdroje chybí v potvrzeném posouzení.');
@@ -105,8 +92,8 @@ final class FundingService
         }
         if($basis===null)FundingPolicy::invalid('Účelový zdroj vyžaduje aktuální potvrzené posouzení právního titulu.','nonprofit_funding_assessment_incomplete');
         $proposal=['policy'=>$policy,'basis'=>$basis];
-        foreach($receipts as $receipt)if($receipt['status']==='confirmed')$this->eligibility->assertPolicies([$proposal],$receipt['snapshot'],$receipt['assessment'],$receipt['result']);
-        $report=$this->sourceReport($proposal,$receipts);
+        foreach($receipts as $receipt)if($receipt['status']==='confirmed')$this->eligibility->assertProjection([$proposal],$projections[$receipt['id']]);
+        $report=$this->sourceReport($proposal,$receipts,$projections);
         if($report['drawdown_cents']>$policy['budget_cents'])FundingPolicy::invalid('Nový rozpočet je nižší než potvrzené použití.','nonprofit_funding_budget_exceeded');
         $hash=NonprofitTaxRules::hash(['supplier'=>$supplier,'period'=>$period,'source_key'=>$key,'policy'=>$policy,'basis'=>$basis,
             'sources'=>array_map(static fn($row)=>$row['record_hash'],$latest),'receipt_ids'=>array_map(static fn($row)=>[$row['id'],$row['input_hash'],$row['current']],$receipts)]);
@@ -114,43 +101,54 @@ final class FundingService
     }
     private function overview(int $supplier,bool $lock): array
     {
-        $latest=$this->repository->latest($supplier,$lock); $receipts=$this->effective($supplier,$lock); $findings=[];
-        foreach($receipts as $row)if(!$row['current']&&($row['result']['funding_usage']??[])!==[])$findings[]=['code'=>'funding_assessment_not_current','assessment_id'=>$row['id'],'period_id'=>$row['period_id']];
+        $latest=$this->repository->latest($supplier,$lock); $receipts=$this->evidence->receipts($supplier,$lock); $findings=[];
+        foreach($receipts as $row)if(!$row['current']&&$row['usage_count']>0)$findings[]=['code'=>'funding_assessment_not_current','assessment_id'=>$row['id'],'period_id'=>$row['period_id']];
+        $projections=$this->projections($receipts,array_column($latest,'policy'));
         $reports=[];
         foreach($latest as $key=>$row){
             $current=false;
             foreach($receipts as $receipt){
                 if(!$receipt['current'])continue;
-                $catalog=array_column($receipt['result']['rows'],null,'id')+($receipt['snapshot']['funding_reference_sources']??[]);
+                $catalog=$projections[$receipt['id']]['rows'];
                 if(array_diff($row['policy']['source_members'],array_keys($catalog))!==[])continue;
-                if(FundingPolicy::poolMembers($receipt['assessment'],$row['policy']['source_anchor'])!==$row['policy']['source_members'])continue;
+                if(FundingPolicy::poolMembers($projections[$receipt['id']]['pools'],$row['policy']['source_anchor'])!==$row['policy']['source_members'])continue;
                 $actual=FundingPolicy::sourceRows($catalog,$row['policy']['source_members']);
                 if(NonprofitTaxRules::hash($actual)===NonprofitTaxRules::hash($row['basis']['source_rows']))$current=true;
             }
             if(!$current)$findings[]=['code'=>'funding_source_not_current','source_key'=>$key];
-            $report=$this->sourceReport($row,$receipts);if(!$current)$report['available_cents']=null;
+            $report=$this->sourceReport($row,$receipts,$projections);if(!$current)$report['available_cents']=null;
             $reports[]=['source_key'=>$key,'revision'=>$row,'source_current'=>$current]+$report;
         }
         return ['sources'=>$reports,'findings'=>$findings,'complete'=>$findings===[],'usage_basis'=>'confirmed_nonprofit_tax_assessments','financial_authorization'=>false];
     }
-    private function effective(int $supplier,bool $lock): array
+
+    /**
+     * Projekce potvrzených posouzení omezená na kotvy a členy daných politik, jedna na posouzení.
+     *
+     * @return array<int,array>
+     */
+    private function projections(array $receipts,array $policies): array
     {
+        $anchors=[];$members=[];
+        foreach($policies as $policy){
+            $anchors[$policy['source_anchor']]=true;
+            foreach($policy['source_members'] as $id)$members[$id]=true;
+        }
         $out=[];
-        foreach($this->assessments->latestOfConfirmedPeriods($supplier,$lock) as $row){
-            $snapshot=$this->sources->snapshot($supplier,$row['period_id'],$lock);
-            $row['current']=$row['status']==='confirmed'&&$row['ruleset']===NonprofitTaxRules::VERSION&&$snapshot['findings']===[]&&hash_equals($row['input_hash'],$snapshot['input_hash']);
-            if($row['current'])$this->capacity->assertCurrentReceipt($supplier,$row);
-            $out[]=$row;
+        foreach($receipts as $receipt){
+            if($receipt['status']!=='confirmed')continue;
+            $out[$receipt['id']]=$anchors===[]?['rows'=>[],'pools'=>[],'links'=>[],'usage'=>[]]
+                :$this->evidence->project($receipt,array_keys($anchors),array_keys($members));
         }
         return $out;
     }
-    private function sourceReport(array $source,array $receipts): array
+    private function sourceReport(array $source,array $receipts,array $projections): array
     {
         $policy=$source['policy']; $uses=[]; $total=0;
         foreach($receipts as $receipt){
             if($receipt['status']!=='confirmed')continue;
-            $rows=array_column($receipt['result']['rows'],null,'id');
-            foreach($receipt['assessment']['funding']??[] as $link)if($link['source_id']===$policy['source_anchor']){
+            $rows=$projections[$receipt['id']]['rows'];
+            foreach($projections[$receipt['id']]['links'] as $link)if($link['source_id']===$policy['source_anchor']){
                 $total+=$link['amount_cents'];
                 $uses[]=['assessment_id'=>$receipt['id'],'period_id'=>$receipt['period_id'],'current'=>$receipt['current'],
                     'cost'=>$rows[$link['cost_id']],'amount_cents'=>$link['amount_cents'],'evidence'=>$link['evidence']];

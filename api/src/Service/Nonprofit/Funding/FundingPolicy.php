@@ -41,10 +41,10 @@ final class FundingPolicy
         $expected = ['operating_grant'=>'public_operating_grant','investment_grant'=>'public_investment_grant','gift'=>'gift'][$policy['kind']];
         if (($source['kind'] ?? null) !== 'revenue' || ($source['decision']['title'] ?? null) !== $expected) self::invalid('Druh zdroje neodpovídá potvrzenému právnímu titulu.');
     }
-    public static function poolMembers(array $assessment,string $anchor):array
+    /** Členové fondu zdroje podle projekce posouzení (FundingAssessmentEvidence::project); bez fondu jen kotva. */
+    public static function poolMembers(array $pools,string $anchor):array
     {
-        $members=[$anchor];
-        foreach($assessment['funding_sources']??[]as$pool)if($pool['anchor']===$anchor)$members=$pool['members'];
+        $members=$pools[$anchor]??[$anchor];
         sort($members,SORT_STRING);return $members;
     }
     public static function sourceRows(array $catalog, array $members): array
