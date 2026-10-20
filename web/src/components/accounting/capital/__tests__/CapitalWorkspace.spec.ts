@@ -3,6 +3,7 @@ import { defineComponent, h } from 'vue'
 import { createI18n } from 'vue-i18n'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Workspace from '../CapitalWorkspace.vue'
+import MultiSelectFilter from '@/components/ui/MultiSelectFilter.vue'
 import type { CapitalPolicy, CapitalPreview } from '@/api/nonprofitCapital'
 import cs from '@/i18n/cs.json'
 import en from '@/i18n/en.json'
@@ -15,10 +16,11 @@ const policy: CapitalPolicy = { kind: 'investment', source_line_id: 41, asset_id
 const fund = { id: 81, kind: 'fund', amount_cents: 100000, asset_id: null, policy: { ...policy, kind: 'fund', asset_id: null, title: 'Synthetic actual fund' }, basis: { source: { account_code: '911', date: '2026-01-01' }, provider: { company_name: 'Historical provider' }, asset: null } }
 const original = { id: 91, operation: 'release', active: true, entry_id: 101, amount_cents: 40000, receipt: { entry: { period_id: 11, entry_date: '2026-12-31' }, lines: [{ account_code: '911', side: 'debit', amount: '400.00' }, { account_code: '648', side: 'credit', amount: '400.00' }] } }
 function mounted(locale = 'cs', canManage = true) { return mount(Workspace, { props: { supplier: 5, canManage }, global: { plugins: [createI18n({ legacy: false, locale, messages: { cs, en } })], stubs: { ActionBar, DateInput } } }) }
+async function pick(w: ReturnType<typeof mounted>, field: string, values: string[]) { const select = w.findAllComponents(MultiSelectFilter).find(c => c.attributes('data-field') === field); expect(select).toBeDefined(); select!.vm.$emit('update:modelValue', values); await flushPromises() }
 async function fill(w: ReturnType<typeof mounted>) {
  await flushPromises(); await w.get('[data-action="new"]').trigger('click'); await flushPromises()
  for (const [field, value] of Object.entries({ source_line_id: '41', asset_id: '61', provider_id: '21', revenue_tax_regime_id: '71', title: policy.title, purpose: policy.purpose, evidence: policy.evidence, decision_authority: policy.decision_authority, reason: 'Synthetic reviewed terms' })) await w.get(`[data-field="${field}"]`).setValue(value)
- await w.get('[data-field="activity_kind_ids"]').setValue(['31']); await w.get('[data-field="account_prefixes"]').setValue(['551'])
+ await pick(w, 'activity_kind_ids', ['31']); await pick(w, 'account_prefixes', ['551'])
 }
 async function review(w: ReturnType<typeof mounted>) { await w.get('[data-action="preview"]').trigger('click'); await flushPromises(); expect(w.find('[data-testid="capital-preview"]').exists()).toBe(true) }
 beforeEach(() => {
@@ -27,6 +29,14 @@ beforeEach(() => {
  api.preview.mockResolvedValue({ input_hash: 'a'.repeat(64), financial_authorization: true, basis: { source: { amount_cents: 30000000 }, asset: { valuation_cents: 50000000 } } })
 })
 describe('Capital workspace', () => {
+ it('shows loading, empty overview and locale dates like the sibling membership page', async () => {
+  let resolve!: (v: unknown) => void; api.read.mockImplementationOnce(() => new Promise(r => { resolve = r })); const w = mounted(); await flushPromises()
+  expect(w.find('[data-section="loading"]').text()).toBe(cs.common.loading); expect(w.find('[data-section="empty"]').exists()).toBe(false)
+  resolve({ sources: [] }); await flushPromises(); expect(w.find('[data-section="loading"]').exists()).toBe(false); expect(w.find('[data-section="empty"]').text()).toBe(cs.nonprofitCapital.empty); w.unmount()
+  api.read.mockResolvedValue({ sources: [{ source: fund, used_cents: 40000, available_cents: 60000, events: [original] }] }); const r = mounted(); await flushPromises()
+  expect(r.text()).toContain('31. 12. 2026'); expect(r.text()).not.toContain('2026-12-31'); expect(r.text()).not.toContain('2026-01-01'); r.unmount()
+  api.read.mockRejectedValueOnce({ response: { status: 500, data: { error: { message: 'Synthetic failure' } } } }); const e = mounted(); await flushPromises(); expect(e.get('[data-section="workspace-error"]').attributes('role')).toBe('alert'); expect(e.find('h1').text()).toBe(cs.nonprofitCapital.title); e.unmount()
+ })
  it.each(['cs', 'en'])('renders complete translated evidence in %s', async locale => { const w = mounted(locale); await fill(w); expect(w.text()).toContain((locale === 'cs' ? cs : en).nonprofitCapital.title); expect(w.text()).toContain('Synthetic owned machine'); expect(w.text()).not.toContain('nonprofitCapital.'); w.unmount() })
  it('requires an exact preview and explicit acknowledgement before registration', async () => { const w = mounted(); await fill(w); await review(w); expect(api.preview).toHaveBeenCalledWith(5, { operation: 'register', policy }); expect(api.confirm).not.toHaveBeenCalled(); expect(w.get('[data-action="confirm"]').attributes('disabled')).toBeDefined(); await w.get('[data-field="acknowledged"]').setValue(true); await w.get('[data-action="confirm"]').trigger('click'); await flushPromises(); expect(api.confirm).toHaveBeenCalledWith(5, expect.objectContaining({ operation: 'register', policy, reason: 'Synthetic reviewed terms', input_hash: 'a'.repeat(64) })); expect(w.find('[data-testid="capital-preview"]').exists()).toBe(false); w.unmount() })
  it('invalidates a preview after evidence or permission changes', async () => { const w = mounted(); await fill(w); await review(w); await w.get('[data-field="purpose"]').setValue('Changed approved purpose'); expect(w.find('[data-testid="capital-preview"]').exists()).toBe(false); await review(w); await w.setProps({ canManage: false }); expect(w.find('[data-action="confirm"]').exists()).toBe(false); expect(api.confirm).not.toHaveBeenCalled(); w.unmount() })
