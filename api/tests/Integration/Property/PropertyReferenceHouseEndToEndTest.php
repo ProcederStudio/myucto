@@ -136,6 +136,7 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
             else $liabilities -= $row['closing_debit_balance'];
         }
         self::assertEquals([238830, 238830], [$assets, $liabilities]);
+        $this->assertSubledgers('2027-04-25');
 
         $distribution = $closing->profitDistributionPreview($this->supplier, $this->year2026, '2027-06-15');
         $closing->runProfitDistribution($this->supplier, $this->year2026, ['decision_date' => '2027-06-15',
@@ -156,6 +157,26 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         self::assertNotNull($openedNext['entry_id']);
         // Rámec 504 otevírá 932 záměrně do 931 (AccountingRoleProfile::openingAccount), rozvaha 2028 je tedy dubnová.
         self::assertSame($april, $this->balances('2028-01-01', '2028-01-01'));
+    }
+
+    /**
+     * Hrubé pohledávky 14 500 Kč a kredity 6 000 Kč se shodují s účty i po jednotkách
+     * a neslévají se do čistého salda (U05 dluh 5 500 a kredit 500, U06 dluh 2 000 a kredit 3 500).
+     */
+    private function assertSubledgers(string $date): void
+    {
+        $reconciliation = new \MyInvoice\Service\Property\Receivables\PropertyReconciliation($this->db);
+        $house = $reconciliation->at($this->supplier, $date);
+        self::assertTrue($house['matches'], json_encode($house['difference_cents']));
+        self::assertSame(['receivable' => '1450000', 'credit' => '600000'], $house['subledger_cents']);
+        $expected = ['U01' => ['0', '100000'], 'U02' => ['350000', '0'], 'U03' => ['100000', '0'], 'U04' => ['0', '0'], 'U05' => ['550000', '50000'],
+            'U06' => ['200000', '350000'], 'U07' => ['0', '50000'], 'U08' => ['200000', '0'], 'U09' => ['0', '0'], 'U10' => ['50000', '0'],
+            'U11' => ['0', '50000'], 'G12' => ['0', '0']];
+        foreach ($expected as $code => [$receivable, $credit]) {
+            $unit = $reconciliation->at($this->supplier, $date, $this->f['units'][$code]);
+            self::assertTrue($unit['matches'], $code);
+            self::assertSame(['receivable' => $receivable, 'credit' => $credit], $unit['subledger_cents'], $code);
+        }
     }
 
     // ---------------------------------------------------------------- vyúčtování vody 2027
