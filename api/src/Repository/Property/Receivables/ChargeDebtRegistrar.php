@@ -45,9 +45,10 @@ final class ChargeDebtRegistrar
      * zákonného vztahu vlastníka k SVJ, odchylku nese ruční registrace.
      *
      * - `basis = statutory`: povinnost přispívat na správu domu a platit zálohy na služby ukládá
-     *   vlastníkovi zákon (§ 1180 OZ, zákon č. 67/2013 Sb.), předpis ji jen vyčísluje.
-     *   Pro přechodné ustanovení § 1932 (čl. II bod 2 zákona č. 192/2021 Sb.) tím rozhoduje datum
-     *   plnění. V obecném režimu dávají obě znění § 1932 stejné pořadí, odlišný titul s datem
+     *   vlastníkovi zákon (§ 1180 a 1181 OZ, zákon č. 67/2013 Sb.), předpis ji jen vyčísluje.
+     *   Přechodné ustanovení k § 1932 (čl. II bod 2 zákona č. 192/2021 Sb.) dopadá na plnění
+     *   z právního jednání učiněného před účinností novely, zákonný dluh z právního jednání
+     *   nevzniká. V obecném režimu dávají obě znění § 1932 stejné pořadí, odlišný titul s datem
      *   právního jednání se zadává ruční registrací.
      * - `regime = general`: SVJ nesmí podnikat (§ 1194 odst. 1 OZ), vlastník proto v zákonném vztahu
      *   k SVJ není spotřebitelem podle § 419 OZ jen proto, že je fyzická osoba. Spotřebitelský režim
@@ -59,8 +60,9 @@ final class ChargeDebtRegistrar
     }
 
     /**
-     * Zajištění automaticky registrovaného dluhu. Zákonné zástavní právo SVJ k jednotce znal jen
-     * zrušený § 15 zákona č. 72/1994 Sb., občanský zákoník je nepřevzal. Míru zajištění pro § 1933 OZ
+     * Zajištění automaticky registrovaného dluhu. Zákon č. 72/1994 Sb. zajišťoval v § 15 odst. 3 jen
+     * pravomocně přisouzené pohledávky vlastníků jednotek zástavním právem vzniklým právní mocí
+     * soudního rozhodnutí. Zákon zrušil občanský zákoník a obdobné zástavní právo nepřevzal. Míru zajištění pro § 1933 OZ
      * lze porovnat jen u strukturovaně doloženého zajištění (druh, rozsah, pořadí, účinnost),
      * samotný předpis žádné nedokládá. Smluvní zástavní právo nebo
      * ručení se zadává ruční registrací s doloženým rozsahem, pořadím a účinností.

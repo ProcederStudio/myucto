@@ -4,14 +4,18 @@ namespace MyInvoice\Service\Property\Services\Settlement;
 
 /**
  * Lhůty zákona č. 67/2013 Sb. k vyúčtování služeb jako upozornění, ne blokace:
- *  - § 7: vyúčtování se doručí nejpozději do 4 měsíců od skončení zúčtovacího období,
- *  - § 7: finanční vyrovnání (přeplatek i nedoplatek) je splatné nejpozději
- *    do 4 měsíců od doručení vyúčtování,
- *  - § 8: námitky lze podat do 30 dnů od doručení, poskytovatel je vyřídí do 30 dnů
- *    od jejich doručení.
- * Vady vyúčtování ani námitka splatnost přeplatku neposouvají, proto se splatnost
- * počítá jen z doručení. Konec lhůty v měsících připadne na den shodný číslem,
- * v kratším měsíci na jeho poslední den (§ 605 odst. 2 občanského zákoníku).
+ *  - § 7 odst. 1: vyúčtování se doručí nejpozději do 4 měsíců od skončení zúčtovacího období,
+ *  - § 7 odst. 3: finanční vyrovnání je splatné v dohodnuté lhůtě, nejpozději do 4 měsíců
+ *    od doručení vyúčtování,
+ *  - § 8 odst. 2: námitky do 30 dnů od doručení vyúčtování, popřípadě doložení podkladů
+ *    podle § 8 odst. 1, vyřízení do 30 dnů od jejich předložení.
+ * Vady vyúčtování neovlivňují splatnost přeplatku, splatnost nedoplatku neovlivňují jen vady
+ * bez vlivu na jeho výši (§ 7 odst. 3), proto se hranice splatnosti počítá jen z doručení.
+ * Doložení podkladů se neeviduje, lhůta námitek se proto počítá od doručení a upozornění
+ * `objection_late` u příjemce, který o podklady požádal, je jen k posouzení.
+ * Konec lhůty v měsících připadne na den shodný číslem, v kratším měsíci na jeho poslední den
+ * (§ 605 odst. 2 občanského zákoníku). Připadne-li konec lhůty na sobotu, neděli nebo svátek,
+ * je posledním dnem nejbližší následující pracovní den (§ 607 občanského zákoníku).
  */
 final class SettlementDeadlines
 {
@@ -33,6 +37,13 @@ final class SettlementDeadlines
         return \DateTimeImmutable::createFromFormat('!Y-m-d', SettlementEvidence::date($date))->modify('+'.$days.' days')->format('Y-m-d');
     }
 
+    /** Poslední den lhůty po posunu podle § 607 občanského zákoníku. */
+    public static function lastDay(string $date): string
+    {
+        [$y, $m, $d] = array_map('intval', explode('-', SettlementEvidence::date($date)));
+        return \MyInvoice\Service\Report\CzechWorkingDays::deadline($y, $m, $d);
+    }
+
     /** Kalendářní den doručení v Praze z okamžiku uloženého v dokumentaci. */
     public static function pragueDate(string $instant): string
     {
@@ -46,7 +57,7 @@ final class SettlementDeadlines
     public static function evaluate(string $periodTo, ?array $dossier, array $objections, string $today): array
     {
         SettlementEvidence::date($today);
-        $deliveryDeadline = self::addMonths($periodTo, self::DELIVERY_MONTHS);
+        $deliveryDeadline = self::lastDay(self::addMonths($periodTo, self::DELIVERY_MONTHS));
         $deliveries = [];
         $warnings = [];
         $byRecipient = [];
@@ -68,8 +79,8 @@ final class SettlementDeadlines
             if ($delivery['status'] === 'delivered') {
                 $delivered = self::pragueDate($delivery['delivered_at']);
                 $row['delivered_on'] = $delivered;
-                $row['due_limit'] = self::addMonths($delivered, self::SETTLEMENT_MONTHS);
-                $row['objection_deadline'] = self::addDays($delivered, self::OBJECTION_DAYS);
+                $row['due_limit'] = self::lastDay(self::addMonths($delivered, self::SETTLEMENT_MONTHS));
+                $row['objection_deadline'] = self::lastDay(self::addDays($delivered, self::OBJECTION_DAYS));
                 if ($delivered > $deliveryDeadline) $row['warnings'][] = 'delivery_late';
                 if ($row['due_date'] === null) $row['warnings'][] = 'due_missing';
                 elseif ($row['due_date'] > $row['due_limit']) $row['warnings'][] = 'due_beyond_limit';
@@ -85,8 +96,8 @@ final class SettlementDeadlines
         foreach ($objections as $objection) {
             $delivered = $byRecipient[$objection['recipient_id']] ?? null;
             $row = $objection + [
-                'submission_deadline' => $delivered === null ? null : self::addDays($delivered, self::OBJECTION_DAYS),
-                'resolution_deadline' => self::addDays($objection['received_on'], self::RESOLUTION_DAYS),
+                'submission_deadline' => $delivered === null ? null : self::lastDay(self::addDays($delivered, self::OBJECTION_DAYS)),
+                'resolution_deadline' => self::lastDay(self::addDays($objection['received_on'], self::RESOLUTION_DAYS)),
                 'warnings' => [],
             ];
             if ($delivered === null) $row['warnings'][] = 'objection_without_delivery';

@@ -61,6 +61,14 @@ final class SettlementDeadlinesHttpTest extends TestCase
         self::assertSame('2027-06-09', SettlementDeadlines::addDays('2027-05-10', 30));
     }
 
+    public function testDeadlineOnWeekendOrHolidayMovesToNextWorkingDay(): void
+    {
+        self::assertSame('2027-11-01', SettlementDeadlines::evaluate('2027-06-30', null, [], '2027-07-01')['delivery_deadline']);
+        self::assertSame('2027-12-27', SettlementDeadlines::evaluate('2027-08-24', null, [], '2027-08-25')['delivery_deadline']);
+        $objection = SettlementDeadlines::evaluate('2027-06-30', null, [['id' => 1, 'recipient_id' => 1, 'received_on' => '2027-05-07', 'resolved_on' => null]], '2027-06-08')['objections'][0];
+        self::assertSame('2027-06-07', $objection['resolution_deadline']);
+    }
+
     public function testMalformedApplicationRequestIsValidationError(): void
     {
         [, $saved] = $this->saved();

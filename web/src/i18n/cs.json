@@ -29185,7 +29185,7 @@
       "individual": "Samostatná odpovědnost",
       "solidary": "Výslovně doložená solidarita"
     },
-    "monthlyNoticeHelp": "Změna měsíční zálohy vyžaduje odůvodněné písemné oznámení a doručení. Účinnost nejdříve od prvního dne dalšího měsíce podle § 4 odst. 4 zákona 67/2013 Sb.",
+    "monthlyNoticeHelp": "Změna měsíční zálohy vyžaduje řádně odůvodněné písemné oznámení. Nová záloha může být požadována nejdříve od prvního dne měsíce následujícího po doručení oznámení (§ 4 odst. 4 zákona č. 67/2013 Sb.).",
     "noInferredDebtor": "Vlastník, plátce ani zástupce se nestává dlužníkem automaticky. Zadejte doložený titul a rozsah odpovědnosti. SJM má jednu účast se společnými členy.",
     "noProration": "Četnost vychází z potvrzené verze. Poměrná část měsíce se neodhaduje.",
     "nonMonthlyNoticeHelp": "Změna neměsíční zálohy vyžaduje vlastní doloženou dohodu nebo kompetentní titul s účinností a určením zavázaných příjemců. Měsíční lhůta se nepřebírá automaticky.",
@@ -37538,7 +37538,7 @@
     "periodLabel": "Zúčtovací období {from} - {to}",
     "deadlines": {
       "title": "Lhůty a námitky",
-      "help": "Lhůty podle zákona č. 67/2013 Sb.: vyúčtování doručit do 4 měsíců od konce zúčtovacího období, vyrovnání nejpozději do 4 měsíců od doručení, námitky do 30 dnů od doručení a jejich vyřízení do 30 dnů. Upozornění nic neblokují.",
+      "help": "Lhůty podle zákona č. 67/2013 Sb.: vyúčtování doručit do 4 měsíců od konce zúčtovacího období, vyrovnání nejpozději do 4 měsíců od doručení, námitky do 30 dnů od doručení, popřípadě od doložení vyžádaných podkladů, a jejich vyřízení do 30 dnů od předložení. Konec lhůty o víkendu nebo svátku se posouvá na pracovní den. Upozornění nic neblokují.",
       "deliveryDeadline": "Vyúčtování doručit nejpozději {date}.",
       "noDeliveries": "Doručení zatím není zaznamenané v dokumentaci vyúčtování.",
       "deliveredOn": "Doručeno {date}",

@@ -29185,7 +29185,7 @@
       "individual": "Individual liability",
       "solidary": "Explicitly documented joint and several liability"
     },
-    "monthlyNoticeHelp": "Changing a monthly advance requires a reasoned written notice and evidence of delivery. It may take effect no earlier than the first day of the next month under Section 4(4) of Act 67/2013.",
+    "monthlyNoticeHelp": "Changing a monthly advance requires a duly reasoned written notice. The new advance may be required no earlier than the first day of the month following delivery of the notice (Section 4(4) of Act No. 67/2013 Coll.).",
     "noInferredDebtor": "An owner, payer or representative is not automatically a debtor. Record the legal title and extent of liability. Joint marital ownership is one participation with shared members.",
     "noProration": "Frequency follows the confirmed version. Partial months are not estimated.",
     "nonMonthlyNoticeHelp": "Changing a non-monthly advance requires its own documented agreement or competent legal title, effective date and bound recipients. The monthly notice deadline is not applied automatically.",
@@ -37538,7 +37538,7 @@
     "periodLabel": "Settlement period {from} - {to}",
     "deadlines": {
       "title": "Deadlines and objections",
-      "help": "Deadlines under Act No. 67/2013 Coll.: deliver the statement within 4 months after the settlement period, settle within 4 months after delivery, objections within 30 days after delivery and their resolution within 30 days. Warnings block nothing.",
+      "help": "Deadlines under Act No. 67/2013 Coll.: deliver the statement within 4 months after the settlement period, settle within 4 months after delivery, objections within 30 days after delivery or after the requested documents are provided, and their resolution within 30 days after submission. A deadline ending on a weekend or public holiday moves to the next working day. Warnings block nothing.",
       "deliveryDeadline": "Deliver the statement by {date}.",
       "noDeliveries": "No delivery is recorded in the settlement dossier yet.",
       "deliveredOn": "Delivered {date}",

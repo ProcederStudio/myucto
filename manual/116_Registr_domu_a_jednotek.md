@@ -318,7 +318,7 @@ Při souběžné změně načtěte aktuální evidenci a zadání znovu ověřte
 
 ### Lhůty a námitky
 
-Panel **Lhůty a námitky** v detailu vyúčtování hlídá lhůty zákona č. 67/2013 Sb. Vyúčtování se má doručit nejpozději do 4 měsíců od skončení zúčtovacího období. Finanční vyrovnání je splatné nejpozději do 4 měsíců od doručení; panel u každého příjemce ukáže tuto hranici vedle doložené splatnosti. Námitky lze podat do 30 dnů od doručení a vyřídit je do 30 dnů od jejich doručení. Lhůta v měsících končí dnem se stejným číslem, v kratším měsíci posledním dnem měsíce.
+Panel **Lhůty a námitky** v detailu vyúčtování hlídá lhůty zákona č. 67/2013 Sb. Vyúčtování se má doručit nejpozději do 4 měsíců od skončení zúčtovacího období. Finanční vyrovnání je splatné nejpozději do 4 měsíců od doručení; panel u každého příjemce ukáže tuto hranici vedle doložené splatnosti. Námitky lze podat do 30 dnů od doručení vyúčtování, popřípadě od doložení podkladů, o které příjemce požádal. Poskytovatel je vyřídí do 30 dnů od jejich předložení. Nepodá-li příjemce námitky včas, platí, že s vyúčtováním souhlasí. Doložení podkladů aplikace neeviduje, lhůtu námitek proto počítá od doručení; u příjemce, který o podklady požádal, posuďte upozornění na opožděnou námitku sami. Lhůta v měsících končí dnem se stejným číslem, v kratším měsíci posledním dnem měsíce. Připadne-li konec lhůty na sobotu, neděli nebo svátek, posouvá se na nejbližší pracovní den.
 
 Námitku zaznamenáte s příjemcem, datem doručení a obsahem, její vyřízení jednou s datem a způsobem vyřízení. Vyřízenou námitku už nelze měnit. Překročení lhůt panel ukazuje jako upozornění; zápisy ani zaúčtování neblokuje. Námitka ani vady vyúčtování splatnost přeplatku neposouvají.
 
