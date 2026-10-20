@@ -15,7 +15,7 @@ use Psr\Http\Message\{ServerRequestInterface as Request,ResponseInterface as Res
 final class SettlementAction
 {
     use AccountingActionSupport;
-    public function __construct(private readonly SettlementReadRepository $read, private readonly SettlementWorkflow $workflow, private readonly SettlementApplicationRepository $owner, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDispositionReadRepository $dispositions, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository $dossiers)
+    public function __construct(private readonly SettlementReadRepository $read, private readonly SettlementWorkflow $workflow, private readonly SettlementApplicationRepository $owner, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDispositionReadRepository $dispositions, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository $dossiers, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementObjectionRepository $objections)
     {
     }
     public function list(Request $q, Response $r): Response
@@ -68,6 +68,34 @@ final class SettlementAction
             SettlementEvidence::fields($body, ['event','expected_revision','reason','idempotency_key']);
             if (!is_array($body['event'])) PropertyInput::invalid('event');
             return $this->dossiers->append($supplier, $this->id($args), $body['event'], $this->integer($body['expected_revision'], 'expected_revision'), PropertyInput::text($body['reason'], 'reason', 4000), PropertyInput::code($body['idempotency_key'], 'idempotency_key'), PropertyInput::id($this->userId($q), 'actor'));
+        });
+    }
+    public function deadlines(Request $q, Response $r, array $args): Response
+    {
+        return $this->run($q, $r, 'property', false, false, function (int $supplier) use ($q, $args): array {
+            $query = $this->query($q, $supplier, ['today']);
+            $today = isset($query['today']) ? SettlementEvidence::date($query['today']) : (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+            return $this->objections->deadlines($supplier, $this->id($args), $today);
+        });
+    }
+    public function recordObjection(Request $q, Response $r, array $args): Response
+    {
+        return $this->run($q, $r, 'property.settlements.manage', true, false, function (int $supplier) use ($q, $args): array {
+            $body = $q->getParsedBody();
+            if (!is_array($body)) PropertyInput::invalid('body');
+            SettlementEvidence::fields($body, ['recipient_id', 'received_on', 'content']);
+            if (!is_string($body['content'])) PropertyInput::invalid('content');
+            return $this->objections->record($supplier, $this->id($args), PropertyInput::id($body['recipient_id'], 'recipient_id'), SettlementEvidence::date($body['received_on']), $body['content'], PropertyInput::id($this->userId($q), 'actor'));
+        });
+    }
+    public function resolveObjection(Request $q, Response $r, array $args): Response
+    {
+        return $this->run($q, $r, 'property.settlements.manage', true, false, function (int $supplier) use ($q, $args): array {
+            $body = $q->getParsedBody();
+            if (!is_array($body)) PropertyInput::invalid('body');
+            SettlementEvidence::fields($body, ['resolved_on', 'resolution']);
+            if (!is_string($body['resolution'])) PropertyInput::invalid('resolution');
+            return $this->objections->resolve($supplier, $this->id($args), SettlementEvidence::date($body['resolved_on']), $body['resolution'], PropertyInput::id($this->userId($q), 'actor'));
         });
     }
     public function disposition(Request $q, Response $r, array $args): Response

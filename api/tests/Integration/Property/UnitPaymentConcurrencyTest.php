@@ -61,12 +61,13 @@ final class UnitPaymentConcurrencyTest extends TestCase
         [$a,$b]=$this->connections;$a->pdo()->beginTransaction();$f=$this->issuanceFixture($a);$bank=$this->bank($a,$f);$a->pdo()->commit();
         $a->pdo()->beginTransaction();$a->pdo()->query('SELECT COUNT(*) FROM unit_payment_sources')->fetchColumn();
         $request=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$bank,'expected_version'=>0],'amount_cents'=>'6000','accounting_date'=>'2026-02-01','reason'=>'Synthetic independently entitled credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>array_values($f['units'])[0],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic creditor title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>array_values($f['units'])[0],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic creditor title','due_date'=>'2026-03-01']];
         $writerB=$this->writer($b);$operation=$writerB->apply($f['supplier'],$request,$writerB->preview($f['supplier'],$request)['preview_hash'],'winning',$f['actor']);
         try{$this->writer($a)->preview($f['supplier'],$request);self::fail('Old snapshot hid current source usage.');}catch(PaymentException $e){self::assertSame('property_payment_source_version_conflict',$e->errorCode);}
         $a->pdo()->rollBack();
         $a->pdo()->beginTransaction();$a->pdo()->query('SELECT COUNT(*) FROM unit_credit_reservations')->fetchColumn();
         $reserve=['amount_cents'=>'5000','party_ids'=>[$f['clients'][1]],'disposition'=>'Synthetic disposition','recipient_account'=>'1000000005/0100'];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($b->pdo(),$f['supplier'],$f['clients'][1]);
         $writerB->reserve($f['supplier'],$operation['credit_id'],1,$reserve,'reserved',$f['actor']);
         try{$this->writer($a)->reserve($f['supplier'],$operation['credit_id'],1,$reserve,'stale',$f['actor']);self::fail('Old snapshot hid reservation.');}catch(PaymentException $e){self::assertSame('property_payment_version_conflict',$e->errorCode);}
         $a->pdo()->rollBack();

@@ -74,7 +74,7 @@ final class PaymentSourceRevisionTest extends TestCase
         $payment = ['kind' => 'allocation', 'source' => ['kind' => 'cash', 'id' => $native['source']['id'], 'expected_version' => $current['version']],
             'amount_cents' => '4000', 'accounting_date' => '2026-03-02', 'reason' => 'Synthetic revised cell settlement', 'debts' => [],
             'clearing_selection' => [['key' => 'B', 'amount_cents' => '4000']],
-            'credit_entitlement' => ['unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic separate entitlement', 'due_date' => '2026-03-03']];
+            'credit_entitlement' => ['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic separate entitlement', 'due_date' => '2026-03-03']];
         $payments = Bootstrap::buildContainer()->get(PaymentRepository::class); $preview = $payments->preview($this->f['supplier'], $payment);
         $operation = $payments->apply($this->f['supplier'], $payment, $preview['preview_hash'], 'synthetic-revised-payment', $this->f['actor']);
         self::assertSame($request['moves'][0]['to']['dimensions'], $operation['snapshot']['lines'][0]['dimensions']);
@@ -146,7 +146,7 @@ final class PaymentSourceRevisionTest extends TestCase
             'doc_type' => 'in', 'issue_date' => '2026-02-01', 'partner_name' => 'Synthetic payer', 'description' => 'Synthetic source', 'total_amount' => '100.00']],
             'clearing_cells' => [['key' => 'A', 'amount_cents' => '10000', 'dimensions' => []]],
             'parts' => [['key' => 'credit', 'request' => ['kind' => 'allocation', 'amount_cents' => '6000', 'accounting_date' => '2026-02-01', 'reason' => 'Synthetic credit', 'debts' => [],
-                'credit_entitlement' => ['unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic entitlement deed', 'due_date' => '2026-03-01']]]]];
+                'credit_entitlement' => ['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic entitlement deed', 'due_date' => '2026-03-01']]]]];
         $facade = Bootstrap::buildContainer()->get(PaymentWorkflowFacade::class);
         $preview = $facade->preview($this->f['supplier'], $request);
         $native = $facade->confirm($this->f['supplier'], $request, $preview['preview_hash'], 'synthetic-revision-native', $this->f['actor']);

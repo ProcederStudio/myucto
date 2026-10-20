@@ -33,12 +33,30 @@ final class PaymentWorkflowReadRepository
             'units' => (new PropertyReadRepository($this->db))->list($supplier, 'unit', $asOf), 'dimensions' => $dimensions];
     }
 
-    public function candidates(int $supplier, string $kind, int $after = 0, int $limit = 25, bool $allowNative = false): array
+    /**
+     * Zdroje úhrady po stránkách. `$search` hledá u banky přesnou shodu VS nebo SS
+     * a výskyt v protistraně či popisu, `$id` vrátí jediný zdroj (předvýběr z banky).
+     * Obě podmínky jen zužují stránku nad omezením na firmu a volný pohyb.
+     */
+    public function candidates(int $supplier, string $kind, int $after = 0, int $limit = 25, bool $allowNative = false, string $search = '', ?int $id = null): array
     {
-        if (!in_array($kind, ['bank', 'cash'], true) || $after < 0 || $limit < 1 || $limit > 100) PropertyInput::invalid('page');
+        if (!in_array($kind, ['bank', 'cash'], true) || $after < 0 || $limit < 1 || $limit > 100 || mb_strlen($search) > 100) PropertyInput::invalid('page');
+        if ($id !== null) PropertyInput::id($id, 'id');
         $size = $limit + 1;
+        $search = trim($search);
+        $like = '%' . addcslashes($search, "%_\\") . '%';
         if ($kind === 'bank') {
-            $sql = "SELECT bt.id,bt.posted_at date,bt.amount,COALESCE(NULLIF(bt.currency,''),bs.currency) currency,bt.counterparty_name partner_name,bt.description,bt.variable_symbol,
+            $filter = '';
+            $filterParams = [];
+            if ($id !== null) {
+                $filter .= ' AND bt.id=?';
+                $filterParams[] = $id;
+            }
+            if ($search !== '') {
+                $filter .= ' AND (bt.variable_symbol=? OR bt.specific_symbol=? OR bt.counterparty_name LIKE ? OR bt.description LIKE ?)';
+                array_push($filterParams, $search, $search, $like, $like);
+            }
+            $sql = "SELECT bt.id,bt.posted_at date,bt.amount,COALESCE(NULLIF(bt.currency,''),bs.currency) currency,bt.counterparty_name partner_name,bt.description,bt.variable_symbol,bt.specific_symbol,
                 ps.id payment_source_id,ps.amount_cents,ps.consumed_cents,ps.currency_code,ps.native_amount_minor,ps.consumed_native_minor,ps.fx_rate
                 FROM bank_transactions bt JOIN bank_statements bs ON bs.id=bt.statement_id
                 LEFT JOIN unit_payment_sources ps ON ps.bank_transaction_id=bt.id AND ps.supplier_id=?
@@ -46,12 +64,22 @@ final class PaymentWorkflowReadRepository
                 AND NOT EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.bank_transaction_id=bt.id)
                 AND NOT EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.bank_transaction_id=bt.id)
                 AND NOT EXISTS (SELECT 1 FROM payroll_payment_matches pp WHERE pp.bank_transaction_id=bt.id)
-                AND bt.id>?" . ($allowNative ? '' : ' AND ps.id IS NOT NULL') . " ORDER BY bt.id LIMIT $size";
-            $rows = $this->all($sql, [$supplier, ...BankStatementOwnershipResolver::params($supplier), $after]);
+                AND bt.id>?" . $filter . ($allowNative ? '' : ' AND ps.id IS NOT NULL') . " ORDER BY bt.id LIMIT $size";
+            $rows = $this->all($sql, [$supplier, ...BankStatementOwnershipResolver::params($supplier), $after, ...$filterParams]);
         } else {
-            $rows = $this->all("SELECT c.id,c.issue_date date,c.total_amount amount,c.currency_code currency,c.partner_name,c.description,NULL variable_symbol,c.doc_type,
+            $filter = '';
+            $filterParams = [];
+            if ($id !== null) {
+                $filter .= ' AND c.id=?';
+                $filterParams[] = $id;
+            }
+            if ($search !== '') {
+                $filter .= ' AND (c.partner_name LIKE ? OR c.description LIKE ?)';
+                array_push($filterParams, $like, $like);
+            }
+            $rows = $this->all("SELECT c.id,c.issue_date date,c.total_amount amount,c.currency_code currency,c.partner_name,c.description,NULL variable_symbol,NULL specific_symbol,c.doc_type,
                 ps.id payment_source_id,ps.amount_cents,ps.consumed_cents,ps.currency_code,ps.native_amount_minor,ps.consumed_native_minor,ps.fx_rate FROM cash_documents c LEFT JOIN unit_payment_sources ps ON ps.cash_document_id=c.id AND ps.supplier_id=c.supplier_id
-                WHERE c.supplier_id=? AND c.id>? AND c.purpose='other' AND c.vat_mode='none' AND (c.status='draft' OR ps.id IS NOT NULL OR (c.status='posted' AND c.currency_code='EUR')) " . ($allowNative ? '' : ' AND ps.id IS NOT NULL') . " ORDER BY c.id LIMIT $size", [$supplier, $after]);
+                WHERE c.supplier_id=? AND c.id>? AND c.purpose='other' AND c.vat_mode='none' AND (c.status='draft' OR ps.id IS NOT NULL OR (c.status='posted' AND c.currency_code='EUR'))" . $filter . ($allowNative ? '' : ' AND ps.id IS NOT NULL') . " ORDER BY c.id LIMIT $size", [$supplier, $after, ...$filterParams]);
         }
         $more = count($rows) > $limit;
         if ($more) array_pop($rows);
@@ -114,7 +142,7 @@ final class PaymentWorkflowReadRepository
         $amount = \MyInvoice\Service\Accounting\JournalLineAmount::decimal($row['amount']);
         return ['kind' => $kind, 'id' => (int) $row['id'], 'date' => $row['date'], 'amount' => $amount, 'currency' => $row['currency'],
             'direction' => $row['doc_type'] ?? (bccomp($amount, '0', 2) > 0 ? 'in' : 'out'), 'partner_name' => $row['partner_name'],
-            'description' => $row['description'], 'variable_symbol' => $row['variable_symbol'], 'existing_owner' => $row['payment_source_id'] !== null,
+            'description' => $row['description'], 'variable_symbol' => $row['variable_symbol'], 'specific_symbol' => $row['specific_symbol'] ?? null, 'existing_owner' => $row['payment_source_id'] !== null,
             'available_cents' => $row['payment_source_id'] === null ? ($row['currency'] === 'CZK' ? bcmul(ltrim($amount, '-'), '100', 0) : '0') : bcsub($row['amount_cents'], $row['consumed_cents'], 0),
             'native_amount_minor' => $row['native_amount_minor'],
             'available_native_minor' => $row['native_amount_minor'] === null ? null : bcsub($row['native_amount_minor'], $row['consumed_native_minor'], 0),

@@ -24,7 +24,7 @@ final class Dppo504CapabilityServiceTest extends TestCase
     #[DataProvider('periods')]
     public function testOperationsAreGrantedByRulesetAndPinnedFormPeriod(string $from, string $to, bool $compute, bool $xml): void
     {
-        $capabilities = (new Dppo504CapabilityService())->capabilities($from, $to);
+        $capabilities = (new Dppo504CapabilityService())->capabilities($from, $to, 'A', true);
         self::assertSame($compute, $capabilities[Dppo504CapabilityService::COMPUTE]['allowed']);
         self::assertSame($xml, $capabilities[Dppo504CapabilityService::FINALIZE]['allowed']);
         self::assertSame($xml, $capabilities[Dppo504CapabilityService::EXPORT_XML]['allowed']);
@@ -44,8 +44,8 @@ final class Dppo504CapabilityServiceTest extends TestCase
     public function testTypeARejectsLastDateThatOtherReturnTypesMayStart(): void
     {
         $service = new Dppo504CapabilityService();
-        self::assertFalse($service->capabilities('2025-12-31', '2026-12-31', 'A')[Dppo504CapabilityService::EXPORT_XML]['allowed']);
-        self::assertTrue($service->capabilities('2025-12-31', '2026-12-31', 'B')[Dppo504CapabilityService::EXPORT_XML]['allowed']);
+        self::assertFalse($service->capabilities('2025-12-31', '2026-12-31', 'A', true)[Dppo504CapabilityService::EXPORT_XML]['allowed']);
+        self::assertTrue($service->capabilities('2025-12-31', '2026-12-31', 'B', true)[Dppo504CapabilityService::EXPORT_XML]['allowed']);
     }
 
     public function testUnsupportedFormPeriodFailsClosedWithStableCode(): void
@@ -57,5 +57,23 @@ final class Dppo504CapabilityServiceTest extends TestCase
             self::assertSame('nonprofit_dppo_form_period_not_supported', $e->errorCode);
             self::assertSame(422, $e->httpStatus);
         }
+    }
+
+    public function testFinalizationXmlAndSubmissionStayClosedUntilCalculationIsAccepted(): void
+    {
+        $service = new Dppo504CapabilityService();
+        $closed = $service->capabilities('2025-01-01', '2025-12-31');
+        self::assertTrue($closed[Dppo504CapabilityService::COMPUTE]['allowed']);
+        foreach ([Dppo504CapabilityService::FINALIZE, Dppo504CapabilityService::EXPORT_XML, Dppo504CapabilityService::SUBMIT] as $operation) {
+            self::assertFalse($closed[$operation]['allowed'], $operation);
+            self::assertSame('nonprofit_dppo_calculation_not_accepted', $closed[$operation]['code']);
+            try {
+                $service->assert($operation, '2025-01-01', '2025-12-31');
+                self::fail($operation . ' must stay closed without accepted calculation.');
+            } catch (TaxReturnException $e) {
+                self::assertSame('nonprofit_dppo_calculation_not_accepted', $e->errorCode);
+            }
+        }
+        self::assertTrue($service->assert(Dppo504CapabilityService::FINALIZE, '2025-01-01', '2025-12-31', 'A', true)['allowed']);
     }
 }

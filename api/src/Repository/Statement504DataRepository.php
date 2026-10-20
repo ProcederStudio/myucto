@@ -53,20 +53,32 @@ final class Statement504DataRepository
                 CAST(l.amount * 100 AS SIGNED) AS amount_cents,
                 CAST((CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) * 100 AS SIGNED) AS balance_cents,
                 v.id AS value_id, v.semantic_key AS activity,
-                (SELECT COUNT(*) FROM journal_entry_line_dimension_splits s WHERE s.line_id = l.id AND s.dimension_type_id = ?) AS split_count,
-                (SELECT SUM(s.share) FROM journal_entry_line_dimension_splits s WHERE s.line_id = l.id AND s.dimension_type_id = ?) AS split_share
+                COALESCE(sp.split_count, 0) AS split_count, sp.split_share
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             " . JournalTaxOrigin::join() . "
             JOIN {$accountDefinitions} a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
             LEFT JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.dimension_type_id = ? AND d.supplier_id = l.supplier_id
             LEFT JOIN dimension_values v ON v.id = d.dimension_value_id AND v.type_id = d.dimension_type_id AND v.supplier_id = l.supplier_id
-            WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date BETWEEN ? AND ?
+            LEFT JOIN (
+                SELECT s.line_id, COUNT(*) AS split_count, SUM(s.share) AS split_share
+                  FROM journal_entries se
+                  JOIN journal_entry_lines sl ON sl.supplier_id = se.supplier_id AND sl.entry_id = se.id
+                  JOIN journal_entry_line_dimension_splits s ON s.line_id = sl.id AND s.dimension_type_id = ?
+                 WHERE se.supplier_id = ? AND se.posted_at IS NOT NULL AND se.entry_date >= ? AND se.entry_date <= ?
+                 GROUP BY s.line_id
+            ) sp ON sp.line_id = l.id
+            WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date >= ? AND e.entry_date <= ?
                 AND (a.account_type IN ('expense','revenue') OR a.account_code REGEXP '^[56]') AND " . JournalTaxOrigin::includedSql() . ' ORDER BY l.id');
-        $stmt->execute([$typeId, $typeId, $typeId, $supplierId, $from, $to, ClosingSourceId::STOCK_SLOT_BASE]);
+        $stmt->execute([
+            $typeId,
+            $typeId, $supplierId, $from, $to,
+            $supplierId, $from, $to,
+            ClosingSourceId::STOCK_SLOT_BASE,
+        ]);
         $lines = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $parts = [];
         if (array_filter($lines, static fn (array $l): bool => (int) $l['split_count'] > 0) !== []) {
-            [$sql, $params] = DimensionSplitAllocation::partsSql($typeId, null, $supplierId);
+            [$sql, $params] = DimensionSplitAllocation::partsSql($typeId, null, $supplierId, [$from, $to]);
             $stmt = $this->db->pdo()->prepare("SELECT p.line_id,p.value_id,CAST(p.amount * 100 AS SIGNED) AS cents,v.semantic_key
                 FROM ({$sql}) p LEFT JOIN dimension_values v ON v.id=p.value_id AND v.type_id=? AND v.supplier_id=?");
             $stmt->execute([...$params, $typeId, $supplierId]);
@@ -78,8 +90,11 @@ final class Statement504DataRepository
             [$sql, $params] = $dimension->lineSource($supplierId, 'f');
             $stmt = $this->db->pdo()->prepare("SELECT f.id,CAST(SUM(f.signed_amount) * 100 AS SIGNED) AS cents,
                 EXISTS(SELECT 1 FROM journal_entry_line_dimension_splits s WHERE s.line_id=f.id AND s.dimension_type_id=?) AS has_split
-                FROM {$sql} GROUP BY f.id");
-            $stmt->execute([$dimension->typeId, ...$params]);
+                FROM {$sql}
+                JOIN journal_entries fe ON fe.id = f.entry_id AND fe.supplier_id = f.supplier_id
+                WHERE fe.supplier_id = ? AND fe.entry_date >= ? AND fe.entry_date <= ?
+                GROUP BY f.id");
+            $stmt->execute([$dimension->typeId, ...$params, $supplierId, $from, $to]);
             $filtered = [];
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $filtered[(int) $row['id']] = (int) $row['cents'];

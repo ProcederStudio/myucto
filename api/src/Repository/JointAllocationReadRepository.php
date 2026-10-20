@@ -63,15 +63,19 @@ final class JointAllocationReadRepository
 
     private function cellsFromBatch(int $supplierId, array $batch, bool $currentRead): array
     {
+        $entries = [(int) $batch['journal_entry_id']];
+        if ($batch['cancellation'] !== null) $entries[] = (int) $batch['cancellation']['reversal_entry_id'];
+        $lines = $this->lineIdsForEntries($supplierId, $entries, $currentRead);
+        return $this->cellsFromResolvedBatch(
+            $batch,
+            $lines[(int) $batch['journal_entry_id']] ?? [],
+            $batch['cancellation'] === null ? [] : ($lines[(int) $batch['cancellation']['reversal_entry_id']] ?? []),
+        );
+    }
+
+    private function cellsFromResolvedBatch(array $batch, array $lineIds, array $cancellationLines): array
+    {
         $snapshot = $batch['snapshot'];
-        $stmt = $this->db->pdo()->prepare('SELECT line_no, id FROM journal_entry_lines WHERE supplier_id = ? AND entry_id = ? ORDER BY line_no' . ($currentRead ? ' FOR UPDATE' : ''));
-        $stmt->execute([$supplierId, $batch['journal_entry_id']]);
-        $lineIds = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        $cancellationLines = [];
-        if ($batch['cancellation'] !== null) {
-            $stmt->execute([$supplierId, $batch['cancellation']['reversal_entry_id']]);
-            $cancellationLines = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        }
         $out = [];
         $lineNo = 0;
         foreach ($snapshot['plan']['sources'] as $source) {
@@ -113,21 +117,71 @@ final class JointAllocationReadRepository
         return $out;
     }
 
+    /** @param list<int> $batchIds @return array<int,array<int,array<string,mixed>>> */
+    public function ledgerProjectionsForBatches(int $supplierId, array $batchIds, bool $currentRead = false): array
+    {
+        $batchIds = array_values(array_unique(array_map('intval', $batchIds)));
+        if (count($batchIds) > 500 || array_any($batchIds, static fn (int $id): bool => $id <= 0)) {
+            throw new \InvalidArgumentException('Batch projection accepts 1 to 500 positive allocation ids.');
+        }
+        if ($batchIds === []) return [];
+        sort($batchIds, SORT_NUMERIC);
+        if ($currentRead) {
+            if (!$this->db->pdo()->inTransaction()) throw new \LogicException('Current allocation projection requires a transaction.');
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        }
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $marks = implode(',', array_fill(0, count($batchIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT * FROM joint_allocation_batches
+            WHERE supplier_id = ? AND id IN ({$marks}) AND journal_entry_id IS NOT NULL ORDER BY id" . $lock);
+        $stmt->execute([$supplierId, ...$batchIds]);
+        $batches = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $batch) {
+            $batch['snapshot'] = JointAllocationKeyVersion::decodeSnapshot($batch);
+            unset($batch['snapshot_json']);
+            $batches[(int) $batch['id']] = $batch;
+        }
+        foreach ($batchIds as $batchId) {
+            if (!isset($batches[$batchId])) throw new JointAllocationException('allocation_not_found', 'Alokace nebyla nalezena.', 404);
+        }
+        $stmt = $this->db->pdo()->prepare("SELECT * FROM joint_allocation_cancellations
+            WHERE supplier_id = ? AND batch_id IN ({$marks}) AND reversal_entry_id IS NOT NULL ORDER BY batch_id" . $lock);
+        $stmt->execute([$supplierId, ...$batchIds]);
+        $cancellations = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $cancellation) $cancellations[(int) $cancellation['batch_id']] = $cancellation;
+        $entryIds = [];
+        foreach ($batches as $batchId => &$batch) {
+            $batch['cancellation'] = $cancellations[$batchId] ?? null;
+            $batch['status'] = $batch['cancellation'] === null ? 'applied' : 'cancelled';
+            $entryIds[] = (int) $batch['journal_entry_id'];
+            if ($batch['cancellation'] !== null) $entryIds[] = (int) $batch['cancellation']['reversal_entry_id'];
+        }
+        unset($batch);
+        if ($currentRead) $this->lockEntryHeaders($supplierId, $entryIds);
+        $lines = $this->lineIdsForEntries($supplierId, $entryIds, $currentRead);
+        $out = [];
+        foreach ($batchIds as $batchId) {
+            $batch = $batches[$batchId];
+            $out[$batchId] = $this->projectionFromResolvedBatch(
+                $batch,
+                $lines[(int) $batch['journal_entry_id']] ?? [],
+                $batch['cancellation'] === null ? [] : ($lines[(int) $batch['cancellation']['reversal_entry_id']] ?? []),
+            );
+        }
+        return $out;
+    }
+
     public function ledgerProjection(int $supplierId, int $batchId, bool $currentRead = false): array
     {
-        $batch = $this->find($supplierId, $batchId, $currentRead);
+        return $this->ledgerProjectionsForBatches($supplierId, [$batchId], $currentRead)[$batchId];
+    }
+
+    private function projectionFromResolvedBatch(array $batch, array $ids, array $cancellationIds): array
+    {
         $snapshot = $batch['snapshot'];
-        $cells = $this->cellsFromBatch($supplierId, $batch, $currentRead);
+        $cells = $this->cellsFromResolvedBatch($batch, $ids, $cancellationIds);
         $targets = array_column($cells, null, 'line_no');
-        $stmt = $this->db->pdo()->prepare('SELECT line_no, id FROM journal_entry_lines WHERE supplier_id = ? AND entry_id = ? ORDER BY line_no' . ($currentRead ? ' FOR UPDATE' : ''));
-        $stmt->execute([$supplierId, $batch['journal_entry_id']]);
-        $ids = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        $cancellationIds = [];
-        if ($batch['cancellation'] !== null) {
-            $stmt->execute([$supplierId, $batch['cancellation']['reversal_entry_id']]);
-            $cancellationIds = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        }
-        $common = ['batch_id' => $batchId, 'key_version_id' => (int) $batch['key_version_id'], 'status' => $batch['status']];
+        $common = ['batch_id' => (int) $batch['id'], 'key_version_id' => (int) $batch['key_version_id'], 'status' => $batch['status']];
         $out = [];
         foreach ($snapshot['source_lines'] as $source) {
             $id = (int) $source['id'];
@@ -140,7 +194,7 @@ final class JointAllocationReadRepository
             $sourceByLine[$lineNo++] = $source['source_line_id'];
             foreach ($source['targets'] as $_) $sourceByLine[$lineNo++] = $source['source_line_id'];
         }
-        foreach (JointAllocationJournalProof::materializedLines($snapshot['plan'], $batchId, $snapshot['type_ids']) as $line) {
+        foreach (JointAllocationJournalProof::materializedLines($snapshot['plan'], (int) $batch['id'], $snapshot['type_ids']) as $line) {
             $no = $line['line_no'];
             if (!isset($ids[$no]) || ($batch['cancellation'] !== null && !isset($cancellationIds[$no]))) {
                 throw new JointAllocationException('allocation_changed', 'Chybí řádek neměnného alokačního zápisu.', 409);
@@ -158,6 +212,35 @@ final class JointAllocationReadRepository
             }
         }
         return $out;
+    }
+
+    /** @param list<int> $entryIds @return array<int,array<int,int>> */
+    private function lineIdsForEntries(int $supplierId, array $entryIds, bool $currentRead): array
+    {
+        $entryIds = array_values(array_unique(array_map('intval', $entryIds)));
+        if ($entryIds === []) return [];
+        sort($entryIds, SORT_NUMERIC);
+        $marks = implode(',', array_fill(0, count($entryIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT entry_id, line_no, id FROM journal_entry_lines
+            WHERE supplier_id = ? AND entry_id IN ({$marks}) ORDER BY entry_id, line_no" . ($currentRead ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, ...$entryIds]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $out[(int) $row['entry_id']][(int) $row['line_no']] = (int) $row['id'];
+        return $out;
+    }
+
+    /** @param list<int> $entryIds */
+    private function lockEntryHeaders(int $supplierId, array $entryIds): void
+    {
+        $entryIds = array_values(array_unique(array_map('intval', $entryIds)));
+        sort($entryIds, SORT_NUMERIC);
+        $marks = implode(',', array_fill(0, count($entryIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT id FROM journal_entries
+            WHERE supplier_id = ? AND id IN ({$marks}) ORDER BY id FOR UPDATE");
+        $stmt->execute([$supplierId, ...$entryIds]);
+        if (array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)) !== $entryIds) {
+            throw new JointAllocationException('allocation_changed', 'Chybí účetní zápis neměnné alokace.', 409);
+        }
     }
 
     private static function projectLine(array $line): array

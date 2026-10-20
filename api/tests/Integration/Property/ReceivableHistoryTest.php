@@ -33,7 +33,7 @@ final class ReceivableHistoryTest extends TestCase
         $b=$projector->at($supplier,'2026-02-02T00:00:00+01:00','2027-01-01T00:00:00Z',['client_id'=>$this->f['clients'][2]],true);
         self::assertSame(array_column($a['claims'],'claim_key'),array_column($b['claims'],'claim_key'));
         self::assertSame($a['totals']['gross_receivable_cents'],$b['totals']['gross_receivable_cents']);self::assertSame('5000',$a['totals']['gross_credit_cents']);self::assertSame('0',$b['totals']['gross_credit_cents']);
-        self::assertFalse($result['coverage']['complete']);self::assertTrue($result['coverage']['financial_complete']);self::assertSame('not_implemented',$result['coverage']['service_settlements']);
+        self::assertFalse($result['coverage']['complete']);self::assertTrue($result['coverage']['financial_complete']);self::assertSame('none',$result['coverage']['service_settlements']);
         $reconciliation=(new \MyInvoice\Service\Property\Receivables\PropertyReconciliation($this->db))->at($supplier,'2026-02-02');self::assertTrue($reconciliation['matches'],json_encode($reconciliation,JSON_THROW_ON_ERROR));
         self::assertTrue((new \MyInvoice\Service\Property\Receivables\PropertyReconciliation($this->db))->at($supplier,'2026-02-02',$base['charge']['unit_id'])['matches']);
         $unit=$projector->at($supplier,'2026-02-02T00:00:00+01:00','2027-01-01T00:00:00Z',['unit_id'=>$this->f['units']['U02']],true);

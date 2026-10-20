@@ -15,24 +15,68 @@ final class PropertyReceivableProjection
         try{
             if(!$currentRead&&isset($scope['unit_id'])){
                 // Karta jednotky čte jen uzávěr dané jednotky po indexech, ne celou firmu.
-                $snapshot=PropertyInstant::withNormalizationContext(function()use($supplier,$asOf,$knownAt,$scope):array{
+                $settlements=$this->serviceSettlementState($supplier,$asOf,$knownAt,$scope['unit_id']);
+                $snapshot=PropertyInstant::withNormalizationContext(function()use($supplier,$asOf,$knownAt,$scope,$settlements):array{
                     $scoped=(new PropertySaldoReadRepository($this->db))->unitHistory($supplier,[$scope['unit_id']]);
                     $history=(new PropertyReceivableHistoryByUnit($scoped['history']))->forUnit($scope['unit_id']);
-                    return self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$scoped['events']);
+                    return self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$scoped['events'],$settlements);
                 });
                 if($owned)$this->db->pdo()->commit();return $snapshot+['snapshot_hash'=>PropertyInput::hashLists($snapshot,['claims','credits','current_party_heads'])];
             }
             $history=(new FinancialHistoryRepository($this->db))->readProjection($supplier,$currentRead);$events=(new PartyEventRepository($this->db))->history($supplier,$currentRead);
-            $snapshot=self::reduceReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events);
+            $snapshot=self::reduceReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events,$this->serviceSettlementState($supplier,$asOf,$knownAt,$scope['unit_id']??null));
             unset($history,$events);
             if($owned)$this->db->pdo()->commit();return $snapshot+['snapshot_hash'=>PropertyInput::hashLists($snapshot,['claims','credits','current_party_heads'])];
         }catch(\Throwable $e){if($owned&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();throw $e;}
     }
-    public static function reduceReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events):array
+    /**
+     * Stav vyúčtování služeb v rozsahu karty: none = žádný dokument vyúčtování,
+     * applied = poslední revize všech dokumentů je zaúčtovaná (a nestornovaná),
+     * pending = některý dokument čeká na zaúčtování, takže karta ještě nenese jeho
+     * přeplatek ani nedoplatek.
+     */
+    private function serviceSettlementState(int $supplier,string $asOf,string $knownAt,?int $unit):string
     {
-        return PropertyInstant::withNormalizationContext(fn()=>self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events));
+        $states=self::serviceSettlementStates($this->db,$supplier,$asOf,$knownAt,$unit===null?null:[$unit]);
+        return self::combineSettlementStates($unit===null?array_values($states):[$states[$unit]??'none']);
     }
-    private static function reducePreparedReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events):array
+    /**
+     * Stav vyúčtování pro více jednotek jedním dotazem (karta i stránkované saldo).
+     * @param list<int>|null $units null = všechny jednotky firmy
+     * @return array<int,string> unit_id => none|pending|applied (jednotky bez dokumentu chybí)
+     */
+    public static function serviceSettlementStates(Connection $db,int $supplier,string $asOf,string $knownAt,?array $units):array
+    {
+        if($units===[])return [];
+        $sql='SELECT s.unit_id,COUNT(*) AS documents,COUNT(a.id) AS applied FROM property_service_settlements s'
+            .' LEFT JOIN property_service_settlement_heads h ON h.supplier_id=s.supplier_id AND h.document_id=s.id'
+            .' LEFT JOIN property_service_settlement_applications a ON a.supplier_id=h.supplier_id AND a.id=h.application_id'
+            .' AND a.reversal_of IS NULL AND a.accounting_date<=? AND a.recorded_at<=?'
+            .' WHERE s.supplier_id=? AND s.recorded_at<=?'
+            .' AND NOT EXISTS(SELECT 1 FROM property_service_settlements n WHERE n.supplier_id=s.supplier_id AND n.previous_id=s.id AND n.recorded_at<=?)';
+        $known=PropertyInstant::sql($knownAt);
+        $day=(new \DateTimeImmutable($asOf))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d');
+        $args=[$day,$known,$supplier,$known,$known];
+        if($units!==null){
+            $sql.=' AND s.unit_id IN ('.implode(',',array_fill(0,count($units),'?')).')';
+            array_push($args,...$units);
+        }
+        $q=$db->pdo()->prepare($sql.' GROUP BY s.unit_id');$q->execute($args);
+        $states=[];
+        foreach($q->fetchAll(\PDO::FETCH_ASSOC) as $row)$states[(int)$row['unit_id']]=(int)$row['applied']===(int)$row['documents']?'applied':'pending';
+        return $states;
+    }
+    /** @param list<string> $states */
+    public static function combineSettlementStates(array $states):string
+    {
+        if(in_array('pending',$states,true))return 'pending';
+        return in_array('applied',$states,true)?'applied':'none';
+    }
+    public static function reduceReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events,string $serviceSettlements='not_implemented'):array
+    {
+        return PropertyInstant::withNormalizationContext(fn()=>self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events,$serviceSettlements));
+    }
+    private static function reducePreparedReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events,string $serviceSettlements):array
     {
         $asOf=PropertyInstant::normalize($asOf);$knownAt=PropertyInstant::normalize($knownAt);
             // Neukotvená oprava nedokládá vazbu na osobu; client_id proto blokátory nezužuje.
@@ -61,7 +105,7 @@ final class PropertyReceivableProjection
             }
             if(!$complete)foreach($total as &$value)$value=null;unset($value);
             $snapshot=['supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'scope'=>$scope,'claims'=>$rows,'credits'=>$credits,'totals'=>$total,'precision'=>$precision,
-                'coverage'=>['financial_complete'=>$complete,'service_settlements'=>'not_implemented','opening_import'=>'verified_recorded_batches','unresolved_negative_charge_line_ids'=>$unresolved,'scope'=>'recorded_s3_s4_s6','complete'=>false],
+                'coverage'=>['financial_complete'=>$complete,'service_settlements'=>$serviceSettlements,'opening_import'=>'verified_recorded_batches','unresolved_negative_charge_line_ids'=>$unresolved,'scope'=>'recorded_s3_s4_s6','complete'=>false],
                 'current_party_heads'=>array_map(fn($e)=>['id'=>$e['id'],'hash'=>$e['snapshot_hash']],$events)];
             unset($history,$debt,$credit);
         return $snapshot;

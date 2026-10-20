@@ -24,17 +24,17 @@ final class PropertySaldoReadRepository
     private function readPage(PDO $pdo,int $supplier,string $asOf,string $knownAt,int $limit,int $after):array
     {
             $q=$pdo->prepare("SELECT id,code FROM property_objects WHERE supplier_id=? AND kind='unit' AND id>? ORDER BY id LIMIT ".($limit+1));$q->execute([$supplier,$after]);$units=$q->fetchAll(PDO::FETCH_ASSOC);$more=count($units)>$limit;if($more)array_pop($units);$ids=array_map('intval',array_column($units,'id'));
-            $items=[];$provenance=[];
+            $items=[];$provenance=[];$settlements=PropertyReceivableProjection::serviceSettlementStates($this->db,$supplier,$asOf,$knownAt,$ids);
             if($ids!==[]){
                 $scoped=$this->unitHistory($supplier,$ids);$provenance=$scoped['provenance'];
                 $histories=new PropertyReceivableHistoryByUnit($scoped['history']);
-                foreach($units as $unit){$id=(int)$unit['id'];$card=PropertyReceivableProjection::reduceReadHistory($supplier,$asOf,$knownAt,['unit_id'=>$id],$histories->forUnit($id),$scoped['events']);$items[]=PropertySaldoSummary::fromCard($card,$scoped['accessory_allocations'])+['unit_code'=>$unit['code']];}
+                foreach($units as $unit){$id=(int)$unit['id'];$card=PropertyReceivableProjection::reduceReadHistory($supplier,$asOf,$knownAt,['unit_id'=>$id],$histories->forUnit($id),$scoped['events'],$settlements[$id]??'none');$items[]=PropertySaldoSummary::fromCard($card,$scoped['accessory_allocations'])+['unit_code'=>$unit['code']];}
                 unset($scoped,$histories);
             }
             $digest=PropertyInput::hash(['schema'=>1,'supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'unit_ids'=>$ids,'provenance'=>$provenance]);
             $result=['kind'=>'recorded_property_saldo_page','as_of'=>$asOf,'known_at'=>$knownAt,'items'=>$items,'next_cursor'=>$more?PropertySaldoCursor::encode($supplier,$asOf,$knownAt,$ids[array_key_last($ids)]):null,
                 'read_scope_digest'=>$digest,'proof_scope'=>['kind'=>'selected_unit_financial_closure','unit_ids'=>$ids,'schema'=>1],
-                'consistency'=>'request_snapshot','coverage'=>['scope'=>'recorded_s3_s4_s6','complete'=>false,'service_settlements'=>'not_implemented','opening_import'=>'verified_recorded_batches']];
+                'consistency'=>'request_snapshot','coverage'=>['scope'=>'recorded_s3_s4_s6','complete'=>false,'service_settlements'=>PropertyReceivableProjection::combineSettlementStates(array_map(fn($item)=>$item['coverage']['service_settlements'],$items)),'opening_import'=>'verified_recorded_batches']];
             return $result;
     }
     /**

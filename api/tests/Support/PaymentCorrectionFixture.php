@@ -23,7 +23,8 @@ trait PaymentCorrectionFixture
         $bank=$this->correctionBank(bcdiv(bcadd($paid,$extra,0),'100',2));$debtor=$charge['snapshot']['liability_groups'][0]['members'][0];
         $request=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$bank,'expected_version'=>0],'amount_cents'=>$paid,'accounting_date'=>'2026-02-01','reason'=>'Synthetic payment','debts'=>[$debt['id']],
             'payment'=>['payer_id'=>$debtor,'debtor_id'=>$debtor,'received_at'=>'2026-02-01T10:00:00+01:00','choice'=>['claim_ids'=>[$debt['id']],'evidence'=>'Synthetic debtor disposition']],
-            'credit_entitlement'=>['unit_id'=>$charge['unit_id'],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic third person credit title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['unit_id'=>$charge['unit_id'],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic third person credit title','due_date'=>'2026-03-01','third_party'=>self::syntheticThirdParty()]];
+        $this->documentRefundAccount($f['clients'][1]);
         $operation=$this->correctionPayments()->apply($f['supplier'],$request,$this->correctionPayments()->preview($f['supplier'],$request)['preview_hash'],'payment',$f['actor']);
         if($extra!=='0'){$creditRequest=$request;$creditRequest['source']['expected_version']=1;$creditRequest['amount_cents']=$extra;$creditRequest['debts']=[];unset($creditRequest['payment']);$credit=$this->correctionPayments()->apply($f['supplier'],$creditRequest,$this->correctionPayments()->preview($f['supplier'],$creditRequest)['preview_hash'],'separate-credit',$f['actor']);$operation['credit_id']=$credit['credit_id'];}
         $q=$this->db->pdo()->prepare('SELECT id FROM unit_payment_allocations WHERE supplier_id=? AND operation_id=? AND charge_line_id=?');$q->execute([$f['supplier'],$operation['id'],$line]);$allocation=(int)$q->fetchColumn();
@@ -38,6 +39,14 @@ trait PaymentCorrectionFixture
         $q=$this->db->pdo()->prepare('SELECT id FROM unit_charge_lines WHERE supplier_id=? AND charge_id=?');$q->execute([$f['supplier'],$charge['id']]);$line=(int)$q->fetchColumn();
         return ['adjustment_charge_id'=>$charge['id'],'expected_version'=>1,'accounting_date'=>'2026-02-02','reason'=>'Synthetic reduction and paid relief','anchors'=>[['adjustment_line_id'=>$line,'original_line_id'=>$base['line_id'],'amount_cents'=>ltrim($charge['amount_cents'],'-'),'evidence'=>'Synthetic precise original legal debt anchor']],
             'reliefs'=>$relief==='0'?[]:[['allocation_id'=>$base['allocation_id'],'amount_cents'=>$relief]],'credit_entitlement'=>['party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic creditor title independent of payer','due_date'=>'2026-03-01']];
+    }
+    /** Věřitel kreditu mimo vlastníky jednotky potřebuje doložený titul. */
+    private static function syntheticThirdParty():array{return ['basis'=>'other_documented','evidence'=>'Synthetic documented creditor title'];}
+    /** Účet příjemce vratky musí být u oprávněné osoby ručně doložený. */
+    private function documentRefundAccount(int $client,string $account='1000000005',string $bank='0100'):void
+    {
+        $this->db->pdo()->prepare('INSERT IGNORE INTO client_bank_accounts (supplier_id,client_id,account_number,bank_code,account_key,bank_key,source_manual) VALUES (?,?,?,?,?,?,1)')
+            ->execute([$this->f['supplier'],$client,$account,$bank,ltrim($account,'0'),$bank]);
     }
     private function correctionPayments():PaymentRepository{return $this->paymentFixtureContainer()->get(PaymentRepository::class);}
     private function correctionWriter():ReliefCorrectionRepository{return $this->paymentFixtureContainer()->get(ReliefCorrectionRepository::class);}

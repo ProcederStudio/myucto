@@ -79,6 +79,7 @@ final class PaymentWorkflowCloneTest extends TestCase
         $revisions->apply($supplier, $request, $revisions->preview($supplier, $request)['preview_hash'], 'reset-revision', $actor);
         $payments = $this->container()->get(PaymentRepository::class);
         $credit = $payments->operation($supplier, (int) $native['parts'][0]['operation_id'])['credit_id'];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(), $supplier, $this->f['clients'][1]);
         $reservation = $payments->reserve($supplier, $credit, 1, ['amount_cents' => '1000', 'party_ids' => [$this->f['clients'][1]],
             'disposition' => 'Synthetic reset reservation', 'recipient_account' => '1000000005/0100'], 'reset-reserve', $actor);
         $source->pdo()->prepare("INSERT INTO supplier_bank_accounts(supplier_id,label,account_number,bank_code,bank_code_norm,currency,account_canonical,analytic_suffix) VALUES (?,'Synthetic reset','1000000005','0100','0100','CZK','1000000005','100')")->execute([$supplier]);
@@ -114,6 +115,7 @@ final class PaymentWorkflowCloneTest extends TestCase
         $revision = $revisionWriter->apply($supplier, $revisionRequest, $revisionWriter->preview($supplier, $revisionRequest)['preview_hash'], 'full-revision', $actor);
         $payments = $this->container()->get(PaymentRepository::class);
         $creditId = $payments->operation($supplier, (int) $native['parts'][0]['operation_id'])['credit_id'];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(), $supplier, $this->f['clients'][1]);
         $reservation = $payments->reserve($supplier, $creditId, 1, ['amount_cents' => '1000', 'party_ids' => [$this->f['clients'][1]],
             'disposition' => 'Synthetic person@example.test', 'recipient_account' => '1000000005/0100'], 'full-reserve', $actor);
         $source->pdo()->prepare("INSERT INTO supplier_bank_accounts(supplier_id,label,account_number,bank_code,bank_code_norm,currency,account_canonical,analytic_suffix) VALUES (?,'Synthetic person@example.test','1000000005','0100','0100','CZK','1000000005','100')")->execute([$supplier]);
@@ -183,6 +185,7 @@ final class PaymentWorkflowCloneTest extends TestCase
         $pendingPlan=$this->container()->get(PaymentWorkflowFacade::class)->preview($this->f['supplier'],$owner['request']);
         $pending=(new PaymentWorkflowRepository($source))->prepare($this->f['supplier'],$owner['request'],$pendingPlan,'opaque-pending',$this->f['actor']);
         $payments=$this->container()->get(PaymentRepository::class);$credit=$payments->operation($this->f['supplier'],(int)$native['parts'][0]['operation_id'])['credit_id'];
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(),$this->f['supplier'],$this->f['clients'][1]);
         $reservation=$payments->reserve($this->f['supplier'],$credit,1,['amount_cents'=>'1000','party_ids'=>[$this->f['clients'][1]],'disposition'=>'Synthetic refund person@example.test','recipient_account'=>'1000000005/0100'],'clone-reserve',$this->f['actor']);
         $source->pdo()->prepare("INSERT INTO supplier_bank_accounts (supplier_id,label,account_number,bank_code,bank_code_norm,currency,account_canonical,analytic_suffix) VALUES (?,'Synthetic bank person@example.test','1000000005','0100','0100','CZK','1000000005','100')")->execute([$this->f['supplier']]);$bank=(int)$source->pdo()->lastInsertId();
         $exportRequest=['reservation_ids'=>[$reservation['id']],'expected_versions'=>[$reservation['id']=>1],'bank_account_id'=>$bank,'due_date'=>'2026-03-01','reason'=>'Synthetic export person@example.test','payment_symbols'=>[$reservation['id']=>['allow_missing_variable_symbol'=>true,'message'=>'Private person@example.test']]];
@@ -268,7 +271,9 @@ final class PaymentWorkflowCloneTest extends TestCase
         $newExportRequest=json_decode($changedExport['request_json'],true,flags:JSON_THROW_ON_ERROR);
         self::assertSame($export['id'],$exportWriter->confirm($this->f['supplier'],$newExportRequest,$changedExport['snapshot_hash'],'clone-export',$this->f['actor'])['id']);
         try{$exportWriter->confirm($this->f['supplier'],$exportRequest,$exportPreview['preview_hash'],'clone-export',$this->f['actor']);self::fail('Old private export payload bypassed canonical hash.');}catch(PaymentException $e){self::assertSame('property_payment_idempotency_conflict',$e->errorCode);}
-        $cancel=$exportWriter->cancelSubmission($this->f['supplier'],$reservation['id'],2,'Synthetic cancellation','Synthetic bank acknowledgement','clone-cancel',$this->f['actor']);self::assertSame('cancelled',$cancel['status']);
+        $cancel=$exportWriter->cancelSubmission($this->f['supplier'],$reservation['id'],2,'Synthetic cancellation','Synthetic bank acknowledgement','clone-cancel',$this->f['actor']);self::assertSame('submitted',$cancel['status']);self::assertTrue($cancel['cancel_requested']);
+        $this->db->pdo()->prepare("INSERT INTO bank_statements (supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date) VALUES (?,'Synthetic non-execution proof',?,'1000000005','0100','CZK','2026-03-02')")->execute([$this->f['supplier'],hash('sha256',random_bytes(20))]);
+        $released=$exportWriter->releaseUnexecuted($this->f['supplier'],$reservation['id'],$cancel['row_version'],(int)$this->db->pdo()->lastInsertId(),'Synthetic statement without the refund','clone-release',$this->f['actor']);self::assertSame('failed',$released['status']);
         $this->container()->get(PaymentRepository::class)->reverse($this->f['supplier'],(int)$native['parts'][0]['operation_id'],2,'2026-03-02','Synthetic reverse','opaque-reverse',$this->f['actor']);
         $target->pdo()->beginTransaction(); (new PaymentLocks($target))->acquire($this->f['supplier']);
         $current=(new PaymentSourceProof($target))->current($this->f['supplier'],'cash',$native['source']['id']);
@@ -289,7 +294,7 @@ final class PaymentWorkflowCloneTest extends TestCase
             'doc_type' => 'in', 'issue_date' => '2026-02-01', 'partner_name' => 'Synthetic payer person@example.test', 'description' => 'Synthetic source person@example.test', 'total_amount' => '100.00']],
             'clearing_cells' => [['key' => 'A', 'amount_cents' => '10000', 'dimensions' => []]],
             'parts' => [['key' => 'credit', 'request' => ['kind' => 'allocation', 'amount_cents' => '6000', 'accounting_date' => '2026-02-01', 'reason' => 'Synthetic credit person@example.test', 'debts' => [],
-                'credit_entitlement' => ['unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic entitlement deed', 'due_date' => '2026-03-01']]]]];
+                'credit_entitlement' => ['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]], 'evidence' => 'Synthetic entitlement deed', 'due_date' => '2026-03-01']]]]];
         $facade = $this->container()->get(PaymentWorkflowFacade::class);
         $preview = $facade->preview($this->f['supplier'], $request);
         $native = $facade->confirm($this->f['supplier'], $request, $preview['preview_hash'], 'synthetic-revision-native', $this->f['actor']);

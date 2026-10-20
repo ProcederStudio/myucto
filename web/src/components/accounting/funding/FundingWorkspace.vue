@@ -4,9 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
+import MultiSelectFilter from '@/components/ui/MultiSelectFilter.vue'
 import { formDateInput as dateInput, formInput as input, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import { btnOutline, ICONS } from '@/components/ui/buttonStyles'
 import { appIsoDate } from '@/utils/date'
+import { formatDate } from '@/composables/useFormat'
 import { fundingApi as api, type FundingChoices, type FundingConfirmation, type FundingOverview, type FundingPolicy, type FundingPreview, type FundingSource } from '@/api/nonprofitFunding'
 import type { AccountingPeriod } from '@/api/accounting'
 import { fundingCents } from './fundingMoney'
@@ -29,6 +31,12 @@ const policy = computed<FundingPolicy | null>(() => {
 function invalidate() { preview.value = null; confirmation.value = null; acknowledged.value = false; uncertain.value = false }
 watch([draft, budget, reason, period], () => { formRevision++; invalidate() }, { deep: true, flush: 'sync' })
 onBeforeUnmount(() => { alive = false; generation++ })
+const loading = computed(() => busy.value && overview.value === null)
+const activityOptions = computed(() => (choices.value?.activities || []).map(a => ({ value: String(a.id), label: a.label })))
+const accountOptions = computed(() => (choices.value?.accounts || []).map(a => ({ value: a.code, label: a.label })))
+function setActivities(values: string[]) { if (draft.value) draft.value.activity_kind_ids = values.map(Number) }
+function setAccounts(values: string[]) { if (draft.value) draft.value.account_prefixes = [...values] }
+function range(from: string, to: string) { return `${formatDate(from)} – ${formatDate(to)}` }
 function money(cents: number | null) { return cents === null ? t('nonprofitFunding.unknown') : new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'CZK' }).format(cents / 100) }
 function message(e: unknown) {
  const response = (e as { response?: { status?: number; data?: { error?: { message?: string } } } }).response
@@ -104,11 +112,14 @@ onMounted(() => { void reload() })
 </script>
 <template>
  <div class="space-y-5">
-  <h1 class="text-xl font-semibold">{{ t('nonprofitFunding.title') }}</h1><p class="text-sm text-neutral-500">{{ t('nonprofitFunding.help') }}</p>
-  <p v-if="error" role="alert" class="rounded border border-danger-300 p-3">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+  <h1 class="text-xl font-semibold">{{ t('nonprofitFunding.title') }}</h1>
+  <p class="text-sm text-neutral-500">{{ t('nonprofitFunding.help') }}</p>
+  <p v-if="!canManage" role="status" class="text-sm text-neutral-500" data-section="readonly">{{ t('nonprofitFunding.readOnly') }}</p>
+  <p v-if="error" role="alert" class="rounded border border-danger-300 p-3" data-section="workspace-error">{{ error }}</p>
+  <p v-if="notice" role="status" class="text-sm text-success-700" data-section="workspace-notice">{{ notice }}</p>
   <ActionBar :actions="actions" />
   <p v-if="overview && !overview.complete" role="status" class="rounded border border-warning-300 p-3">{{ t('nonprofitFunding.incomplete') }}</p>
-  <label :class="[formLabel, 'max-w-lg']">{{ t('nonprofitFunding.period') }}<select v-model.number="period" :class="input" :disabled="busy || !!preview" data-field="period" @change="draft && loadChoices()"><option :value="0">{{ t('nonprofitFunding.choose') }}</option><option v-for="p in periods" :key="p.id" :value="p.id">{{ p.starts_on }} - {{ p.ends_on }} · {{ t(`nonprofitFunding.period_${p.status}`) }}</option></select></label>
+  <label :class="[formLabel, 'max-w-lg']">{{ t('nonprofitFunding.period') }}<select v-model.number="period" :class="input" :disabled="busy || !!preview" data-field="period" @change="draft && loadChoices()"><option :value="0">{{ t('nonprofitFunding.choose') }}</option><option v-for="p in periods" :key="p.id" :value="p.id">{{ range(p.starts_on, p.ends_on) }} · {{ t(`nonprofitFunding.period_${p.status}`) }}</option></select></label>
   <RouterLink v-if="period" :to="{ name: 'accounting-nonprofit-tax', params: { id: period } }" :class="btnOutline('neutral')"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.doc" /></svg>{{ t('nonprofitFunding.taxReview') }}</RouterLink>
   <section v-if="draft" class="space-y-4 rounded-lg border bg-surface p-4">
    <h2 class="font-semibold">{{ t(editing ? 'nonprofitFunding.edit' : 'nonprofitFunding.new') }}</h2>
@@ -116,14 +127,14 @@ onMounted(() => { void reload() })
    <p v-if="membershipUpdated" class="text-warning-700">{{ t('nonprofitFunding.correctedSource') }}</p>
    <fieldset :disabled="busy || !!preview" class="space-y-4">
     <div class="grid gap-3 sm:grid-cols-2">
-     <label v-if="!editing" :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.source') }}<select v-model="draft.source_anchor" :class="input" data-field="source" @change="sourceChanged"><option value="">{{ t('nonprofitFunding.choose') }}</option><option v-for="source in choices?.sources || []" :key="source.anchor" :value="source.anchor">{{ t(`nonprofitFunding.kind_${source.kind}`) }} · {{ source.date }} · {{ source.account_code }} · {{ money(source.amount_cents) }} · {{ source.evidence }}</option></select></label>
+     <label v-if="!editing" :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.source') }}<select v-model="draft.source_anchor" :class="input" data-field="source" @change="sourceChanged"><option value="">{{ t('nonprofitFunding.choose') }}</option><option v-for="source in choices?.sources || []" :key="source.anchor" :value="source.anchor">{{ t(`nonprofitFunding.kind_${source.kind}`) }} · {{ formatDate(source.date) }} · {{ source.account_code }} · {{ money(source.amount_cents) }} · {{ source.evidence }}</option></select></label>
      <template v-if="!editing"><label :class="formLabel">{{ t('nonprofitFunding.providerSearch') }}<input v-model="search" :class="input" data-field="provider-search" /></label><div class="flex flex-wrap items-end gap-2"><button type="button" :class="btnOutline('neutral')" data-action="search-provider" @click="loadChoices"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.search" /></svg>{{ t('nonprofitFunding.search') }}</button></div><label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.provider') }}<select v-model.number="draft.provider_id" :class="input" data-field="provider"><option :value="0">{{ t('nonprofitFunding.choose') }}</option><option v-for="provider in choices?.providers || []" :key="provider.id" :value="provider.id">{{ provider.label }}</option></select><span v-if="choices?.providers_more" class="text-sm text-neutral-500">{{ t('nonprofitFunding.narrowSearch') }}</span></label></template>
      <p v-else class="sm:col-span-2">{{ t('nonprofitFunding.provider') }}: {{ providerLabel }} · {{ t(`nonprofitFunding.kind_${draft.kind}`) }}</p>
      <label :class="formLabel">{{ t('nonprofitFunding.name') }}<input v-model="draft.title" :class="input" data-field="title" /></label><label :class="formLabel">{{ t('nonprofitFunding.budget') }}<input v-model="budget" inputmode="decimal" :class="input" data-field="budget" /></label>
      <label :class="formLabel">{{ t('nonprofitFunding.validFrom') }}<DateInput :class="dateInput" v-model="draft.valid_from" required data-field="from" /></label><label :class="formLabel">{{ t('nonprofitFunding.validTo') }}<DateInput :class="dateInput" v-model="draft.valid_to" required data-field="to" /></label>
      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.purpose') }}<textarea v-model="draft.purpose" :class="textarea" data-field="purpose" /></label><label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.evidence') }}<textarea v-model="draft.evidence" :class="textarea" data-field="evidence" /></label>
-     <label :class="formLabel">{{ t('nonprofitFunding.activities') }}<select v-model="draft.activity_kind_ids" multiple :class="textarea" data-field="activities"><option v-for="activity in choices?.activities || []" :key="activity.id" :value="activity.id">{{ activity.label }}</option></select></label>
-     <label :class="formLabel">{{ t('nonprofitFunding.accounts') }}<select v-model="draft.account_prefixes" multiple :class="textarea" data-field="accounts"><option v-for="account in choices?.accounts || []" :key="account.code" :value="account.code">{{ account.label }}</option></select></label>
+     <div :class="formLabel">{{ t('nonprofitFunding.activities') }}<MultiSelectFilter data-field="activities" :model-value="draft.activity_kind_ids.map(String)" :options="activityOptions" :label="t('nonprofitFunding.choose')" :active-label="t('nonprofitFunding.activities')" @update:model-value="setActivities" /></div>
+     <div :class="formLabel">{{ t('nonprofitFunding.accounts') }}<MultiSelectFilter data-field="accounts" :model-value="draft.account_prefixes" :options="accountOptions" :label="t('nonprofitFunding.choose')" :active-label="t('nonprofitFunding.accounts')" @update:model-value="setAccounts" /></div>
      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitFunding.reason') }}<textarea v-model="reason" :class="textarea" data-field="reason" /></label>
     </div>
    </fieldset>
@@ -134,14 +145,15 @@ onMounted(() => { void reload() })
     <p v-if="uncertain" role="status">{{ t('nonprofitFunding.uncertain') }}</p><label class="flex items-start gap-2"><input v-model="acknowledged" type="checkbox" :disabled="busy" data-field="ack" />{{ t('nonprofitFunding.ack') }}</label><ActionBar :actions="confirmActions" />
    </div>
   </section>
-  <p v-if="overview && !overview.sources.length && !busy">{{ t('nonprofitFunding.empty') }}</p>
+  <p v-if="loading" role="status" class="text-sm text-neutral-500" data-section="loading">{{ t('common.loading') }}</p>
+  <p v-else-if="overview && !overview.sources.length && !busy" class="rounded border p-5 text-neutral-500" data-section="empty">{{ t('nonprofitFunding.empty') }}</p>
   <article v-for="source in overview?.sources || []" :key="source.source_key" class="space-y-3 rounded-lg border bg-surface p-4" data-section="report">
    <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-semibold">{{ source.revision.policy.title }}</h2><span class="rounded px-2 py-1 text-sm" :class="source.source_current ? 'bg-success-50 text-success-700' : 'bg-warning-50 text-warning-700'">{{ t(source.source_current ? 'nonprofitFunding.current' : 'nonprofitFunding.reviewRequired') }}</span><button v-if="canManage" :class="btnOutline('neutral')" :disabled="busy || !!preview || !openPeriods.length" data-action="edit" @click="edit(source)"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.edit" /></svg>{{ t('nonprofitFunding.edit') }}</button></div>
-   <p>{{ t(`nonprofitFunding.kind_${source.revision.policy.kind}`) }} · {{ source.revision.basis.provider.company_name || [source.revision.basis.provider.first_name, source.revision.basis.provider.last_name].filter(Boolean).join(' ') }}</p><p v-if="source.revision.basis.provider.ic" class="text-sm">{{ t('nonprofitFunding.providerId') }}: {{ source.revision.basis.provider.ic }}</p><p class="text-sm text-neutral-500">{{ [source.revision.basis.provider.street, source.revision.basis.provider.zip, source.revision.basis.provider.city].filter(Boolean).join(', ') }}</p><p>{{ source.revision.policy.purpose }}</p><p class="text-sm text-neutral-500">{{ source.revision.policy.valid_from }} - {{ source.revision.policy.valid_to }} · {{ source.revision.policy.account_prefixes.join(', ') }}</p>
+   <p>{{ t(`nonprofitFunding.kind_${source.revision.policy.kind}`) }} · {{ source.revision.basis.provider.company_name || [source.revision.basis.provider.first_name, source.revision.basis.provider.last_name].filter(Boolean).join(' ') }}</p><p v-if="source.revision.basis.provider.ic" class="text-sm">{{ t('nonprofitFunding.providerId') }}: {{ source.revision.basis.provider.ic }}</p><p class="text-sm text-neutral-500">{{ [source.revision.basis.provider.street, source.revision.basis.provider.zip, source.revision.basis.provider.city].filter(Boolean).join(', ') }}</p><p>{{ source.revision.policy.purpose }}</p><p class="text-sm text-neutral-500">{{ range(source.revision.policy.valid_from, source.revision.policy.valid_to) }} · {{ source.revision.policy.account_prefixes.join(', ') }}</p>
    <dl class="grid gap-3 sm:grid-cols-4"><div><dt>{{ t('nonprofitFunding.recognized') }}</dt><dd>{{ money(source.recognized_cents) }}</dd></div><div><dt>{{ t('nonprofitFunding.budget') }}</dt><dd>{{ money(source.budget_cents) }}</dd></div><div><dt>{{ t('nonprofitFunding.used') }}</dt><dd>{{ money(source.drawdown_cents) }}</dd></div><div><dt>{{ t('nonprofitFunding.remaining') }}</dt><dd>{{ money(source.budget_remaining_cents) }}</dd></div></dl>
    <p v-if="source.revision.policy.kind === 'gift'" class="text-sm">{{ t(Object.values(source.revision.basis.source_rows).find(r => r.id === source.revision.policy.source_anchor)?.decision.facts?.claim_exemption ? 'nonprofitFunding.giftExempt' : 'nonprofitFunding.giftTaxable') }}</p>
-   <p v-for="row in source.revision.policy.kind === 'gift' ? Object.values(source.revision.basis.source_rows) : []" :key="row.id" class="text-sm">{{ t('nonprofitFunding.giftSource') }}: {{ row.date }} · {{ row.account_code }} · {{ money(row.amount_cents) }}</p>
-   <details><summary class="cursor-pointer">{{ t('nonprofitFunding.useDetails') }}</summary><p v-if="!source.uses.length" class="py-2">{{ t('nonprofitFunding.noUse') }}</p><div v-for="use in source.uses" :key="`${use.assessment_id}:${use.cost.id}`" class="space-y-1 border-t py-3"><p>{{ use.cost.date }} · {{ use.cost.account_code }} · {{ money(use.amount_cents) }}</p><p>{{ use.evidence }}</p><p v-if="!use.current" class="text-warning-700">{{ t('nonprofitFunding.useReview') }}</p></div></details>
+   <p v-for="row in source.revision.policy.kind === 'gift' ? Object.values(source.revision.basis.source_rows) : []" :key="row.id" class="text-sm">{{ t('nonprofitFunding.giftSource') }}: {{ formatDate(row.date) }} · {{ row.account_code }} · {{ money(row.amount_cents) }}</p>
+   <details><summary class="cursor-pointer">{{ t('nonprofitFunding.useDetails') }}</summary><p v-if="!source.uses.length" class="py-2">{{ t('nonprofitFunding.noUse') }}</p><div v-for="use in source.uses" :key="`${use.assessment_id}:${use.cost.id}`" class="space-y-1 border-t py-3"><p>{{ formatDate(use.cost.date) }} · {{ use.cost.account_code }} · {{ money(use.amount_cents) }}</p><p>{{ use.evidence }}</p><p v-if="!use.current" class="text-warning-700">{{ t('nonprofitFunding.useReview') }}</p></div></details>
   </article>
  </div>
 </template>

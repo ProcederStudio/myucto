@@ -78,6 +78,7 @@
     "expense_categories",
     "export",
     "foreign_income",
+    "frameworkConversion",
     "fx504",
     "gopay",
     "group_stats",
@@ -99,6 +100,7 @@
     "monthly_report",
     "myucto_import",
     "nonprofitTax",
+    "nonprofitTaxJ6",
     "nonprofitTaxNative",
     "oss_rates",
     "other_items",
@@ -676,8 +678,7 @@
       "dimensions"
     ],
     "accounting-nonprofit-tax": [
-      "nonprofitTax",
-      "nonprofitTaxNative"
+      "nonprofitTaxJ6"
     ],
     "accounting-statement-mapping": [
       "settings"
@@ -918,6 +919,9 @@
     ],
     "accounting-securities-debt": [
       "securities504"
+    ],
+    "accounting-framework-conversion": [
+      "frameworkConversion"
     ],
     "property-service-lifecycles": [
       "propertyServiceLifecycle"

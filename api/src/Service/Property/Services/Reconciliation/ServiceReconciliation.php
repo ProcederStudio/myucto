@@ -27,13 +27,13 @@ final class ServiceReconciliation
             foreach($source['accounts'] as $units)foreach($units as $codes)foreach($codes as $code=>$yes)$legacy[$code]=true;
             foreach($source['pending'] as $pending)if(self::selected($pending['unit_id'],$pending['service_id'],$unitId,$serviceId)&&(($pending['accounting_date']??$pending['period_to'])<=$date))$incomplete[]=$pending;
             foreach($source['rows'] as $row){if($row['accounting_date']>$date||!self::selected($row['unit_id'],$row['service_id'],$unitId,$serviceId))continue;$type=$accounts[$row['account_code']]??throw new ServiceReconciliationException('account_missing');if(in_array($type,['expense','revenue'],true)&&$row['accounting_date']<$from)continue;$amount=self::amount($row,$type);self::add($expected,$row['unit_id'],$row['service_id'],$row['account_code'],$amount);$expectedLines[$row['line_id']]=$row;$kind=$row['source_kind'];$components[$kind][$row['account_code']]=bcadd($components[$kind][$row['account_code']]??'0',$amount,0);}
-            $sql="SELECT l.id,l.entry_id,l.side,l.amount,l.is_red_storno,l.currency_code,l.amount_foreign,l.fx_rate,c.account_code,c.account_type,e.entry_date,e.source_type,e.period_id FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id JOIN chart_of_accounts c ON c.supplier_id=l.supplier_id AND c.id=l.account_id WHERE l.supplier_id=? AND e.posted_at IS NOT NULL AND e.entry_date<=? AND (c.account_code LIKE '315.2%' OR c.account_code LIKE '324.1%' OR c.account_code LIKE '388.2%' OR c.account_code LIKE '389.1%' OR c.account_type IN ('expense','revenue')";
-            $params=[$supplier,$date];if($legacy!==[]){$sql.=' OR c.account_code IN ('.implode(',',array_fill(0,count($legacy),'?')).')';array_push($params,...array_keys($legacy));}$sql.=') ORDER BY e.id,l.line_no,l.id';$rows=$this->q($sql,$params)->fetchAll(PDO::FETCH_ASSOC);$assignments=new DimensionAssignmentRepository($this->db);$lineIds=array_column($rows,'id');$assigned=$assignments->lineDimensions($supplier,$lineIds,true);$splits=$assignments->lineSplits($supplier,$lineIds,true);$carry=new ServiceCarryReadProof($this->db);$actual=[];$unregistered=[];$actualLines=[];$carriers=[];$reserveSteps=[];$reserveSnapshots=[];
+            $sql="SELECT l.id,l.entry_id,l.side,l.amount,l.is_red_storno,l.currency_code,l.amount_foreign,l.fx_rate,c.account_code,c.account_type,e.entry_date,e.source_type,e.period_id FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id JOIN chart_of_accounts c ON c.supplier_id=l.supplier_id AND c.id=l.account_id WHERE l.supplier_id=? AND e.posted_at IS NOT NULL AND e.entry_date<=? AND (c.account_type NOT IN ('expense','revenue') OR (e.entry_date>=? AND EXISTS(SELECT 1 FROM journal_entry_line_dimensions d JOIN property_objects o ON o.supplier_id=d.supplier_id AND o.dimension_value_id=d.dimension_value_id AND o.kind='service' WHERE d.supplier_id=l.supplier_id AND d.line_id=l.id))) AND (c.account_code LIKE '315.2%' OR c.account_code LIKE '324.1%' OR c.account_code LIKE '388.2%' OR c.account_code LIKE '389.1%' OR c.account_type IN ('expense','revenue')";
+            $params=[$supplier,$date,$from];if($legacy!==[]){$sql.=' OR c.account_code IN ('.implode(',',array_fill(0,count($legacy),'?')).')';array_push($params,...array_keys($legacy));}$sql.=') ORDER BY e.id,l.line_no,l.id';$rows=$this->q($sql,$params)->fetchAll(PDO::FETCH_ASSOC);$assignments=new DimensionAssignmentRepository($this->db);$lineIds=array_column($rows,'id');$assigned=$assignments->lineDimensions($supplier,$lineIds,true);$splits=$assignments->lineSplits($supplier,$lineIds,true);$carry=new ServiceCarryReadProof($this->db);$openingEntries=$this->openingBatchEntries($supplier);$carryMatches=[];$reserveRead=$this->reserveReader();$actual=[];$unregistered=[];$actualLines=[];$carriers=[];$reserveSteps=[];$reserveSnapshots=[];
             foreach($rows as $row){$pl=in_array($row['account_type'],['expense','revenue'],true);if($pl&&$row['entry_date']<$from)continue;$tuple=[];foreach(['unit','service'] as $kind){$matches=[];foreach($dimensions[$kind]??[] as $type=>$values){$value=$assigned[$row['id']][$type]??null;if($value!==null&&isset($values[$value]))$matches[]=$values[$value];}$tuple[$kind]=count($matches)===1?$matches[0]:null;}
                 $unit=$tuple['unit'];$service=$tuple['service'];if($pl&&$service===null)continue;if($unit!==null&&$service!==null&&!self::selected($unit,$service,$unitId,$serviceId))continue;
-                if($pl&&$this->verifiedReserveEntry($supplier,$date,$row,$reserveSteps,$reserveSnapshots))continue;
-                $nativeOpening=$row['source_type']==='opening'&&$this->q('SELECT id FROM property_opening_batches WHERE supplier_id=? AND (journal_entry_id=? OR reversal_entry_id=?) LIMIT 1',[$supplier,$row['entry_id'],$row['entry_id']])->fetchColumn()!==false;
-                if(in_array($row['source_type'],['opening','closing'],true)&&!$nativeOpening&&$carry->matches($supplier,(int)$row['entry_id'])){$carriers[(int)$row['entry_id']]=true;continue;}
+                if($pl&&$this->verifiedReserveEntry($reserveRead,$supplier,$date,$row,$reserveSteps,$reserveSnapshots))continue;
+                $nativeOpening=$row['source_type']==='opening'&&isset($openingEntries[(int)$row['entry_id']]);
+                if(in_array($row['source_type'],['opening','closing'],true)&&!$nativeOpening&&($carryMatches[(int)$row['entry_id']]??=$carry->matches($supplier,(int)$row['entry_id']))){$carriers[(int)$row['entry_id']]=true;continue;}
                 if($unit===null||$service===null||($splits[$row['id']]??[])!==[]){$unregistered[]=(int)$row['id'];$incomplete[]=['code'=>'ledger_scope','line_id'=>(int)$row['id']];continue;}
                 if($pl&&!isset($source['policies'][$unit][$service]['service_profit_and_loss'])){$unregistered[]=(int)$row['id'];$incomplete[]=['code'=>'result_policy_unproven','line_id'=>(int)$row['id'],'unit_id'=>$unit,'service_id'=>$service];continue;}
                 if($row['currency_code']!==null||$row['amount_foreign']!==null||$row['fx_rate']!==null){$incomplete[]=['code'=>'fx_unsupported','line_id'=>(int)$row['id']];}
@@ -45,11 +45,23 @@ final class ServiceReconciliation
             ksort($totals);ksort($ledgerTotals);sort($unregistered);return ['supplier_id'=>$supplier,'unit_id'=>$unitId,'service_id'=>$serviceId,'accounting_date'=>$date,'period_from'=>$from,'known_at'=>null,'knowledge_basis'=>'current_ledger','view'=>'before_closing','coverage'=>$incomplete===[]?'complete':'incomplete','matches'=>$matches,'totals'=>$totals,'ledger_totals'=>$ledgerTotals,'unit_service_balances'=>$expected,'ledger_unit_service_balances'=>$actual,'differences'=>$difference,'component_totals'=>$components,'incomplete'=>$incomplete,'unregistered_line_ids'=>array_values(array_unique($unregistered)),'verified_carry_entry_ids'=>array_keys($carriers),'source_line_ids'=>array_map('intval',array_keys($expectedLines))];
         });
     }
-    private function verifiedReserveEntry(int $supplier,string $date,array $row,array &$steps,array &$snapshots):bool
+    /** Zápisy počátečních stavů SVJ jedním dotazem místo dotazu pro každý řádek deníku. */
+    private function openingBatchEntries(int $supplier):array
+    {
+        $entries=[];
+        foreach($this->q('SELECT journal_entry_id,reversal_entry_id FROM property_opening_batches WHERE supplier_id=?',[$supplier])->fetchAll(PDO::FETCH_ASSOC) as $batch){
+            foreach(['journal_entry_id','reversal_entry_id'] as $key)if($batch[$key]!==null)$entries[(int)$batch[$key]]=true;
+        }
+        return $entries;
+    }
+    private function reserveReader():\MyInvoice\Service\Accounting\Closing\LegalClosing504Repository
+    {
+        $journal=new \MyInvoice\Repository\JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db));
+        return new \MyInvoice\Service\Accounting\Closing\LegalClosing504Repository($this->db,$journal,true);
+    }
+    private function verifiedReserveEntry(\MyInvoice\Service\Accounting\Closing\LegalClosing504Repository $read,int $supplier,string $date,array $row,array &$steps,array &$snapshots):bool
     {
         $period=(int)$row['period_id'];$entry=(int)$row['entry_id'];
-        $journal=new \MyInvoice\Repository\JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db));
-        $read=new \MyInvoice\Service\Accounting\Closing\LegalClosing504Repository($this->db,$journal,true);
         if(!array_key_exists($period,$steps)){
             $step=$read->step($supplier,$period,'provisions');$records=[];
             foreach(array_merge($step['payload']['entries']??[],$step['payload']['reversed']??[])as$record){

@@ -135,12 +135,9 @@ final class FundingService
     }
     private function effective(int $supplier,bool $lock): array
     {
-        $periods=[];
-        foreach($this->assessments->confirmedHistory($supplier,$lock) as $row)$periods[$row['period_id']]=true;
         $out=[];
-        foreach(array_keys($periods) as $period){
-            $row=$this->assessments->latest($supplier,(int)$period,$lock);
-            $snapshot=$this->sources->snapshot($supplier,(int)$period,$lock);
+        foreach($this->assessments->latestOfConfirmedPeriods($supplier,$lock) as $row){
+            $snapshot=$this->sources->snapshot($supplier,$row['period_id'],$lock);
             $row['current']=$row['status']==='confirmed'&&$row['ruleset']===NonprofitTaxRules::VERSION&&$snapshot['findings']===[]&&hash_equals($row['input_hash'],$snapshot['input_hash']);
             if($row['current'])$this->capacity->assertCurrentReceipt($supplier,$row);
             $out[]=$row;

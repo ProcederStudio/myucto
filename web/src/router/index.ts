@@ -12,7 +12,9 @@ import type { DomainContext } from '@/api/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import { OPERATIONAL_SETTINGS_KEYS, type AccessLevel, type PermissionKey } from '@/security/permissions'
-import { ensureNamespaces, namespacesForRoute } from '@/i18n'
+import { ensureNamespaces, i18n, namespacesForRoute } from '@/i18n'
+import { hasFrameworkScope, type FrameworkScope } from '@/security/frameworkScope'
+import { useToast } from '@/composables/useToast'
 import { createWorkspaceRoutes } from './workspaceRoutes'
 import { workspaceShellRoutes } from './workspaceShellRoutes'
 import { switchSupplierForDeepLink } from './supplierDeepLink'
@@ -44,6 +46,7 @@ declare module 'vue-router' {
     commercialOnly?: boolean
     requiresNoStock?: boolean
     requiresOss?: boolean
+    frameworkScope?: FrameworkScope
     requiresAuth?: boolean
     public?: boolean
     totpSetupOnly?: boolean
@@ -573,6 +576,14 @@ export async function authorizationGuard(
   // Nav sekci gatuje AppLayout; tady tvrdě blokujeme i přímý přístup přes URL.
   const requiresDoubleEntry = to.matched.some((r) => r.meta.requiresDoubleEntry)
   if (requiresDoubleEntry && useSupplierStore().currentSupplier?.accounting_mode !== 'double_entry') {
+    return { name: 'home' }
+  }
+
+  // Agendy NNO/504 a SVJ: menu je běžné firmě neukáže, přímá adresa ji vrátí
+  // na přehled s vysvětlením, proč stránka pro tuto firmu není.
+  const frameworkScope = [...to.matched].reverse().find(r => r.meta.frameworkScope)?.meta.frameworkScope
+  if (frameworkScope && !hasFrameworkScope(useSupplierStore().currentSupplier, frameworkScope)) {
+    useToast().warning(i18n.global.t(`nav.framework_scope_denied.${frameworkScope}`))
     return { name: 'home' }
   }
 

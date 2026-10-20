@@ -26,6 +26,37 @@ final class ChartOfAccountsSeeder
 
     public function __construct(private readonly Connection $db) {}
 
+    /** Označí seeder účet jako zúčtovací? Stejné pravidlo jako {@see markClearingAccounts()}. */
+    public static function isClearingCode(string $accountCode): bool
+    {
+        foreach (self::CLEARING_PREFIXES as $prefix) {
+            if (str_starts_with($accountCode, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Předkontace, které seeder rámce 500 zakládá jako per-firmu override
+     * (viz {@see seedAnalyticPostingRules()}): rule_key => [MD, D].
+     *
+     * @return array<string,array{0:string,1:string}>
+     */
+    public static function seededPostingRuleOverrides(): array
+    {
+        return [
+            'invoice.material.received' => ['501.900', '321'],
+            'invoice.small_asset.received' => ['501.900', '321'],
+        ];
+    }
+
+    /** Předvolby analytik, které seeder rámce 500 zapisuje do nastavení účetnictví. */
+    public const SEEDED_SETTINGS_CODES = [
+        'fuel_account_code' => '501.100',
+        'vehicle_repair_account_code' => '511.100',
+    ];
+
     /**
      * Vybere šablonu z historie k zadanému datu, u starších volání k dnešku.
      *
@@ -190,25 +221,23 @@ final class ChartOfAccountsSeeder
              SELECT ?, ?, ?, ?, ?, ?, 1
               WHERE NOT EXISTS (SELECT 1 FROM posting_rules WHERE supplier_id = ? AND rule_key = ?)'
         );
+        $overrides = self::seededPostingRuleOverrides();
         foreach ($rules as $ruleKey => $description) {
             $insert->execute([
-                $supplierId, $ruleKey, $description, '501.900', '321',
+                $supplierId, $ruleKey, $description, $overrides[$ruleKey][0], $overrides[$ruleKey][1],
                 PostingRuleRepository::OVERRIDE_PRIORITY,
                 $supplierId, $ruleKey,
             ]);
         }
 
         // Předvolba analytik v nastavení — jen když si firma ještě nic nevybrala.
-        $pdo->prepare(
-            "UPDATE accounting_supplier_settings
-                SET fuel_account_code = '501.100'
-              WHERE supplier_id = ? AND fuel_account_code IS NULL"
-        )->execute([$supplierId]);
-        $pdo->prepare(
-            "UPDATE accounting_supplier_settings
-                SET vehicle_repair_account_code = '511.100'
-              WHERE supplier_id = ? AND vehicle_repair_account_code IS NULL"
-        )->execute([$supplierId]);
+        foreach (self::SEEDED_SETTINGS_CODES as $column => $code) {
+            $pdo->prepare(
+                "UPDATE accounting_supplier_settings
+                    SET {$column} = ?
+                  WHERE supplier_id = ? AND {$column} IS NULL"
+            )->execute([$code, $supplierId]);
+        }
     }
 
     /**

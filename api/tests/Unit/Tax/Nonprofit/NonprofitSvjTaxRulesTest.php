@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 namespace MyInvoice\Tests\Unit\Tax\Nonprofit;
+use MyInvoice\Tests\Support\J6CalculatorFactory;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxCalculator;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
@@ -22,7 +23,7 @@ final class NonprofitSvjTaxRulesTest extends TestCase
     {
         $snapshot=['period'=>['starts_on'=>'2026-01-01','ends_on'=>'2026-12-31'],'sources'=>[['id'=>'cost','kind'=>'expense','amount_cents'=>100,'activity_kind_id'=>1]]];
         $assessment=['profile'=>['kind'=>'svj','evidence'=>'Synthetic statutes'],'activities'=>[1=>['evidence'=>'Synthetic activity']],'decisions'=>['cost'=>['title'=>'withholding_interest_cost','evidence'=>'Synthetic bank costs','legal_basis'=>'zdp_25_1_i','deductible_cents'=>100]],'funding'=>[]];
-        $this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($snapshot,$assessment);
+        $this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($snapshot,$assessment);
     }
     public function testSvjPublicBudgetGrantIsNotTaxable():void
     {self::assertSame('zdp_18_2f_1',NonprofitTaxRules::revenue('svj',['title'=>'public_operating_grant','evidence'=>'Synthetic grant','facts'=>['public_budget'=>true]])['legal_basis']);}
@@ -37,14 +38,14 @@ final class NonprofitSvjTaxRulesTest extends TestCase
     }
     public function testNativeServiceIncomeAndRelatedCostHaveSymmetricTaxTreatment():void
     {
-        [$snapshot,$assessment]=$this->serviceAssessment();$r=(new NonprofitTaxCalculator())->calculate($snapshot,$assessment);
+        [$snapshot,$assessment]=$this->serviceAssessment();$r=J6CalculatorFactory::legacy()->calculate($snapshot,$assessment);
         self::assertSame(0,$r['assessed_result_cents']);self::assertSame('zdp_18_2f_3',$r['rows'][0]['classification']['legal_basis']);self::assertSame(10000,$r['cost_addbacks_cents']);
         self::assertSame(10000,(new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoClassificationBridge())->build($r)['line_cents'][100]);
     }
     public function testNativeServiceIncomeCannotBeRelabelledTaxable():void
-    {[$s,$a]=$this->serviceAssessment(0,'other_taxable');$this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($s,$a);}
+    {[$s,$a]=$this->serviceAssessment(0,'other_taxable');$this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($s,$a);}
     public function testManualIncomeCannotClaimNativeServiceExclusion():void
-    {[$s,$a]=$this->serviceAssessment();unset($s['sources'][0]['svj_owner_facts']);$this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($s,$a);}
+    {[$s,$a]=$this->serviceAssessment();unset($s['sources'][0]['svj_owner_facts']);$this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($s,$a);}
     public function testRelatedServiceCostCannotBeDeductedAgainstOtherIncome():void
-    {[$s,$a]=$this->serviceAssessment(10000);$a['decisions']['cost']['title']='cost';$this->expectException(NonprofitTaxAssessmentException::class);(new NonprofitTaxCalculator())->calculate($s,$a);}
+    {[$s,$a]=$this->serviceAssessment(10000);$a['decisions']['cost']['title']='cost';$this->expectException(NonprofitTaxAssessmentException::class);J6CalculatorFactory::legacy()->calculate($s,$a);}
 }

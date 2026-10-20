@@ -2,7 +2,7 @@ import { api } from './client'
 import { useSupplierStore } from '@/stores/supplier'
 import { requestSupplierId } from '@/workspace/supplierContext'
 import type { AccountingPeriod } from './accounting'
-import type { LegalConfirm, LegalOverview, LegalRevision, NonprofitDppoState, SavingConfirm, SavingEvent, SavingOverview, SavingPlan, SavingReverseConfirm, SavingUseInput } from './nonprofitDppoTypes'
+import type { AcceptanceChange, AcceptanceState, LegalConfirm, LegalOverview, LegalReadiness, LegalRevision, NonprofitDppoState, SavingConfirm, SavingEvent, SavingOverview, SavingPlan, SavingReverseConfirm, SavingUseInput } from './nonprofitDppoTypes'
 function options(supplier: number) {
  const requested = requestSupplierId(), store = useSupplierStore()
  if (!Number.isSafeInteger(supplier) || supplier <= 0 || (requested !== null ? Number(requested) !== supplier : !store.domainLocked || store.currentSupplierId !== supplier)) throw new Error('nonprofit_dppo_supplier_changed')
@@ -14,6 +14,9 @@ export const nonprofitDppoApi = {
  periods: (supplier: number) => api.get<AccountingPeriod[]>('/accounting/periods', options(supplier)).then(r => r.data),
  profile: (supplier: number, period: number) => api.get<LegalOverview>(profile(period), options(supplier)).then(r => r.data),
  confirmProfile: (supplier: number, period: number, body: LegalConfirm) => api.post<LegalRevision>(`${profile(period)}/confirm`, body, options(supplier)).then(r => r.data),
+ readiness: (supplier: number, period: number) => api.post<LegalReadiness>(`${profile(period)}/readiness`, {}, options(supplier)).then(r => r.data),
+ acceptance: (supplier: number) => api.get<AcceptanceState>('/accounting/nonprofit-dppo/acceptance', options(supplier)).then(r => r.data),
+ changeAcceptance: (supplier: number, operation: 'accept' | 'revoke', body: AcceptanceChange) => api.post<AcceptanceState>(`/accounting/nonprofit-dppo/acceptance/${operation}`, body, options(supplier)).then(r => r.data),
  savings: (supplier: number) => api.get<SavingOverview>('/accounting/nonprofit-tax-savings', options(supplier)).then(r => r.data),
  previewUse: (supplier: number, id: number, input: SavingUseInput) => api.post<SavingPlan>(`${source(id)}/preview`, input, options(supplier)).then(r => r.data),
  confirmUse: (supplier: number, id: number, body: SavingConfirm) => api.post<SavingEvent>(`${source(id)}/confirm`, body, options(supplier)).then(r => r.data),

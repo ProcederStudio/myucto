@@ -30,15 +30,30 @@ final class DimensionSplitAllocation
      *
      * @param list<int>|null $valueIds null = všechny řádky s rozpadem typu
      * @param int|null $supplierId jen řádky firmy (u globálního typu sdílí hodnoty víc firem)
-     * @return array{0:string,1:list<int>}
+     * @param array{0:string,1:string}|null $entryDates jen zaúčtované řádky se zápisem
+     *        v intervalu [od, do]; vyžaduje firmu, aby dotaz šel po indexu data zápisu
+     * @return array{0:string,1:list<int|string>}
      */
-    public static function partsSql(int $typeId, ?array $valueIds = null, ?int $supplierId = null): array
-    {
+    public static function partsSql(
+        int $typeId,
+        ?array $valueIds = null,
+        ?int $supplierId = null,
+        ?array $entryDates = null,
+    ): array {
         $params = [$typeId];
         $restrict = '';
+        $entryJoin = '';
         if ($supplierId !== null) {
             $restrict .= ' AND s.supplier_id = ?';
             $params[] = $supplierId;
+        }
+        if ($entryDates !== null) {
+            if ($supplierId === null) {
+                throw new \InvalidArgumentException('Omezení na období rozpadu vyžaduje firmu.');
+            }
+            $entryJoin = ' JOIN journal_entries se ON se.id = sl.entry_id AND se.supplier_id = sl.supplier_id';
+            $restrict .= ' AND se.supplier_id = ? AND se.posted_at IS NOT NULL AND se.entry_date >= ? AND se.entry_date <= ?';
+            array_push($params, $supplierId, $entryDates[0], $entryDates[1]);
         }
         if ($valueIds !== null) {
             if ($valueIds === []) {
@@ -65,7 +80,7 @@ final class DimensionSplitAllocation
                                        ROW_NUMBER() OVER (PARTITION BY s.line_id
                                                           ORDER BY s.share DESC, s.dimension_value_id) AS rn
                                   FROM journal_entry_line_dimension_splits s
-                                  JOIN journal_entry_lines sl ON sl.id = s.line_id
+                                  JOIN journal_entry_lines sl ON sl.id = s.line_id{$entryJoin}
                                  WHERE s.dimension_type_id = ?{$restrict}) q) a";
         return [$sql, $params];
     }

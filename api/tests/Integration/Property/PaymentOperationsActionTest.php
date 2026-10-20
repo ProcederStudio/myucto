@@ -59,7 +59,12 @@ final class PaymentOperationsActionTest extends TestCase
         self::assertSame(422,$action->cancelExport($request->withParsedBody($cancel),new Response(),['id'=>$reservation['id']])->getStatusCode());
         self::assertSame('submitted',$this->correctionPayments()->reservation($supplier,$reservation['id'])['status']);
         $cancel['evidence']='Synthetic confirmation of cancellation';$response=$action->cancelExport($request->withParsedBody($cancel),new Response(),['id'=>$reservation['id']]);self::assertSame(200,$response->getStatusCode());
-        self::assertSame('cancelled',$this->correctionPayments()->reservation($supplier,$reservation['id'])['status']);
+        self::assertSame('submitted',$this->correctionPayments()->reservation($supplier,$reservation['id'])['status'],'Cancellation request keeps a sent order reserved.');
+        self::assertTrue(json_decode((string)$response->getBody(),true,flags:JSON_THROW_ON_ERROR)['cancel_requested']);
+        $this->db->pdo()->prepare("INSERT INTO bank_statements (supplier_id,file_name,file_hash,account_number,bank_code,currency,statement_date) VALUES (?,'Synthetic non-execution proof',?,'1000000005','0100','CZK','2026-02-05')")->execute([$supplier,hash('sha256',random_bytes(20))]);
+        $release=['expected_version'=>3,'statement_id'=>(int)$this->db->pdo()->lastInsertId(),'evidence'=>'Synthetic statement without the refund','idempotency_key'=>'release-http-export'];
+        $response=$action->releaseUnexecuted($request->withParsedBody($release),new Response(),['id'=>$reservation['id']]);self::assertSame(200,$response->getStatusCode(),(string)$response->getBody());
+        self::assertSame('failed',$this->correctionPayments()->reservation($supplier,$reservation['id'])['status']);
         $accounts=json_decode((string)$action->bankAccounts($request,new Response())->getBody(),true,flags:JSON_THROW_ON_ERROR);self::assertContains($bank,array_column($accounts['items'],'id'));
         self::assertSame([] ,json_decode((string)$action->bankAccounts($request->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID,$supplier+100000),new Response())->getBody(),true,flags:JSON_THROW_ON_ERROR)['items']);
     }

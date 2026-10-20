@@ -43,6 +43,37 @@ final class NonprofitTaxAssessmentRepository
         return array_map(self::decode(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Poslední revize každého období, které má aspoň jednu potvrzenou revizi.
+     * Pořadí revizí určí databáze po indexu (supplier_id, period_id, revision_no),
+     * JSON podklady se načítají jen pro vybrané revize.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function latestOfConfirmedPeriods(int $supplierId, bool $currentRead = false): array
+    {
+        $ids = $this->db->pdo()->prepare(
+            "SELECT id FROM (
+                SELECT id, period_id,
+                       ROW_NUMBER() OVER (PARTITION BY period_id ORDER BY revision_no DESC) AS position,
+                       MAX(status = 'confirmed') OVER (PARTITION BY period_id) AS has_confirmed
+                  FROM nonprofit_tax_assessments
+                 WHERE supplier_id = ?
+             ) ranked
+             WHERE position = 1 AND has_confirmed = 1
+             ORDER BY period_id"
+        );
+        $ids->execute([$supplierId]);
+        $selected = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
+        if ($selected === []) {
+            return [];
+        }
+        $marks = implode(',', array_fill(0, count($selected), '?'));
+        $stmt = $this->db->pdo()->prepare('SELECT * FROM nonprofit_tax_assessments WHERE supplier_id = ? AND id IN (' . $marks . ') ORDER BY period_id' . $this->lock($currentRead));
+        $stmt->execute([$supplierId, ...$selected]);
+        return array_map(self::decode(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
     public function effectiveOtherPeriods(int $supplierId, int $periodId, bool $currentRead = false): array
     {
         $stmt = $this->db->pdo()->prepare('SELECT * FROM nonprofit_tax_assessments WHERE supplier_id = ? AND period_id <> ? ORDER BY period_id, revision_no' . $this->lock($currentRead));
@@ -80,6 +111,12 @@ final class NonprofitTaxAssessmentRepository
         foreach (['snapshot', 'assessment', 'result'] as $key) {
             $row[$key] = json_decode($row[$key . '_json'], true, flags: JSON_THROW_ON_ERROR);
             unset($row[$key . '_json']);
+        }
+        // Výslovně převedené legacy posouzení nese nový otisk stránkovaného grafu, ale jeho
+        // původní JSON zůstává bajtově stejný (hlídá trigger 2087). Legacy čtenáři proto
+        // dostávají původní otisk, aby převod nezměnil výsledek DPPO ani ověření financování.
+        if (($row['storage_version'] ?? null) === 'paged_v2' && is_string($row['legacy_input_hash'] ?? null)) {
+            $row['input_hash'] = $row['legacy_input_hash'];
         }
         return $row;
     }

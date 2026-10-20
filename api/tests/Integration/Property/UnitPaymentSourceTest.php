@@ -238,7 +238,7 @@ final class UnitPaymentSourceTest extends TestCase
         self::assertNotSame($first['credit_id'],$second['credit_id']);
         $excess=$this->creditRequest($bank,'1',$this->f['clients'][1],2);
         try{$repo->preview($this->f['supplier'],$excess);self::fail('Source consumed twice.');}catch(PaymentException $e){self::assertSame('property_payment_source_capacity',$e->errorCode);}
-        $reservation=$repo->reserve($this->f['supplier'],$first['credit_id'],1,['amount_cents'=>'5000','party_ids'=>[$this->f['clients'][1]],'disposition'=>'Synthetic authenticated refund instruction','recipient_account'=>'1000000005/0100'],'reserve',$this->f['actor']);
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(),$this->f['supplier'],$this->f['clients'][1]);$reservation=$repo->reserve($this->f['supplier'],$first['credit_id'],1,['amount_cents'=>'5000','party_ids'=>[$this->f['clients'][1]],'disposition'=>'Synthetic authenticated refund instruction','recipient_account'=>'1000000005/0100'],'reserve',$this->f['actor']);
         self::assertSame('1000',$repo->credit($this->f['supplier'],$first['credit_id'])['available_cents']);
         $out=$this->bank('-50.00');
         $refund=['kind'=>'refund','source'=>['kind'=>'bank','id'=>$out,'expected_version'=>0],'amount_cents'=>'3000','accounting_date'=>'2026-02-01','reservation_id'=>$reservation['id'],'expected_reservation_version'=>1,'reason'=>'Synthetic partial refund'];
@@ -281,7 +281,7 @@ final class UnitPaymentSourceTest extends TestCase
         $bank=$this->bank('100.00');$request=$this->creditRequest($bank,'10000',$this->f['clients'][1],0);$hash=$repo->preview($supplier,$request)['preview_hash'];$op=$repo->apply($supplier,$request,$hash,'credit',$actor);
         (new PaymentLocks($this->db))->acquire($supplier);
         try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertEntriesMutable($supplier,[$op['journal_entry_id']]);self::fail('Owned entry mutable.');}catch(PaymentException $e){self::assertSame('property_payment_source_immutable',$e->errorCode);}
-        $reservation=$repo->reserve($supplier,$op['credit_id'],1,['amount_cents'=>'1000','party_ids'=>[$this->f['clients'][1]],'disposition'=>'Synthetic instruction','recipient_account'=>'1000000005/0100'],'reserve',$actor);
+        \MyInvoice\Tests\Support\RefundAccountFixture::document($this->db->pdo(),$supplier,$this->f['clients'][1]);$reservation=$repo->reserve($supplier,$op['credit_id'],1,['amount_cents'=>'1000','party_ids'=>[$this->f['clients'][1]],'disposition'=>'Synthetic instruction','recipient_account'=>'1000000005/0100'],'reserve',$actor);
         try{$repo->reverse($supplier,$op['id'],2,'2026-02-02','Synthetic correction','reverse',$actor);self::fail('Reserved credit reversed.');}catch(PaymentException $e){self::assertSame('property_payment_credit_in_use',$e->errorCode);}
         $repo->cancelReservation($supplier,$reservation['id'],1,'Synthetic withdrawal','cancel',$actor);
         $reversed=$repo->reverse($supplier,$op['id'],2,'2026-02-02','Synthetic correction','reverse',$actor);
@@ -332,7 +332,7 @@ final class UnitPaymentSourceTest extends TestCase
     private function creditRequest(int $source,string $cents,int $party,int $version): array
     {
         return ['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$source,'expected_version'=>$version],'amount_cents'=>$cents,'accounting_date'=>'2026-02-01','reason'=>'Synthetic separately entitled credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>array_values($this->f['units'])[0],'party_ids'=>[$party],'evidence'=>'Synthetic independently established creditor title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>array_values($this->f['units'])[0],'party_ids'=>[$party],'evidence'=>'Synthetic independently established creditor title','due_date'=>'2026-03-01']];
     }
     private function bank(string $amount,string $counter='379.900'): int
     {

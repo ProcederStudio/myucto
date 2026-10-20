@@ -149,14 +149,15 @@ final class PaymentRepository
             if($parties!==$actual)PaymentException::reject('entitlement_mismatch');
             PropertyInput::text($request['disposition']??null,'disposition',4000);
             $method=$request['delivery_method']??'bank';
-            if($method==='bank'){self::bankAccount($request['recipient_account']??null);if(isset($request['recipient_id'])||isset($request['recipient_evidence']))PropertyInput::invalid('recipient_id');}
+            $recipientParty=null;
+            if($method==='bank'){$account=self::bankAccount($request['recipient_account']??null);if(isset($request['recipient_id'])||isset($request['recipient_evidence']))PropertyInput::invalid('recipient_id');$recipientParty=$this->documentedRecipient($supplier,$actual,$account);}
             elseif($method==='cash'){
                 if(isset($request['recipient_account']))PropertyInput::invalid('recipient_account');$recipient=PropertyInput::id($request['recipient_id']??null,'recipient_id');PropertyInput::text($request['recipient_evidence']??null,'recipient_evidence',4000);
                 if(count((new PropertyReadRepository($this->db))->parties($supplier,[$recipient],true))!==1)PaymentException::reject('foreign_party');
             }else PropertyInput::invalid('delivery_method');
             $this->execute('INSERT INTO unit_credit_reservations (supplier_id,credit_id,amount_cents,request_json,request_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',[$supplier,$creditId,$amount,self::json(['expected_version'=>$expected,'request'=>$request]),$hash,$token,$actor]);
             $id=(int)$this->db->pdo()->lastInsertId();$this->cas('UPDATE unit_credit_lots SET row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[$supplier,$creditId,$expected]);
-            $this->audit($supplier,'reservation',$id,'reserved',['credit_id'=>$creditId,'request_hash'=>$hash],$actor);
+            $this->audit($supplier,'reservation',$id,'reserved',['credit_id'=>$creditId,'request_hash'=>$hash]+($recipientParty===null?[]:['recipient_party_id'=>$recipientParty]),$actor);
             return $this->reservationLocked($supplier,$id);
         });
     }
@@ -298,17 +299,19 @@ final class PaymentRepository
             if($creditAmount!=='0') {
             if(($source['receipt']['currency']??'CZK')!=='CZK')PaymentException::reject('fx_review_required',['incomplete'=>true]);
             $ent=$request['credit_entitlement']??null;if(!is_array($ent))PropertyInput::invalid('credit_entitlement');
-            PropertyInput::fields($ent,['unit_id','party_ids','evidence','due_date']);PropertyInput::text($ent['evidence']??null,'credit_entitlement.evidence',4000);
+            PropertyInput::fields($ent,['unit_id','party_ids','evidence','due_date','third_party']);PropertyInput::text($ent['evidence']??null,'credit_entitlement.evidence',4000);
+            $thirdParty=self::creditThirdParty($ent['third_party']??null);
             $unitId=PropertyInput::id($ent['unit_id']??null,'unit_id');$reader=new PropertyReadRepository($this->db);
             $at=(new \DateTimeImmutable($date.' 12:00:00',new \DateTimeZone('Europe/Prague')))->format('c');(new PropertyProfileRepository($this->db))->assertEnabledLocked($supplier,$at);
             $unit=$reader->find($supplier,$unitId,$at,null,true);if($unit['kind']!=='unit')PropertyInput::invalid('unit_id');
             $ids=PropertyInput::list($ent['party_ids']??null,'party_ids',100);if($ids===[]||count(array_unique($ids))!==count($ids))PropertyInput::invalid('party_ids');
-            $parties=$reader->parties($supplier,$ids,true);if(count($parties)!==count($ids))PaymentException::reject('foreign_party');
+            $parties=self::creditParties($reader->parties($supplier,$ids,true),$unit,$thirdParty);if(count($parties)!==count($ids))PaymentException::reject('foreign_party');
             $value=$this->one('SELECT id,type_id FROM dimension_values WHERE supplier_id=? AND id=? FOR UPDATE',[$supplier,$unit['dimension_value_id']]);if(!$value)PaymentException::reject('unit_dimension');
             $line=['account_code'=>'379.910','side'=>'credit','amount'=>bcdiv($creditAmount,'100',2),'dimensions'=>[(int)$value['type_id']=>(int)$value['id']],
                 'dimension_origins'=>[(int)$value['type_id']=>['origin'=>'module','ref'=>$source['receipt']['kind'].':'.$source['receipt']['id']]]];
             (new PropertyDimensionPolicy($this->db))->assertAccountingDate($supplier,$date,[$line]);
-            $snapshot['credit']=['unit_id'=>$unitId,'amount_cents'=>$creditAmount,'due_date'=>self::date($ent['due_date']??null),'parties'=>$parties,'evidence'=>$ent['evidence'],'line'=>$line];
+            $snapshot['credit']=['unit_id'=>$unitId,'amount_cents'=>$creditAmount,'due_date'=>self::date($ent['due_date']??null),'parties'=>$parties,'evidence'=>$ent['evidence'],'line'=>$line]
+                +($thirdParty===null?[]:['third_party'=>$thirdParty]);
             $snapshot['lines'][]=$line;
             }
         } else {
@@ -414,6 +417,52 @@ final class PaymentRepository
     private function positive(mixed $amount):string{try{$amount=StatutoryAllocationPolicy::cents($amount);}catch(\InvalidArgumentException){PropertyInput::invalid('amount_cents');}if($amount==='0')PropertyInput::invalid('amount_cents');return $amount;}
     private static function date(mixed $value):string{if(!is_string($value)||!($d=\DateTimeImmutable::createFromFormat('!Y-m-d',$value))||$d->format('Y-m-d')!==$value)PropertyInput::invalid('date');return $value;}
     private static function bankAccount(mixed $value):string{if(!is_string($value)||!preg_match('#^([0-9]{1,6}-)?[0-9]{1,10}/[0-9]{4}$#D',$value))PropertyInput::invalid('recipient_account');[$account,$bank]=explode('/',$value);return AccountNumberNormalizer::canonical($account).'/'.$bank;}
+    public const CREDIT_THIRD_PARTY_BASES=['assignment','inheritance','mistaken_payment','settlement_title','other_documented'];
+
+    /** Doložený titul věřitele kreditu, který k datu kreditu není vlastníkem jednotky v registru. */
+    private static function creditThirdParty(mixed $value):?array
+    {
+        if($value===null)return null;
+        if(!is_array($value))PropertyInput::invalid('credit_entitlement.third_party');
+        PropertyInput::fields($value,['basis','evidence']);
+        if(!in_array($value['basis']??null,self::CREDIT_THIRD_PARTY_BASES,true))PropertyInput::invalid('credit_entitlement.third_party.basis');
+        return ['basis'=>$value['basis'],'evidence'=>PropertyInput::text($value['evidence']??null,'credit_entitlement.third_party.evidence',4000)];
+    }
+
+    /**
+     * Věřitel kreditu musí být doložený: vlastník jednotky podle registru k datu kreditu,
+     * jinak osoba s výslovně doloženým titulem (postoupení, dědění, omylem přijatá platba…).
+     * Plátce ani shoda jednotky sama věřitele neurčuje (PRAVNI-PRAVIDLA-SVJ § 5.1).
+     */
+    private static function creditParties(array $parties,array $unit,?array $thirdParty):array
+    {
+        $owners=[];
+        if(!($unit['ownership_review_required']??true))foreach($unit['revision']['state']['ownerships']??[] as $group)foreach($group['members'] as $member)$owners[(int)$member]=true;
+        foreach($parties as &$party){
+            if(isset($owners[$party['id']])){$party['basis']='registry_owner';continue;}
+            if($thirdParty===null)PaymentException::reject('credit_party_unproven',['client_id'=>$party['id']]);
+            $party['basis']='third_party:'.$thirdParty['basis'];
+        }
+        unset($party);
+        return $parties;
+    }
+
+    /**
+     * Účet příjemce vratky musí patřit oprávněné osobě kreditu a být u ní ručně doložený.
+     * Účet naučený jen z bankovního výpisu (historický plátce) oprávnění nedokládá.
+     */
+    private function documentedRecipient(int $supplier,array $partyIds,string $account):int
+    {
+        [$number,$bank]=explode('/',$account);
+        $national=AccountNumberNormalizer::czechNational($number)??$number;
+        [$prefix,$base]=str_contains($national,'-')?explode('-',$national,2):['',$national];
+        $keys=array_values(array_unique(array_filter([ltrim($prefix.$base,'0'),ltrim($prefix.str_pad($base,10,'0',STR_PAD_LEFT),'0')],static fn(string $k):bool=>$k!=='')));
+        $marks=implode(',',array_fill(0,count($partyIds),'?'));$keyMarks=implode(',',array_fill(0,count($keys),'?'));
+        $rows=$this->all("SELECT client_id FROM client_bank_accounts WHERE supplier_id=? AND client_id IN ($marks) AND account_key IN ($keyMarks) AND bank_key=? AND is_active=1 AND source_manual=1 ORDER BY client_id FOR UPDATE",[$supplier,...$partyIds,...$keys,$bank]);
+        if($rows===[])PaymentException::reject('refund_recipient_unproven',['recipient_account'=>$account]);
+        return (int)$rows[0]['client_id'];
+    }
+
     private static function json(array $value):string{return json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_PRESERVE_ZERO_FRACTION);}
     private static function decode(string $value):array{return json_decode($value,true,flags:JSON_THROW_ON_ERROR);}
     private static function hash(string $hash,array $value):void{if(!hash_equals($hash,PropertyInput::hash($value)))PaymentException::reject('history_corrupt');}

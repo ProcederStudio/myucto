@@ -20,6 +20,8 @@ Zaúčtování odpisu a rozpuštění tvoří jednu operaci. Chybějící účet
 
 Potvrzené ocenění zahrnuje evidované technické zhodnocení. Jeho následná změna vyžaduje nové odborné posouzení; původní poměr se nepřepočítává automaticky. Přehled zachovává čerpání i u následně vyřazeného majetku.
 
+Vyřazením majetku v modulu majetku (prodej, likvidace, dar, škoda) se dosud nerozpuštěný zbytek zdroje zúčtuje zápisem **901 / 649** proti zůstatkové ceně v zápisu vyřazení. Odpis roku vyřazení, zápis vyřazení i zúčtování zbytku tvoří jednu operaci. Majetek za 500 000 Kč pořízený z daru, z něhož bylo odepsáno 200 000 Kč, při prodeji zúčtuje zbytek zdroje 300 000 Kč. Vrácení vyřazení stornuje zúčtování zbytku i rozpuštění k odpisu roku vyřazení a obnoví zůstatek zdroje. Vyřazení, které zaúčtoval deník mimo modul majetku, nelze u majetku s nerozpuštěným zdrojem zaznamenat. Vyřazení v daňové evidenci se nemění.
+
 ## 119.3 Čerpání skutečného fondu
 
 U skutečného fondu zvolte **Čerpat fond**. Vyberte otevřené období, skutečný zaúčtovaný náklad, částku, účetní datum a důvod. Náklad musí splnit doložený účel, druh činnosti, účet i časovou způsobilost. Čerpání patří do stejného účetního období jako náklad a nesmí předcházet vzniku zdroje.
