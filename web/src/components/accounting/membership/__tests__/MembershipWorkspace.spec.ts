@@ -52,6 +52,7 @@ function mounted(props: Record<string, unknown> = {}, locale = 'cs') {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  Element.prototype.scrollIntoView = vi.fn()
   accounting.listPeriods.mockResolvedValue([period])
   api.members.mockResolvedValue(page([
     row(1),
@@ -126,6 +127,36 @@ describe('Membership workspace', () => {
     const detail = w.findComponent(Detail)
     expect(detail.props()).toMatchObject({ supplier: 5, canManage: true, memberId: 1, label: 'Synthetic member 1' })
     expect(detail.props('periods')).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('opens the member detail as a master-detail pane above the list and scrolls it into view', async () => {
+    const scroll = vi.mocked(Element.prototype.scrollIntoView)
+    const w = mounted()
+    await flushPromises()
+    expect(w.find('[data-section="member-detail-pane"]').exists()).toBe(false)
+    await w.get('[data-member="2"] [data-action="open-member"]').trigger('click')
+    await flushPromises()
+    const layout = w.get('[data-section="members-layout"]')
+    expect(layout.classes()).toContain('lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]')
+    const children = Array.from(layout.element.children).map(el => el.getAttribute('data-section'))
+    expect(children).toEqual(['member-detail-pane', 'members'])
+    const pane = w.get('[data-section="member-detail-pane"]')
+    expect(pane.find('[data-stub="detail"]').exists()).toBe(true)
+    expect(pane.classes()).toContain('lg:sticky')
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(scroll.mock.contexts[0]).toBe(pane.element)
+    expect(w.get('[data-member="2"]').attributes('aria-current')).toBe('true')
+    expect(w.get('[data-member="1"]').attributes('aria-current')).toBeUndefined()
+
+    await w.get('[data-member="1"] [data-action="open-member"]').trigger('click')
+    await flushPromises()
+    expect(scroll).toHaveBeenCalledTimes(2)
+    expect(w.findComponent(Detail).props('memberId')).toBe(1)
+    w.findComponent(Detail).vm.$emit('close')
+    await flushPromises()
+    expect(w.find('[data-section="member-detail-pane"]').exists()).toBe(false)
+    expect(w.get('[data-section="members-layout"]').classes()).not.toContain('lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]')
     w.unmount()
   })
 

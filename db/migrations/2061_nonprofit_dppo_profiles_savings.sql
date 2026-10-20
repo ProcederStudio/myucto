@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS nonprofit_tax_saving_events (
  FOREIGN KEY(supplier_id,source_id,previous_id) REFERENCES nonprofit_tax_saving_events(supplier_id,source_id,id) ON DELETE RESTRICT,
  FOREIGN KEY(supplier_id,source_id,original_id) REFERENCES nonprofit_tax_saving_events(supplier_id,source_id,id) ON DELETE RESTRICT,
  FOREIGN KEY(supplier_id,period_id) REFERENCES accounting_periods(supplier_id,id) ON DELETE RESTRICT,
- FOREIGN KEY(supplier_id,cost_line_id) REFERENCES journal_entry_lines(supplier_id,id) ON DELETE RESTRICT,
+ CONSTRAINT fk_ntse_cost_line FOREIGN KEY(supplier_id,cost_line_id) REFERENCES journal_entry_lines(supplier_id,id) ON DELETE RESTRICT,
  CONSTRAINT chk_ntse_operation CHECK((operation='use' AND original_id IS NULL AND period_id IS NOT NULL AND cost_line_id IS NOT NULL AND amount_cents>0) OR (operation='reverse_use' AND original_id IS NOT NULL AND period_id IS NOT NULL AND cost_line_id IS NOT NULL AND amount_cents>0) OR (operation IN ('void','restore') AND original_id IS NULL AND period_id IS NULL AND cost_line_id IS NULL AND amount_cents=0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DELIMITER $$

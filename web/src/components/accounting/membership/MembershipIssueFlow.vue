@@ -53,7 +53,8 @@ const openPeriods = computed(() => props.periods.filter(p => p.status === 'open'
 const chosenPeriod = computed(() => props.periods.find(p => p.id === form.periodId))
 const option = (a: ChartAccount) => ({ value: a.account_code, label: `${a.account_code} ${a.name}` })
 const receivableOptions = computed(() => accountPickerOptions(accounts.value, a => a.account_type === 'asset').map(option))
-const revenueOptions = computed(() => accountPickerOptions(accounts.value, a => a.account_type === 'revenue').map(option))
+// Server vynucuje roli nonprofit.membership_revenue (684 a analytiky), výběr nabízí jen ty.
+const revenueOptions = computed(() => accountPickerOptions(accounts.value, a => a.account_type === 'revenue' && a.account_code.startsWith('684')).map(option))
 const accountName = (code: string) => accounts.value.find(a => a.account_code === code)?.name ?? ''
 
 const standardSemantic: Record<'activity' | 'activity_kind' | 'tax_regime', readonly string[] | null> = {
@@ -360,6 +361,9 @@ const actions = computed<ActionItem[]>(() => [
         <p v-else class="text-sm text-warning-700" data-section="classification-proof-missing">{{ t('nonprofitMembership.classificationProofMissing') }}</p>
         <p class="text-sm text-neutral-500" data-section="classification-tax-advisory">{{ t('nonprofitMembership.classificationTaxAdvisory') }}</p>
       </div>
+      <p v-if="commit.review.value.deferral" class="text-sm text-warning-700" data-section="issue-deferral">
+        {{ t('nonprofitMembership.deferralProposal', { amount: money(commit.review.value.deferral.deferred_amount), date: commit.review.value.deferral.balance_sheet_date }) }}
+      </p>
       <p v-if="commit.review.value.proof?.member_revision" class="text-sm">{{ t('nonprofitMembership.proofRevision', { no: commit.review.value.proof.member_revision.revision_no, from: commit.review.value.proof.member_revision.effective_from }) }}</p>
       <p v-if="commit.review.value.proof?.legal_profile" class="text-sm">{{ t('nonprofitMembership.proofProfile', { id: commit.review.value.proof.legal_profile.id }) }}</p>
       <p v-if="profileMismatch" class="text-sm text-warning-700" data-section="profile-mismatch">{{ t('nonprofitMembership.profileMismatch') }}</p>

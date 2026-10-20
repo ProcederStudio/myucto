@@ -101,7 +101,7 @@ final class MembershipBalanceRepository
                         OR (mo.id IS NULL AND NOT ((e.source_type='bank' AND bs.id IS NOT NULL)
                                                    OR (e.source_type='cash' AND cd.id IS NOT NULL)))) invalid_count,
                     SUM(mo.id IS NOT NULL) membership_claim_count,
-                    COALESCE(SUM(CASE WHEN l.id IS NULL THEN 0 WHEN l.side='debit' THEN ROUND(l.amount*100) ELSE -ROUND(l.amount*100) END),0) net_cents
+                    COALESCE(SUM(CASE WHEN l.id IS NULL THEN 0 WHEN l.side='debit' THEN ROUND(l.signed_amount*100) ELSE -ROUND(l.signed_amount*100) END),0) net_cents
                FROM requested r
                JOIN journal_line_pairing_items i ON i.supplier_id=? AND i.pairing_id=r.pairing_id
                JOIN journal_entries e ON e.supplier_id=i.supplier_id AND e.id=i.entry_id
@@ -146,10 +146,10 @@ final class MembershipBalanceRepository
         $operation->execute([$supplier, $period]);
         $ledger = $this->db->pdo()->prepare(
             "SELECT COUNT(*) operation_count,
-                    COALESCE(SUM(CASE WHEN o.operation='issue' AND rl.side='debit' THEN ROUND(rl.amount*100)
-                                      WHEN o.operation='reverse' AND rl.side='credit' THEN -ROUND(rl.amount*100) END),0) receivable_cents,
-                    COALESCE(SUM(CASE WHEN o.operation='issue' AND vl.side='credit' THEN ROUND(vl.amount*100)
-                                      WHEN o.operation='reverse' AND vl.side='debit' THEN -ROUND(vl.amount*100) END),0) revenue_cents,
+                    COALESCE(SUM(CASE WHEN o.operation='issue' AND rl.side='debit' THEN ROUND(rl.signed_amount*100)
+                                      WHEN o.operation='reverse' AND rl.side='credit' THEN -ROUND(rl.signed_amount*100) END),0) receivable_cents,
+                    COALESCE(SUM(CASE WHEN o.operation='issue' AND vl.side='credit' THEN ROUND(vl.signed_amount*100)
+                                      WHEN o.operation='reverse' AND vl.side='debit' THEN -ROUND(vl.signed_amount*100) END),0) revenue_cents,
                     SUM(e.posted_at IS NULL OR rl.id IS NULL OR vl.id IS NULL
                         OR rl.currency_code IS NOT NULL OR vl.currency_code IS NOT NULL
                         OR rl.amount_foreign IS NOT NULL OR vl.amount_foreign IS NOT NULL

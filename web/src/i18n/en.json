@@ -37970,6 +37970,7 @@
     "proofProfile": "Legal profile captured by the server: id {id}.",
     "profileMismatch": "The profile in the preview differs from the last loaded profile of the period. Verify it before confirming.",
     "taxUnclassified": "This entry does not determine the tax treatment of the due. No exemption or other tax relief is assessed.",
+    "deferralProposal": "The due period extends past the balance sheet date {date}. The closing step Accruals and deferrals will defer {amount} from revenue 684 to 384 and release it in the next period.",
     "classificationLoading": "Loading the accounting classification (activity, activity kind and tax regime axes).",
     "classificationError": "The accounting classification could not be loaded.",
     "classificationRetry": "Load again",

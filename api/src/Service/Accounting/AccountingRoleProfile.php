@@ -29,7 +29,8 @@ final readonly class AccountingRoleProfile
                 'result.funds' => '911', 'result.own_equity' => '901',
                 'deferred_tax.expense' => '592', 'deferred_tax.liability' => '959.100', 'deferred_tax.asset' => '349',
                 'reserve.legal.expense' => '556', 'reserve.legal.balance' => '941', 'provision.legal.expense' => '559', 'provision.legal.balance' => '391',
-                'fx.loss' => '545', 'fx.gain' => '645', 'interest.expense' => '544', 'interest.income' => '644', 'bank.fee' => '549.100', 'rounding.loss' => '549', 'rounding.gain' => '649', 'svj.advance.long_term'=>'955.100','svj.advance.admin'=>'324.200','svj.common_part.repair'=>'549.900','svj.common_part.improvement'=>'549.910','svj.management.cost'=>'518.200','svj.coverage.long_term'=>'649.100','svj.coverage.admin'=>'649.200','svj.owner_common_part_income'=>'379.920']
+                'fx.loss' => '545', 'fx.gain' => '645', 'interest.expense' => '544', 'interest.income' => '644', 'bank.fee' => '549.100', 'rounding.loss' => '549', 'rounding.gain' => '649', 'svj.advance.long_term'=>'955.100','svj.advance.admin'=>'324.200','svj.common_part.repair'=>'549.900','svj.common_part.improvement'=>'549.910','svj.management.cost'=>'518.200','svj.coverage.long_term'=>'649.100','svj.coverage.admin'=>'649.200','svj.owner_common_part_income'=>'379.920',
+                'nonprofit.membership_revenue' => '684']
             : ['closing.opening_balance' => '701', 'closing.final_balance' => '702', 'result.current' => '710', 'result.pending_approval' => '431', 'result.retained_profit' => '428', 'result.retained_loss' => '429',
                 'deferred_tax.expense' => '592', 'deferred_tax.liability' => '481', 'deferred_tax.asset' => '481',
                 'reserve.legal.expense' => '552', 'reserve.legal.balance' => '451', 'provision.legal.expense' => '558', 'provision.legal.balance' => '391',

@@ -174,6 +174,38 @@ describe('Membership issue flow', () => {
     w.unmount()
   })
 
+  it('offers only membership revenue 684 and its analytics as the revenue account', async () => {
+    accounting.listAccounts.mockResolvedValue([account(1, '311', 'Receivables', 'asset'), account(2, '684', 'Membership dues', 'revenue'),
+      account(4, '684.100', 'Membership dues analytic', 'revenue'), account(5, '649', 'Other revenue', 'revenue')])
+    const w = mounted()
+    await fill(w)
+    const revenue = w.get('[data-field="revenue"]').text()
+    expect(revenue).toContain('684 Membership dues')
+    expect(revenue).toContain('684.100 Membership dues analytic')
+    expect(revenue).not.toContain('649')
+    w.unmount()
+  })
+
+  it('shows the closing deferral proposal when the period crosses the balance sheet date', async () => {
+    api.preview.mockImplementation(() => Promise.resolve({ ...previewResult(),
+      deferral: { mechanism: 'closing.deferred_revenue_accrual', balance_sheet_date: '2026-12-31', deferred_amount: '600.25' } }))
+    const w = mounted()
+    await fill(w)
+    await review(w)
+    const deferral = w.get('[data-section="issue-deferral"]').text()
+    expect(deferral).toContain('2026-12-31')
+    expect(deferral).toContain('600')
+    w.unmount()
+  })
+
+  it('shows no deferral proposal for a period inside the accounting period', async () => {
+    const w = mounted()
+    await fill(w)
+    await review(w)
+    expect(w.find('[data-section="issue-deferral"]').exists()).toBe(false)
+    w.unmount()
+  })
+
   it('needs acknowledgement and then confirms the exact previewed request once', async () => {
     const w = mounted()
     await fill(w)

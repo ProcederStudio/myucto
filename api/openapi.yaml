@@ -51444,12 +51444,25 @@ components:
           items:
             type: object
             required:
+            - source
             - invoice_id
+            - membership_case_id
             - invoice_number
             - deferred_amount
             properties:
+              source:
+                type: string
+                enum:
+                - invoice
+                - nonprofit_membership
               invoice_id:
-                type: integer
+                type:
+                - integer
+                - 'null'
+              membership_case_id:
+                type:
+                - integer
+                - 'null'
               invoice_number:
                 type: string
               deferred_amount:
@@ -51477,8 +51490,10 @@ components:
     DeferredRevenueAccrualItem:
       type: object
       required:
+      - source
       - item_id
       - invoice_id
+      - membership_case_id
       - invoice_number
       - description
       - currency_code
@@ -51495,10 +51510,23 @@ components:
       properties:
         item_id:
           type: integer
+        source:
+          type: string
+          enum:
+          - invoice
+          - nonprofit_membership
+          description: Řádek vydané faktury, nebo členský předpis NNO (item_id = id operace předpisu).
         invoice_id:
-          type: integer
+          type:
+          - integer
+          - 'null'
+        membership_case_id:
+          type:
+          - integer
+          - 'null'
         invoice_number:
           type: string
+          description: Číslo faktury, u členského předpisu klíč právního titulu.
         description:
           type: string
         currency_code:

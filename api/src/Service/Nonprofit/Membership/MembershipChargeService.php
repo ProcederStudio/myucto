@@ -11,6 +11,8 @@ use MyInvoice\Repository\AccountDefinitionRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipChargeRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipRepository;
 use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\AccountRoleResolver;
+use MyInvoice\Service\Accounting\Closing\ClosingService;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitLegalProfileService;
@@ -168,6 +170,16 @@ final class MembershipChargeService
             'receivable' => $this->account($supplier, $request['receivable_account'], 'asset', $request['accounting_date'], $current),
             'revenue' => $this->account($supplier, $request['revenue_account'], 'revenue', $request['accounting_date'], $current),
         ];
+        $roles = AccountRoleResolver::fromConnection($this->db)->forDate($supplier, $request['accounting_date']);
+        if ($roles->framework !== AccountingFrameworkService::CZ_504) {
+            throw new MembershipException('nonprofit_membership_framework_required', 'Členský příspěvek vyžaduje rámec 504 k účetnímu datu.', 409);
+        }
+        $revenueRole = $roles->account('nonprofit.membership_revenue');
+        if (!str_starts_with($accounts['revenue']['account_code'], $revenueRole)) {
+            throw new MembershipException('nonprofit_membership_revenue_account_invalid', 'Členský příspěvek se účtuje do výnosu ' . $revenueRole . ' (přijaté členské příspěvky) nebo jeho analytiky.', 409,
+                ['required_account' => $revenueRole]);
+        }
+        $deferral = $this->deferralProposal($request, $period);
         $cases = $this->charges->casesForTitle($supplier, $member['id'], $request['title_key'], $current);
         $case = null;
         foreach ($cases as $candidate) if ($candidate['period_from'] === $request['period_from'] && $candidate['period_to'] === $request['period_to']) $case = $candidate;
@@ -181,8 +193,23 @@ final class MembershipChargeService
             'legal_title' => $request['legal_title'], 'accounts' => $accounts, 'classification' => $classification,
             'tax_treatment' => 'unclassified_requires_explicit_j6_decision'];
         $preview = ['request' => $request, 'case_id' => $case['id'] ?? null, 'expected_case_version' => $case['row_version'] ?? 0,
-            'proof' => $proof, 'journal_plan' => $plan];
+            'proof' => $proof, 'journal_plan' => $plan, 'deferral' => $deferral];
         return $preview + ['preview_hash' => NonprofitTaxRules::hash($preview), 'case' => $case, 'member' => $member];
+    }
+
+    /**
+     * Návrh časového rozlišení výnosu: předpis jde celý do 684 k účetnímu datu, část období
+     * za koncem účetního období odloží krok uzávěrky „deferrals" na 384 a rozpustí v N+1
+     * ({@see ClosingService::deferredRevenueAccrualPreview}). Náhled ukazuje tutéž částku.
+     */
+    private function deferralProposal(array $request, array $period): ?array
+    {
+        $endsOn = (string) $period['ends_on'];
+        if ($request['period_to'] <= $endsOn) return null;
+        $amount = ClosingService::deferredRevenueAmount((float) $request['amount'], $request['period_from'], $request['period_to'], $endsOn);
+        if ((int) round($amount * 100) === 0) return null;
+        return ['mechanism' => 'closing.deferred_revenue_accrual', 'balance_sheet_date' => $endsOn,
+            'deferred_amount' => number_format($amount, 2, '.', '')];
     }
 
     private function reverseContext(int $supplier, array $request, bool $current): array

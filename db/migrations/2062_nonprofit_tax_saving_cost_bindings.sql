@@ -13,7 +13,9 @@ INSERT INTO nonprofit_tax_saving_cost_bindings(supplier_id,source_id,event_id,co
  WHERE e.operation='use'
  AND NOT EXISTS(SELECT 1 FROM nonprofit_tax_saving_events r WHERE r.supplier_id=e.supplier_id AND r.source_id=e.source_id AND r.original_id=e.id AND r.operation='reverse_use')
  AND NOT EXISTS(SELECT 1 FROM nonprofit_tax_saving_cost_bindings b WHERE b.supplier_id=e.supplier_id AND b.event_id=e.id);
-ALTER TABLE nonprofit_tax_saving_events DROP FOREIGN KEY IF EXISTS nonprofit_tax_saving_events_ibfk_7;
+-- Vazbu aktivního čerpání na nákladový řádek přebírá nonprofit_tax_saving_cost_bindings.
+-- FK má explicitní jméno z 2061, takže se nespoléhá na automatické číslování ibfk_N.
+ALTER TABLE nonprofit_tax_saving_events DROP FOREIGN KEY IF EXISTS fk_ntse_cost_line;
 DELIMITER $$
 CREATE OR REPLACE TRIGGER trg_ntscb_native_insert BEFORE INSERT ON nonprofit_tax_saving_cost_bindings FOR EACH ROW BEGIN
  IF NOT EXISTS(SELECT 1 FROM nonprofit_tax_saving_events e WHERE e.supplier_id=NEW.supplier_id AND e.source_id=NEW.source_id AND e.id=NEW.event_id AND e.operation='use' AND e.cost_line_id=NEW.cost_line_id
