@@ -72,7 +72,10 @@ final class StatutoryClaimSelector
             $outstanding[$id]=bcsub($outstanding[$id],$parts['allocated_cents'],0); unset($pool[$id]);
         }
         $entitlement=$payment['credit_entitlement']??null;
-        if (bccomp($remaining,'0',0)>0 && (empty($entitlement['party_ids'])||empty($entitlement['evidence']))) return $review('credit_entitlement_required');
+        if (bccomp($remaining,'0',0)>0 && (empty($entitlement['party_ids'])||empty($entitlement['evidence']))) {
+            // Návrh z banky potřebuje vědět, kolik jde přiřadit bez rozhodnutí o kreditu.
+            return ['allocated_cents'=>bcsub($amount,$remaining,0),'credit_cents'=>$remaining]+$review('credit_entitlement_required');
+        }
         return ['status'=>'ready','allocations'=>$allocations,'allocated_cents'=>bcsub($amount,$remaining,0),'credit_cents'=>$remaining,'unallocated_cents'=>'0',
             'credit_entitlement'=>bccomp($remaining,'0',0)>0?$entitlement:null];
     }

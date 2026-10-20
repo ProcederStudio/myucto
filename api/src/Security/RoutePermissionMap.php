@@ -692,7 +692,7 @@ final class RoutePermissionMap
         ['POST', '#^/api/property/openings/confirm$#', 'property.opening.post', AccessLevel::WRITE],
         ['POST', '#^/api/property/openings/revise$#', 'property.opening.revise', AccessLevel::WRITE],
         ['GET', '#^/api/property/payments(/|$)#', 'property', AccessLevel::READ],
-        ['POST', '#^/api/property/payments/(source-revisions/preview|preview|debts/register|debts/[0-9]+/accessories|credits/[0-9]+/reserve|reservations/[0-9]+/(cancel|cancel-submission)|reservations/abo/(preview|confirm|[0-9]+/download)|setoffs/preview|corrections/preview)$#', 'property.payments.manage', AccessLevel::WRITE],
+        ['POST', '#^/api/property/payments/(source-revisions/preview|preview|debts/register|debts/[0-9]+/accessories|credits/[0-9]+/reserve|reservations/[0-9]+/(cancel|cancel-submission)|reservations/abo/(preview|confirm|[0-9]+/download)|setoffs/preview|corrections/preview|bank-proposals/[0-9]+/plan)$#', 'property.payments.manage', AccessLevel::WRITE],
         ['POST', '#^/api/property/payments/(source-revisions/confirm|confirm|setoffs/confirm|corrections/confirm)$#', 'property.payments.post', AccessLevel::WRITE],
         ['POST', '#^/api/property/payments/(operations/[0-9]+/reverse|corrections/[0-9]+/reverse)$#', 'property.payments.reverse', AccessLevel::WRITE],
         ['GET', '#^/api/property(/|$)#', 'property', AccessLevel::READ],

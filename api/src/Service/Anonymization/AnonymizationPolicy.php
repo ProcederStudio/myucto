@@ -212,6 +212,8 @@ final class AnonymizationPolicy
         'property_debt_certificates' => ['idempotency_key' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep'],
         'unit_payment_workflows' => ['idempotency_key' => 'keep', 'plan_json' => 'keep', 'preview_hash' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'source_kind' => 'keep', 'status' => 'keep'],
         'unit_payment_workflow_operations' => ['part_key' => 'keep'],
+        // Návrh nese jen id pohybu, jednotky a osob, druhy signálů a důvody; žádné jméno, účet ani text zprávy.
+        'unit_payment_bank_proposals' => ['status' => 'keep', 'resolution_json' => 'keep', 'resolution_hash' => 'keep'],
         'unit_payment_source_revisions' => ['idempotency_key' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep', 'status' => 'keep'],
         'unit_payment_source_heads' => [],
         'unit_payment_exports' => ['content_base64' => 'keep', 'content_hash' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep'],
