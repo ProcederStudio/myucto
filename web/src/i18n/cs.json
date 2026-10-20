@@ -37809,7 +37809,41 @@
     "ack": "Zkontroloval(a) jsem smlouvu, datum, účetní řádky a částku operace.",
     "debit": "MD",
     "credit": "D",
-    "history": "Potvrzené operace"
+    "history": "Potvrzené operace",
+    "sale": "Přiřadit prodej",
+    "proceedsHelp": "Vyberte řádek tržby na účtu 653 z výpisu nebo pokladního dokladu. Zápis vyřadí celou účetní hodnotu včetně naběhlého úroku na 553.",
+    "sold_on": "Prodáno",
+    "earned": "Naběhlý úrok celkem",
+    "amortised": "Rozpuštěný diskont nebo prémie",
+    "principal_book": "Účetní hodnota jistiny",
+    "interest_book": "Účetní hodnota úroku",
+    "frequency": "Počet výplat kupónu za rok",
+    "frequencyOptions": {
+      "1": "Ročně",
+      "2": "Pololetně",
+      "4": "Čtvrtletně",
+      "12": "Měsíčně"
+    },
+    "dayCountActAct": "ACT/ACT (ICMA), pevný kupón za období",
+    "removePeriod": "Odebrat období",
+    "sold": "Vyřazeno prodejem",
+    "reversed": "Stornováno",
+    "lineSide": "Strana",
+    "frameworkUnsupported": "Evidence dluhových cenných papírů je určena účetním jednotkám, které účtují podle vyhlášky č. 504/2002 Sb. (spolky, nadace, SVJ a další neziskové subjekty). Tato firma k dnešnímu dni účtuje podle vyhlášky č. 500/2002 Sb., proto zde nic zaúčtovat nelze. Rámec účetnictví změníte v Nastavení účetnictví.",
+    "errors": {
+      "debt_sold": "Cenný papír už je prodaný. Další úrok ani rozpuštění se k němu neúčtuje.",
+      "debt_sale_invalid": "Prodej lze zaúčtovat jen před splatností a jen u držby, která ještě nebyla splacena ani prodána.",
+      "debt_sale_accrual_required": "Před prodejem zaúčtujte naběhlý úrok a u HTM i rozpuštění rozdílu ke dni prodeje.",
+      "debt_sale_currency_unsupported": "Prodej je zatím podporovaný jen u cenných papírů v Kč.",
+      "debt_reverse_date_invalid": "Navázanou úhradu lze odvázat jen ve stejném dni, kdy byla přiřazena.",
+      "debt_reverse_dependency": "Stornovat lze jen poslední operaci pozice.",
+      "debt_coupon_period_irregular": "Kupónové období neodpovídá zvolené četnosti výplat. Nepravidelné období zkontrolujte s účetní.",
+      "debt_coupon_frequency_required": "U konvence ACT/ACT vyberte počet výplat kupónu za rok.",
+      "debt_framework_required": "Operace je dostupná jen pro účetní období, ve kterém firma účtuje podle vyhlášky č. 504/2002 Sb.",
+      "debt_payment_date_invalid": "Datum peněžního dokladu se musí shodovat s účetním dnem operace.",
+      "debt_source_used_twice": "Vybraný účetní řádek už je přiřazený jiné operaci.",
+      "debt_no_change": "K tomuto dni není co zaúčtovat."
+    }
   },
   "nonprofitMembership": {
     "title": "Členské příspěvky spolku",

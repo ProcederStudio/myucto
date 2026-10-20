@@ -18,7 +18,7 @@ final class SecuritiesDebt504Action
     public function __construct(private readonly SecuritiesDebt504Repository $lots,private readonly SecuritiesDebt504Workflow $workflow) {}
     public function page(Request $q,Response $r): Response
     {
-        return $this->handle($q,$r,false,function(int $supplier)use($q){$query=$q->getQueryParams();PropertyInput::fields($query,['after_id']);return ['rows'=>$this->lots->page($supplier,$this->integer($query['after_id']??0)),'financial_enabled'=>SecuritiesDebt504UseGuard::integrated(),'can_write'=>RequestAuthorization::allows($q,'accounting.journal.post',AccessLevel::WRITE)];});
+        return $this->handle($q,$r,false,function(int $supplier)use($q){$query=$q->getQueryParams();PropertyInput::fields($query,['after_id']);return ['rows'=>$this->lots->page($supplier,$this->integer($query['after_id']??0)),'financial_enabled'=>SecuritiesDebt504UseGuard::integrated(),'framework_supported'=>$this->lots->frameworkSupported($supplier,gmdate('Y-m-d')),'can_write'=>RequestAuthorization::allows($q,'accounting.journal.post',AccessLevel::WRITE)];});
     }
     public function detail(Request $q,Response $r,array $args): Response
     {

@@ -37,7 +37,11 @@ final class SecuritiesDebt504Workflow
             else {
                 $receipt=['amount'=>$plan['amount'],'book_change_czk'=>$plan['book_change_czk'],'rate'=>$plan['rate']??null,'lines'=>$plan['lines']];$ledger=null;
                 if(isset($plan['payment']))$receipt['payment']=$plan['payment'];
-                elseif($command['operation']==='reverse')$ledger=(new PaymentJournalProof($this->db))->current($supplier,(new SecuritiesDebt504UseGuard($this->db))->reverseLatest($supplier,$command['lot_id'],$command['event_id'],$plan['reverse_entry'],$command['accounting_date'],fn()=>$this->posting->reverse($supplier,$plan['reverse_entry'],['entry_date'=>$command['accounting_date'],'posted_by'=>$actor,'user_id'=>$actor])));
+                if(isset($plan['sold']))$receipt['sold']=$plan['sold'];
+                if($command['operation']==='reverse'){
+                    if(isset($plan['reverse_entry']))$ledger=(new PaymentJournalProof($this->db))->current($supplier,(new SecuritiesDebt504UseGuard($this->db))->reverseLatest($supplier,$command['lot_id'],$command['event_id'],$plan['reverse_entry'],$command['accounting_date'],fn()=>$this->posting->reverse($supplier,$plan['reverse_entry'],['entry_date'=>$command['accounting_date'],'posted_by'=>$actor,'user_id'=>$actor])));
+                    $this->lots->releaseClaims($supplier,$command['lot_id'],$command['event_id']);
+                }
                 elseif($plan['lines']!==[])$ledger=(new PaymentJournalProof($this->db))->current($supplier,$this->posting->postDocument($supplier,'manual',null,$plan['lines'],['entry_date'=>$command['accounting_date'],'document_date'=>$command['accounting_date'],'document_no'=>'CP/'.$command['lot_id'].'/'.$command['operation'].'/'.$command['accounting_date'],'description'=>'Dluhový cenný papír: '.$command['evidence'],'posted'=>true,'posted_by'=>$actor,'user_id'=>$actor]));
                 if($ledger!==null)$receipt['ledger']=$ledger;
                 $event=$this->lots->event($supplier,$command['lot_id'],$command+['actor'=>$actor],$receipt,$command['operation']==='reverse'?$command['event_id']:null);
@@ -64,11 +68,9 @@ final class SecuritiesDebt504Workflow
         $state=$this->lots->current($supplier,$c['lot_id'],$date);$facts=$state['facts'];$terms=$facts['terms'];
         SecuritiesDebt504Terms::need($date>=$terms['acquired_on'] && $date>=$state['max_event_date'],'debt_event_date_invalid');
         $plan=['operation'=>$op,'state_hash'=>$state['hash'],'lines'=>[],'amount'=>'0.00','book_change_czk'=>'0.00'];
-        if($op==='reverse'){
-            $last=$state['events']===[]?null:$state['events'][array_key_last($state['events'])];
-            SecuritiesDebt504Terms::need($last!==null && $last['id']===$c['event_id'] && isset($last['receipt']['ledger']) && !isset($last['receipt']['payment']),'debt_reverse_dependency');
-            $plan['reverse_entry']=$last['receipt']['ledger']['entry']['id'];$plan['amount']=$last['receipt']['amount'];$plan['book_change_czk']=bcsub('0',$last['receipt']['book_change_czk'],2);return $plan;
-        }
+        if($op==='reverse')return $this->reversePlan($state,$c,$plan);
+        if($op==='sale')return $this->salePlan($supplier,$state,$c,$plan);
+        SecuritiesDebt504Terms::need($state['sold_on']===null,'debt_sold');
         if(in_array($op,['coupon_receipt','principal_redemption'],true)){
             $payment=(new SecuritiesDebt504PaymentProof($this->db))->current($supplier,$c['entry_id'],$c['line_id'],$facts['asset']);
             SecuritiesDebt504Terms::need($payment['date']===$date,'debt_payment_date_invalid');$amount=$op==='principal_redemption'?$c['nominal_amount']:$payment['amount'];
@@ -108,6 +110,60 @@ final class SecuritiesDebt504Workflow
         return array_replace($plan,['amount'=>$amount,'book_change_czk'=>$change,'lines'=>$this->lines($facts['asset'],$counterpart,$change,$facts['currency']==='CZK'?null:$amount,$rate['rate'])]);
     }
 
+    /**
+     * Storno poslední operace. Vygenerovaný zápis (úrok, rozpuštění, přecenění, prodej)
+     * se stornuje protizápisem; navázaná úhrada kupónu nebo jistiny se jen odváže ve stejném
+     * dni, aby se bankovní nebo pokladní doklad dal opravit, a stav k žádnému dni nevisí
+     * na úhradě, která už k cennému papíru nepatří.
+     */
+    private function reversePlan(array $state,array $c,array $plan): array
+    {
+        $last=$state['events']===[]?null:$state['events'][array_key_last($state['events'])];
+        SecuritiesDebt504Terms::need($last!==null && $last['id']===$c['event_id'],'debt_reverse_dependency');
+        $receipt=$last['receipt'];
+        if(isset($receipt['ledger'])){
+            $plan['reverse_entry']=$receipt['ledger']['entry']['id'];
+        } else {
+            SecuritiesDebt504Terms::need(isset($receipt['payment']),'debt_reverse_dependency');
+            SecuritiesDebt504Terms::need($c['accounting_date']===$last['request']['accounting_date'],'debt_reverse_date_invalid');
+        }
+        $plan['amount']=$receipt['amount'];
+        $plan['book_change_czk']=bcsub('0',$receipt['book_change_czk'],2);
+        return $plan;
+    }
+
+    /**
+     * Prodej celé zbývající držby před splatností. Úrok a rozpuštění rozdílu musí být
+     * zaúčtované ke dni prodeje, tržbu zaúčtuje účetní bankovním nebo pokladním dokladem
+     * na 653 a tady se jen naváže; vygenerovaný zápis vyřadí celou účetní hodnotu včetně
+     * naběhlého úroku na 553 (ČÚS 406 bod 3.2.1 a 3.4, směrná osnova vyhlášky 504/2002 Sb.).
+     */
+    private function salePlan(int $supplier,array $state,array $c,array $plan): array
+    {
+        $facts=$state['facts'];$terms=$facts['terms'];$date=$c['accounting_date'];
+        SecuritiesDebt504Terms::need($facts['currency']==='CZK','debt_sale_currency_unsupported');
+        SecuritiesDebt504Terms::need($state['sold_on']===null && $date<$terms['maturity_on'] && bccomp($state['principal_balance'],'0',2)>0,'debt_sale_invalid');
+        $earnedComplete=$terms['debt_type']!=='coupon' || $state['earned']===SecuritiesDebt504Terms::earned($terms,$date);
+        $amortisedComplete=$terms['classification']!=='held_to_maturity' || $state['amortised']===SecuritiesDebt504Terms::amortised($terms,$date);
+        SecuritiesDebt504Terms::need($earnedComplete && $amortisedComplete,'debt_sale_accrual_required');
+        $proceeds=(new SecuritiesDebt504PaymentProof($this->db))->current($supplier,$c['entry_id'],$c['line_id'],$facts['asset'],SecuritiesDebt504Policy::SALE_REVENUE_ACCOUNT);
+        SecuritiesDebt504Terms::need($proceeds['date']===$date,'debt_payment_date_invalid');
+        SecuritiesDebt504Terms::need(bccomp($proceeds['amount'],$proceeds['money_amount'],2)<=0,'debt_payment_capacity_exceeded');
+        $this->lots->available($supplier,$proceeds['line']['id'],'sale');
+        $this->lots->account($supplier,SecuritiesDebt504Policy::SALE_COST_ACCOUNT,'expense');
+        $book=bcadd($state['principal_book_czk'],$state['interest_book_czk'],2);
+        SecuritiesDebt504Terms::need($book===$state['book_czk'] && bccomp($book,'0',2)>0,'debt_sale_invalid');
+        $sold=['principal'=>$state['principal_balance'],'interest'=>$state['unpaid_interest'],'principal_czk'=>$state['principal_book_czk'],'interest_czk'=>$state['interest_book_czk']];
+        $change=bcsub('0',$book,2);
+        return array_replace($plan,[
+            'amount'=>$proceeds['amount'],
+            'book_change_czk'=>$change,
+            'lines'=>$this->lines($facts['asset'],SecuritiesDebt504Policy::SALE_COST_ACCOUNT,$change,null,'1.000000'),
+            'payment'=>$proceeds,
+            'sold'=>$sold,
+        ]);
+    }
+
     public function profileChoices(int $supplier,string $date): array
     {
         SecuritiesDebt504Policy::date($date);
@@ -121,10 +177,10 @@ final class SecuritiesDebt504Workflow
 
     public function sources(int $supplier,string $date,string $kind,int $afterEntry=0,int $afterLine=0): array
     {
-        SecuritiesDebt504Policy::date($date);SecuritiesDebt504Terms::need(in_array($kind,['acquisitions','receipts'],true),'debt_source_kind_invalid');
+        SecuritiesDebt504Policy::date($date);SecuritiesDebt504Terms::need(in_array($kind,['acquisitions','receipts','proceeds'],true),'debt_source_kind_invalid');
         SecuritiesDebt504Terms::need($afterEntry>=0 && $afterLine>=0 && (($afterEntry===0)===($afterLine===0)),'debt_source_cursor_invalid');
         return $this->lots->transaction($supplier,function()use($supplier,$date,$kind,$afterEntry,$afterLine){
-            $q=$this->db->pdo()->prepare("SELECT e.id,e.entry_date,e.document_no,e.description,l.id line_id,a.account_code,l.amount,l.currency_code,l.amount_foreign FROM journal_entries e JOIN journal_entry_lines l ON l.entry_id=e.id AND l.supplier_id=e.supplier_id JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE e.supplier_id=? AND e.entry_date=? AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL AND e.source_type NOT IN ('closing','opening') AND NOT EXISTS(SELECT 1 FROM accounting_securities_debt_claims c WHERE c.supplier_id=l.supplier_id AND c.line_id=l.id) AND (a.account_code LIKE '063%' OR a.account_code LIKE '253%') AND l.side=? AND (?=0 OR e.id<? OR (e.id=? AND l.id<?)) ORDER BY e.id DESC,l.id DESC LIMIT 101");$q->execute([$supplier,$date,$kind==='acquisitions'?'debit':'credit',$afterEntry,$afterEntry,$afterEntry,$afterLine]);return $q->fetchAll(PDO::FETCH_ASSOC);
+            $q=$this->db->pdo()->prepare("SELECT e.id,e.entry_date,e.document_no,e.description,l.id line_id,a.account_code,l.amount,l.currency_code,l.amount_foreign FROM journal_entries e JOIN journal_entry_lines l ON l.entry_id=e.id AND l.supplier_id=e.supplier_id JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE e.supplier_id=? AND e.entry_date=? AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL AND e.source_type NOT IN ('closing','opening') AND NOT EXISTS(SELECT 1 FROM accounting_securities_debt_claims c WHERE c.supplier_id=l.supplier_id AND c.line_id=l.id) AND (IF(?='proceeds',a.account_code LIKE '653%',a.account_code LIKE '063%' OR a.account_code LIKE '253%')) AND l.side=? AND (?=0 OR e.id<? OR (e.id=? AND l.id<?)) ORDER BY e.id DESC,l.id DESC LIMIT 101");$q->execute([$supplier,$date,$kind,$kind==='acquisitions'?'debit':'credit',$afterEntry,$afterEntry,$afterEntry,$afterLine]);return $q->fetchAll(PDO::FETCH_ASSOC);
         });
     }
 
@@ -159,10 +215,10 @@ final class SecuritiesDebt504Workflow
 
     private function normalize(array $c): array
     {
-        $op=$c['operation']??null;$ops=['register','accrual','amortisation','valuation','coupon_receipt','principal_redemption','reverse'];
+        $op=$c['operation']??null;$ops=['register','accrual','amortisation','valuation','coupon_receipt','principal_redemption','sale','reverse'];
         SecuritiesDebt504Terms::need(is_string($op)&&in_array($op,$ops,true),'debt_command_invalid');
         $keys=$op==='register'?['operation','terms','entry_id','line_id']:['operation','lot_id','accounting_date','evidence'];
-        if(in_array($op,['coupon_receipt','principal_redemption'],true))$keys=[...$keys,'entry_id','line_id'];
+        if(in_array($op,['coupon_receipt','principal_redemption','sale'],true))$keys=[...$keys,'entry_id','line_id'];
         if($op==='principal_redemption')$keys[]='nominal_amount';
         if($op==='valuation')$keys=[...$keys,'profile','quote'];if($op==='reverse')$keys[]='event_id';
         foreach($keys as $key)SecuritiesDebt504Terms::need(array_key_exists($key,$c)&&$c[$key]!==null,'debt_command_invalid');
