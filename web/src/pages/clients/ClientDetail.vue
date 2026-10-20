@@ -133,7 +133,9 @@ async function syncBankAccountsFromRegistry() {
   try {
     const result = await clientsApi.syncBankAccountsFromRegistry(client.value.id)
     client.value.bank_accounts = result.accounts
-    if (result.found && result.synced > 0) {
+    if (result.source === 'group_registration') {
+      toast.info(t('client.bank_accounts.sync_group'))
+    } else if (result.found && result.synced > 0) {
       toast.success(t('client.bank_accounts.synced', { count: result.synced }))
     } else {
       toast.info(t('client.bank_accounts.sync_empty'))

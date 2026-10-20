@@ -16,15 +16,14 @@ use MyInvoice\Repository\ClientRepository;
  * subjektu kvůli párování karty dodavatele.
  *
  * Zdroj podle typu dodavatele (precedence):
- *  1. CZ (IČO 8 číslic) → ARES `is_vat_payer` (stavZdrojeDph === 'AKTIVNI').
+ *  1. CZ (IČO 8 číslic) → ARES `is_vat_payer` (aktivní vlastní nebo skupinová registrace).
  *     - Pozitivní výsledek je vždy konečný.
  *     - Negativní výsledek (vč. ZANIKLY) je konečný JEN pokud DIČ na dokladu
  *       odpovídá vlastní registraci subjektu (číselná část DIČ = IČO). Člen
  *       skupinové registrace DPH (§5a ZDPH) má vlastní registraci zaniklou
- *       vstupem do skupiny — ARES dle IČO proto vrátí neplátce/ZANIKLY, i když
- *       fakturuje s DPH jako člen skupiny. DIČ skupiny má jiný tvar (typicky
- *       `CZ699xxxxxx`), tedy číselná část ≠ IČO → v tom případě ARES negativum
- *       NENÍ konečné a jde se doověřit krokem 2.
+ *       vstupem do skupiny. AresClient zahrnuje aktivní skupinu do plátcovství
+ *       i bez DIČ z dokladu; pokud ale ARES skupinu neuvádí, doověříme skupinové
+ *       DIČ z dokladu krokem 2 (číselná část DIČ skupiny ≠ IČO).
  *  2. VIES `valid` podle DIČ (zahraniční EU dodavatel, NEBO doověření skupinové
  *     registrace z kroku 1 — `ViesClient::lookup()` skupinové DIČ interně routuje
  *     na CRPDPH, protože VIES DPH skupiny vůbec neeviduje). Nález v CRPDPH = plátce.
@@ -79,7 +78,7 @@ final class VendorVatPayerResolver
         $dicTrim = trim((string) $vatDic) !== '' ? trim((string) $vatDic) : trim((string) $dic);
         $dicDigits = preg_replace('/\D/', '', $dicTrim) ?? '';
 
-        // 1. CZ subjekt dle IČO → ARES (autoritativní stav VLASTNÍ registrace).
+        // 1. CZ subjekt dle IČO → ARES (vlastní i skupinová registrace, normalizuje AresClient).
         $aresResult = null;
         if (strlen($icDigits) === 8) {
             $resp = $this->ares->lookup($icDigits);
@@ -88,8 +87,7 @@ final class VendorVatPayerResolver
 
                 // Pozitiv je vždy konečný. Negativ je konečný jen když DIČ na dokladu
                 // odpovídá vlastní registraci (číselná část = IČO) — jinak jde o DIČ
-                // skupinové registrace (BUG: člen skupiny má vlastní registraci
-                // zaniklou), doověříme krokem 2.
+                // skupinové registrace, kterou ARES nemusí uvádět, doověříme krokem 2.
                 $isDicMismatch = $dicDigits !== '' && $dicDigits !== $icDigits;
                 if ($aresResult['is_vat_payer'] || !$isDicMismatch) {
                     return $aresResult;
