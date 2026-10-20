@@ -61,8 +61,7 @@ const actions = computed<ActionItem[]>(() => [preview.value ? { key: 'confirm', 
 </script>
 <template>
  <div class="space-y-5">
-  <h1 class="text-xl font-semibold">{{ t('propertyOpening.title') }}</h1>
-  <p class="text-sm text-neutral-500">{{ t('propertyOpening.help') }}</p>
+  <div><h1 class="text-2xl font-semibold">{{ t('propertyOpening.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyOpening.help') }}</p></div>
   <p v-if="error" role="alert" class="rounded border border-danger-300 bg-danger-50 p-3 text-danger-700">{{ error }}</p>
   <p v-if="notice" role="status" class="rounded border p-3">{{ notice }}</p>
   <section class="space-y-4 rounded-lg border bg-surface p-4">
@@ -70,7 +69,7 @@ const actions = computed<ActionItem[]>(() => [preview.value ? { key: 'confirm', 
    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.mode') }}<select v-model="form.mode" :class="input" :disabled="busy"><option v-for="mode in ['post_new', 'bind_existing', 'revision', 'reversal']" :key="mode" :value="mode">{{ t(`propertyOpening.modes.${mode}`) }}</option></select></label>
     <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.accountingDate') }}<DateInput :class="dateInput" v-model="form.accounting_date" :disabled="busy" /></label>
-    <label>{{ t('propertyOpening.effectiveAt') }}<PropertyInstantInput v-model="form.effective_at" :label="t('propertyOpening.effectiveAt')" :disabled="busy" /></label>
+    <fieldset :disabled="busy" class="min-w-0"><PropertyInstantInput v-model="form.effective_at" :label="t('propertyOpening.effectiveAt')" /></fieldset>
     <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.revision') }}<input v-model.number="form.expected_revision" type="number" min="0" :class="input" :disabled="busy" /></label>
     <template v-if="form.mode === 'bind_existing'"><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.journal') }}<input v-model.number="form.journal_entry_id" type="number" min="1" :class="input" :disabled="busy" /></label><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.journalVersion') }}<input v-model.number="form.journal_version" type="number" min="1" :class="input" :disabled="busy" /></label></template>
     <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.evidence') }}<input v-model="form.evidence_ref" :class="input" :disabled="busy" /></label><label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyOpening.reason') }}<input v-model="form.reason" :class="input" :disabled="busy" /></label>

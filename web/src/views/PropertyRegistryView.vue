@@ -101,8 +101,8 @@ async function exportData() {
 }
 </script>
 <template>
-  <div class="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
-    <h1 class="text-2xl font-semibold">{{ t('propertyRegistry.title') }}</h1><p class="text-sm text-neutral-500">{{ t('propertyRegistry.intro') }}</p>
+  <div class="space-y-5">
+    <div><h1 class="text-2xl font-semibold">{{ t('propertyRegistry.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyRegistry.intro') }}</p></div>
     <p v-if="!supplier" class="text-warning-600">{{ t('propertyRegistry.chooseSupplier') }}</p>
     <div class="flex flex-wrap items-end gap-3"><PropertyInstantInput v-model="asOf" :label="t('propertyRegistry.asOf')" /><details><summary class="text-sm">{{ t('propertyRegistry.knownAt') }}</summary><PropertyInstantInput v-model="knownAt" :label="t('propertyRegistry.knownAt')" /><PropertyButton icon="x" @click="knownAt = ''">{{ t('propertyRegistry.currentKnowledge') }}</PropertyButton></details><PropertyButton icon="cycle" :disabled="loading || busy || !supplier" @click="load">{{ t('propertyRegistry.load') }}</PropertyButton></div>
     <p v-if="error" role="alert" class="rounded border border-danger-300 p-3 text-danger-600">{{ error }}</p><p v-if="loading || busy" role="status">{{ t('propertyRegistry.working') }}</p>

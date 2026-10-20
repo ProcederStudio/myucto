@@ -189,9 +189,8 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
 </script>
 
 <template>
-  <main class="space-y-4">
-    <h1 class="text-xl font-semibold">{{ t('propertyPayments.title') }}</h1>
-    <p class="text-sm text-neutral-500">{{ t('propertyPayments.czkOnly') }}</p>
+  <main class="space-y-5">
+    <div><h1 class="text-2xl font-semibold">{{ t('propertyPayments.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyPayments.czkOnly') }}</p></div>
     <div class="flex flex-wrap items-end gap-3"><fieldset :disabled="anyBusy" class="min-w-0"><PropertyInstantInput :model-value="asOf" @update:model-value="changeAsOf" :label="t('propertyPayments.asOf')" required /></fieldset><PropertyButton icon="cycle" :disabled="anyBusy || loading" @click="load">{{ t('propertyPayments.refresh') }}</PropertyButton></div>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
     <p v-if="done" role="status" class="text-success-600">{{ t('propertyPayments.done') }}</p>

@@ -110,8 +110,7 @@ onMounted(refresh)
 
 <template>
  <div class="space-y-5">
-  <div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-xl font-semibold">{{ t('propertyFunds.title') }}</h1><ActionBar :actions="toolbar" /></div>
-  <p class="text-sm text-neutral-500">{{ t('propertyFunds.description') }}</p>
+  <div class="flex flex-wrap items-start justify-between gap-3"><div><h1 class="text-2xl font-semibold">{{ t('propertyFunds.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyFunds.description') }}</p></div><ActionBar :actions="toolbar" /></div>
   <p v-if="error" role="alert" class="rounded border border-danger-300 bg-danger-50 p-3 text-danger-700">{{ error }}</p><p v-if="notice" role="status" class="rounded border border-success-300 p-3">{{ notice }}</p>
   <fieldset :disabled="busy || !!preview" class="grid gap-3 rounded-lg border border-neutral-200 bg-surface p-4 sm:grid-cols-2 lg:grid-cols-3">
    <label class="flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyFunds.house') }}<select v-model.number="house" :class="input" data-field="house"><option :value="0">{{ t('propertyFunds.choose') }}</option><option v-for="item in choices.houses" :key="item.id" :value="item.id">{{ item.code }}</option></select></label>

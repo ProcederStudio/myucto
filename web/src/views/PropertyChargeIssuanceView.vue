@@ -217,9 +217,8 @@ async function useExisting() {
 }
 </script>
 <template>
-  <main class="space-y-5 p-4">
-    <h1 class="text-xl font-semibold">{{ t('propertyIssuance.title') }}</h1>
-    <p class="text-sm text-neutral-600">{{ t('propertyIssuance.scopeHelp') }}</p>
+  <main class="space-y-5">
+    <div><h1 class="text-2xl font-semibold">{{ t('propertyIssuance.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyIssuance.scopeHelp') }}</p></div>
     <p v-if="error" role="alert" class="rounded border border-danger-300 p-3 text-danger-700">{{ error }}</p>
     <div class="flex flex-wrap items-end gap-3"><PropertyInstantInput v-model="asOf" :label="t('propertyIssuance.registryAsOf')" /><PropertyButton icon="uturn" variant="primary" filled :disabled="busy" @click="load">{{ t('propertyIssuance.refresh') }}</PropertyButton></div>
     <section v-if="capabilities.issue" class="rounded-lg border border-neutral-200 p-4 space-y-4">
