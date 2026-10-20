@@ -148,6 +148,37 @@ final class J6FundingProjectionTest extends TestCase
         }
     }
 
+    public function testPagedConfirmationCannotCoverDirectlyCoveredCostAgain(): void
+    {
+        $this->fundingSource(false);
+        $dimensions = $this->dimensions;
+        $origins = array_fill_keys(array_keys($dimensions), ['origin' => 'explicit', 'ref' => null]);
+        $entry = $this->container->get(\MyInvoice\Service\Accounting\PostingService::class)->postDocument($this->supplier, 'manual', null, [
+            ['account_code' => '518', 'side' => 'debit', 'amount' => '800.00', 'dimensions' => $dimensions, 'dimension_origins' => $origins],
+            ['account_code' => '648', 'side' => 'credit', 'amount' => '200.00', 'dimensions' => $dimensions, 'dimension_origins' => $origins],
+            ['account_code' => '221', 'side' => 'credit', 'amount' => '600.00', 'dimensions' => $dimensions, 'dimension_origins' => $origins],
+        ], ['entry_date' => '2026-01-01', 'description' => self::PRIVATE_SENTINEL, 'posted' => true, 'posted_by' => $this->actor]);
+        $lines = $this->db->pdo()->prepare('SELECT a.account_code,l.id FROM journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id
+            WHERE l.supplier_id=? AND l.entry_id=?');
+        $lines->execute([$this->supplier, $entry]);
+        $lines = array_map('intval', $lines->fetchAll(\PDO::FETCH_KEY_PAIR));
+        self::assertSame(20000, (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->forCost($this->supplier, $lines['518'])['covered_cents']);
+        $this->assessment['decisions']['line:' . $lines['518']] = ['title' => 'cost', 'evidence' => self::PRIVATE_SENTINEL,
+            'legal_basis' => 'zdp_24_1', 'deductible_cents' => 80000];
+        $this->assessment['decisions']['line:' . $lines['648']] = ['title' => 'other_taxable', 'evidence' => self::PRIVATE_SENTINEL];
+        $this->expense = $lines['518'];
+
+        try {
+            $this->pagedFundingAssessment(65000);
+            self::fail('Paged J6 must not cover a cost that is already directly covered by its own 648 line.');
+        } catch (NonprofitTaxAssessmentException $failure) {
+            self::assertSame('nonprofit_funding_cost_overcovered', $failure->errorCode);
+        }
+        self::assertSame($this->taxReceipt['id'],
+            $this->container->get(NonprofitTaxAssessmentRepository::class)->latest($this->supplier, $this->period)['id']);
+        self::assertIsInt($this->pagedFundingAssessment(60000));
+    }
+
     /** Syntetická potvrzená stránkovaná revize pozdějšího období, která čerpá daný zdroj. */
     private function laterPagedUsage(string $member, ?array $resultRow = null): void
     {

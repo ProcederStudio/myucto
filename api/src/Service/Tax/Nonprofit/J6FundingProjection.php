@@ -126,6 +126,60 @@ final readonly class J6FundingProjection
         return $this->rowsOf($this->open($revision), array_fill_keys($ids, true), $fields);
     }
 
+    /**
+     * Podklad krytí nákladů jedné revize: všechny vazby, fondy příjmů použitých zdrojů,
+     * deklarované fondy nákladů a samostatné náklady s vazbou a řádky jejich členů.
+     *
+     * @return array{links: list<array>, income_pools: array<string,list<string>>, cost_pools: list<array{anchor: string, members: list<string>}>, rows: array<string,array>}
+     */
+    public function coverageFacts(array $revision): array
+    {
+        $source = $this->open($revision);
+        $links = [];
+        $sources = [];
+        $costs = [];
+        foreach ($this->linkPagesOf($source) as $page) {
+            foreach ($page as $link) {
+                $links[] = $link;
+                $sources[$link['source_id']] = true;
+                $costs[$link['cost_id']] = true;
+                if (count($links) > self::MAX_COLLECTED) self::tooLarge();
+            }
+        }
+        $income = [];
+        $declared = [];
+        $collected = 0;
+        foreach ($this->memberPagesOf($source) as $page) {
+            foreach ($page as $member) {
+                if ($member['pool_kind'] === 'revenue') {
+                    if (isset($sources[$member['anchor']])) $income[$member['anchor']][] = $member['member_id'];
+                    elseif (isset($sources[$member['member_id']])) self::changed();
+                    else continue;
+                } elseif ($member['pool_kind'] === 'expense') {
+                    $declared[$member['anchor']][] = $member['member_id'];
+                } else {
+                    continue;
+                }
+                if (++$collected > self::MAX_COLLECTED) self::tooLarge();
+            }
+        }
+        foreach (array_keys($sources) as $id) $income[$id] ??= [$id];
+        $pools = [];
+        $pooled = [];
+        foreach ($declared as $anchor => $members) {
+            $pools[] = ['anchor' => (string) $anchor, 'members' => $members];
+            foreach ($members as $id) $pooled[$id] = true;
+        }
+        foreach (array_keys($costs) as $id) if (!isset($pooled[$id])) $pools[] = ['anchor' => (string) $id, 'members' => [(string) $id]];
+
+        $needed = [];
+        foreach ($income as $members) foreach ($members as $id) $needed[$id] = true;
+        foreach ($pools as $pool) foreach ($pool['members'] as $id) $needed[$id] = true;
+        if (count($needed) > self::MAX_COLLECTED) self::tooLarge();
+        return ['links' => $links, 'income_pools' => $income, 'cost_pools' => $pools,
+            'rows' => $this->rowsOf($source, $needed, ['id', 'line_id', 'kind', 'amount_cents'])];
+    }
+
     /** Stránky řádků výsledku (bez historických zdrojů). */
     public function resultPages(array $revision): iterable
     {
