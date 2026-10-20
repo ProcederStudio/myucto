@@ -127,9 +127,42 @@ final class PartyEventRepository
                     if($prior===null||bccomp(bcdiv(bcmul($remaining,$g['extent']['num'],0),$g['extent']['den'],0),$prior['remaining_cap_cents'],0)>0)ReceivableException::reject('guarantee_scope_unproven');
                 }
             }
+            if($decision==='transfer_confirmed')self::assertTransferorsGuarantee($before['groups'],$groups,$remaining);
             $debts[]=['debt_id'=>$debt['id'],'predecessor_event_id'=>$before['head_event_id'],'remaining_cents'=>$remaining,'groups'=>$groups,'group_paid_baseline'=>$baseline,'payer_paid_baseline'=>$payerBaseline,'claim_baseline_cents'=>$claimBaseline,'source_snapshot_hash'=>$debt['snapshot_hash'],'financial_events'=>$debt['events'],'previous_liability'=>$before];
         }
         usort($debts,fn($a,$b)=>$a['debt_id']<=>$b['debt_id']);$snapshot=['request'=>$request,'registry'=>['id'=>$unit['revision']['id'],'state_hash'=>$unit['revision']['state_hash']],'parties'=>$parties,'debts'=>$debts];return ['snapshot'=>$snapshot,'preview_hash'=>PropertyInput::hash($snapshot)];
+    }
+    /**
+     * § 1186 odst. 2 OZ: převodce za přešlý dluh ručí. Každá dosavadní skupina dlužníků, která
+     * nezůstává hlavním dlužníkem, se proto musí objevit jako ručitel se stejnými členy
+     * a v dosavadním rozsahu, jinak by převod převodce tiše zprostil odpovědnosti.
+     */
+    private static function assertTransferorsGuarantee(array $priorGroups,array $groups,string $remaining):void
+    {
+        $debtors=[];
+        $guarantors=[];
+        foreach($groups as $group){
+            $members=$group['members'];
+            sort($members,SORT_NUMERIC);
+            $key=implode(',',$members);
+            if($group['role']==='debtor'){
+                $debtors[$key]=true;
+                continue;
+            }
+            $guarantors[$key]=bcdiv(bcmul($remaining,$group['extent']['num'],0),$group['extent']['den'],0);
+        }
+        foreach($priorGroups as $prior){
+            if($prior['role']!=='debtor')continue;
+            $cap=$prior['remaining_cap_cents']??null;
+            if($cap===null)ReceivableException::reject('historical_precision');
+            if(bccomp($cap,'0',0)<=0)continue;
+            $members=$prior['members'];
+            sort($members,SORT_NUMERIC);
+            $key=implode(',',$members);
+            if(isset($debtors[$key]))continue;
+            if(!isset($guarantors[$key]))ReceivableException::reject('transferor_guarantee_required',['members'=>$members,'remaining_cap_cents'=>$cap]);
+            if(bccomp($guarantors[$key],$cap,0)!==0)ReceivableException::reject('transferor_guarantee_scope',['members'=>$members,'remaining_cap_cents'=>$cap,'guarantee_cap_cents'=>$guarantors[$key]]);
+        }
     }
     private function transaction(int $supplier,callable $work):mixed{return (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$work){(new PaymentLocks($this->db))->acquire($supplier);return $work();});}
     private function execute(string $sql,array $args):\PDOStatement{$q=$this->db->pdo()->prepare($sql);$q->execute($args);return $q;}
