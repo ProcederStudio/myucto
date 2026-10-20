@@ -97,7 +97,7 @@ function houseName(h: PropertyObject) { return (h.revision?.state as HouseState 
 onBeforeUnmount(() => { epoch++; detailEpoch++ })
 </script>
 <template>
-  <main class="space-y-5">
+  <div class="space-y-5">
     <div><h1 class="text-2xl font-semibold">{{ t('propertyCharges.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyCharges.introduction') }}</p></div>
     <div class="flex flex-wrap gap-3 items-end"><div><PropertyInstantInput :label="t('propertyCharges.asOf')" v-model="asOf" /></div><PropertyButton icon="eye" variant="primary" filled :disabled="loading" @click="load">{{ t('propertyCharges.load') }}</PropertyButton><label class="min-w-48 flex min-w-0 flex-col gap-1 text-sm">{{ t('propertyCharges.house') }}<select v-model.number="houseId" data-house :class="input"><option :value="0">{{ t('propertyCharges.choose') }}</option><option v-for="h in houses" :key="h.id" :value="h.id">{{ houseName(h) }}</option></select></label></div>
     <p v-if="error" role="alert" class="rounded bg-danger-50 text-danger-600 p-3">{{ error }}</p>
@@ -121,5 +121,5 @@ onBeforeUnmount(() => { epoch++; detailEpoch++ })
     <div v-if="preview && capabilities.confirm" class="flex flex-wrap gap-2"><PropertyButton icon="check" variant="success" filled :disabled="busy" @click="saveVersion">{{ t('propertyCharges.confirmVersion') }}</PropertyButton></div>
     <section v-if="versions.length" class="space-y-2 rounded-lg border border-neutral-200 p-4"><h2 class="font-semibold">{{ t('propertyCharges.history') }}</h2><div class="flex flex-wrap gap-2"><PropertyButton v-for="v in versions" :key="v.id" icon="eye" @click="historical = v; draft = null; invalidate()">{{ t('propertyCharges.version', { number: v.revision_no }) }}: {{ v.request.decision_ref }}</PropertyButton></div></section>
     <ChargePreviewPanel v-if="historical && !draft" :preview="historical.preview" />
-  </main>
+  </div>
 </template>
