@@ -246,7 +246,7 @@ final class BankTransactionReleaseService
         $this->bankPosting->syncAdvanceSettlements($supplierId, $advances, $userId);
 
         if (!$deletedPayment && $invoiceId > 0 && $postedAt !== '') {
-            $this->releaseLegacyInvoiceMatch($pdo, $txId, $invoiceId, $postedAt);
+            $this->releaseLegacyInvoiceMatch($pdo, $txId, $invoiceId, $postedAt, $tx['matched_at'] ?? null);
         }
 
         if ($statementId > 0) {
@@ -345,7 +345,7 @@ final class BankTransactionReleaseService
      * rozhoduje přepočet z plateb, ne ruční UPDATE: faktura zaplacená platbou, která
      * ztratila vazbu na pohyb (smazaný výpis), musí zůstat zaplacená.
      */
-    private function releaseLegacyInvoiceMatch(PDO $pdo, int $txId, int $invoiceId, string $postedAt): void
+    private function releaseLegacyInvoiceMatch(PDO $pdo, int $txId, int $invoiceId, string $postedAt, ?string $matchedAt): void
     {
         $other = $pdo->prepare(
             "SELECT COUNT(*) FROM bank_transactions
@@ -366,6 +366,17 @@ final class BankTransactionReleaseService
 
         // Backfill 'legacy' platba (migrace 0108) odpovídá právě tomuto historickému
         // spárování — zmizí s ním. Ostatní platby zůstávají a rozhodnou o stavu.
+        // Párování mladší než backfill platbu nezaložilo: pohyb jen navázal fakturu
+        // zaplacenou už dřív (import, ruční úhrada) a její úhrada musí zůstat.
+        if ($matchedAt !== null) {
+            $older = $pdo->prepare(
+                "SELECT 1 FROM invoice_payments WHERE invoice_id = ? AND source = 'legacy' AND created_at < ? LIMIT 1"
+            );
+            $older->execute([$invoiceId, $matchedAt]);
+            if ($older->fetchColumn() !== false) {
+                return;
+            }
+        }
         $pdo->prepare("DELETE FROM invoice_payments WHERE invoice_id = ? AND source = 'legacy'")
             ->execute([$invoiceId]);
         $this->payments->recompute($invoiceId);
