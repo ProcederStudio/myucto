@@ -4,12 +4,12 @@ import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import { formDateInput as dateInput, formInput as input, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
-import { frameworkConversionMessages } from './frameworkConversionMessages'
+import { formatMoney, formatMoneyMinor } from '@/composables/useFormat'
 import { frameworkConversionApi as api, type DecisionChoices, type DecisionCommand, type ConversionReview } from '@/api/frameworkConversion'
 const props = defineProps<{ supplier: number; conversion: number; enabled: boolean }>()
 const emit = defineEmits<{ done: [] }>()
-const i18n = useI18n({ useScope: 'local', inheritLocale: true, messages: frameworkConversionMessages })
-const label = (key: string) => i18n.t(`conversion.${key}`)
+const { t } = useI18n()
+const label = (key: string) => t(`frameworkConversion.${key}`)
 const date = ref(new Date().toISOString().slice(0,10)), authority = ref(''), reference = ref(''), choices = ref<DecisionChoices | null>(null), roles = ref<Record<string,string>>({})
 const preview = ref<ConversionReview | null>(null), reviewed = ref<DecisionCommand | null>(null), token = ref(''), ack = ref(false), busy = ref(false), error = ref(''), done = ref(false)
 let alive = true, generation = 0
@@ -43,12 +43,12 @@ async function confirm() {
 const actions = computed<ActionItem[]>(() => preview.value ? [{ key: 'confirm-decision', label: label('confirmDecision'), icon: 'check', tier: 'primary', variant: 'success', disabled: busy.value || !props.enabled || !ack.value, run: confirm }, { key: 'cancel-decision-review', label: label('cancelReview'), icon: 'x', variant: 'neutral', run: invalidate }] : [{ key: 'preview-decision', label: label('previewDecision'), icon: 'search', tier: 'primary', variant: 'primary', disabled: busy.value || !props.enabled || !command.value, run: review }])
 </script>
 <template>
- <section class="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900" data-section="decision">
-  <h2 class="text-lg font-semibold">{{ label('decision') }}</h2><p v-if="error" role="alert">{{ error }}</p><p v-if="done" role="status">{{ label('done') }}</p>
+ <section class="space-y-4 rounded-lg border border-neutral-200 bg-surface p-5 shadow-sm" data-section="decision">
+  <h2 class="text-lg font-semibold">{{ label('decision') }}</h2><p v-if="error" role="alert" class="rounded-lg border border-danger-500/30 bg-danger-50 p-3 text-sm text-danger-600">{{ error }}</p><p v-if="done" role="status">{{ label('done') }}</p>
   <div class="flex flex-wrap items-end gap-3"><label :class="formLabel">{{ label('decisionDate') }}<DateInput :class="dateInput" v-model="date" data-field="decision-date" /></label><ActionBar :actions="[{ key: 'load-decision', label: label('loadDecision'), icon: 'search', variant: 'neutral', disabled: busy || !date, run: load }]" /></div>
   <template v-if="choices"><label :class="formLabel">{{ label('authority') }}<input v-model="authority" data-field="authority" :class="input" maxlength="1000" /></label><label :class="formLabel">{{ label('decisionReference') }}<textarea v-model="reference" data-field="decision-reference" :class="textarea" maxlength="1000" /></label>
-   <div v-for="cell in choices.cells" :key="cell.key" class="flex flex-wrap items-end gap-3"><span>{{ cell.account_code }} · {{ (cell.available_cents / 100).toFixed(2) }} CZK</span><label :class="formLabel">{{ label('role') }}<select v-model="roles[cell.key]" data-field="decision-role" :class="input"><option value="">{{ label('choose') }}</option><option v-for="role in choices.target_roles" :key="role.role" :value="role.role">{{ label('retained') }}</option></select></label></div>
-   <div v-if="preview" data-section="decision-preview"><p v-for="(line,index) in preview.plan.lines" :key="index">{{ line.account_code }} · {{ label(line.side) }} · {{ line.amount }} CZK</p><label class="flex gap-2"><input v-model="ack" data-field="decision-ack" type="checkbox" />{{ label('acknowledgement') }}</label></div><ActionBar :actions="actions" />
+   <div v-for="cell in choices.cells" :key="cell.key" class="flex flex-wrap items-end gap-3"><span>{{ cell.account_code }} · {{ formatMoneyMinor(cell.available_cents) }}</span><label :class="formLabel">{{ label('role') }}<select v-model="roles[cell.key]" data-field="decision-role" :class="input"><option value="">{{ label('choose') }}</option><option v-for="role in choices.target_roles" :key="role.role" :value="role.role">{{ label('retained') }}</option></select></label></div>
+   <div v-if="preview" data-section="decision-preview"><p v-for="(line,index) in preview.plan.lines" :key="index">{{ line.account_code }} · {{ label(line.side) }} · {{ formatMoney(Number(line.amount)) }}</p><label class="flex gap-2"><input v-model="ack" data-field="decision-ack" type="checkbox" />{{ label('acknowledgement') }}</label></div><ActionBar :actions="actions" />
   </template>
  </section>
 </template>

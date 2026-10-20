@@ -1161,7 +1161,7 @@ final class SettingsAction
                 $pdo->exec('SAVEPOINT settings_accounting_framework');
             }
             try {
-                $frameworkChanged = $this->accountingFramework->changeFromPeriodStart(
+                $frameworkChanged = $this->accountingFramework->changeFromSettings(
                     $id,
                     (string) $accountingFrameworkEffectiveFrom,
                     $accountingFramework,
@@ -1169,7 +1169,15 @@ final class SettingsAction
                 );
             } catch (AccountingFrameworkException $e) {
                 $this->rollbackFrameworkTransaction($frameworkTransactionOwner, $e);
-                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+                return Json::error(
+                    $response,
+                    $e->errorCode,
+                    $e->getMessage(),
+                    $e->httpStatus,
+                    $e->errorCode === AccountingFrameworkService::CONVERSION_REQUIRED
+                        ? ['conversion_url' => AccountingFrameworkService::CONVERSION_ROUTE]
+                        : [],
+                );
             } catch (\Throwable $e) {
                 $this->rollbackFrameworkTransaction($frameworkTransactionOwner, $e);
                 throw $e;

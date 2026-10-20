@@ -137,6 +137,51 @@ final class AccountingFrameworkServiceTest extends TestCase
         self::assertTrue($this->db->pdo()->inTransaction());
     }
 
+    public function testSettingsSwitchTo504IsAllowedOnlyWithoutAccountingHistory(): void
+    {
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+
+        self::assertTrue($this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertSame(AccountingFrameworkService::CZ_504, $this->service->forDate($this->supplierId, '2098-01-01'));
+    }
+
+    public function testSettingsSwitchTo504RejectsJournalEntryOutsideAffectedInterval(): void
+    {
+        $earlier = $this->createPeriod($this->supplierId, 2097, '2097-01-01', '2097-12-31');
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        $this->insertJournalEntry($this->supplierId, $earlier, '2097-06-30', false);
+
+        $this->expectFrameworkError(AccountingFrameworkService::CONVERSION_REQUIRED, fn () =>
+            $this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'));
+        self::assertTrue($this->db->pdo()->inTransaction());
+    }
+
+    public function testSettingsSwitchTo504RejectsExistingChartOfAccounts(): void
+    {
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        $this->db->pdo()->prepare(
+            "INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+             VALUES (?, '221', 'Syntetický bankovní účet', 'asset', 'debit', 1, 1)"
+        )->execute([$this->supplierId]);
+
+        $this->expectFrameworkError(AccountingFrameworkService::CONVERSION_REQUIRED, fn () =>
+            $this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'));
+    }
+
+    public function testSettingsHistoryGuardDoesNotBlockReturnTo500OrOtherTenant(): void
+    {
+        $this->replaceBaselineWithCz504($this->supplierId);
+        $earlier = $this->createPeriod($this->supplierId, 2097, '2097-01-01', '2097-12-31');
+        $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        $this->insertJournalEntry($this->supplierId, $earlier, '2097-06-30', false);
+        $this->createPeriod($this->otherSupplierId, 2098, '2098-01-01', '2098-12-31');
+
+        self::assertTrue($this->service->changeFromSettings($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_500));
+        self::assertTrue($this->service->changeFromSettings($this->otherSupplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+    }
+
     public function testPostedEntryBlocksFrameworkChange(): void
     {
         $this->replaceBaselineWithCz504($this->supplierId);

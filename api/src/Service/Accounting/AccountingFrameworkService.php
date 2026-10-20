@@ -16,6 +16,8 @@ final class AccountingFrameworkService
 {
     public const CZ_500 = 'cz_500';
     public const CZ_504 = 'cz_504';
+    public const CONVERSION_REQUIRED = 'accounting_framework_conversion_required';
+    public const CONVERSION_ROUTE = '/accounting/framework-conversion';
 
     public function __construct(
         private readonly Connection $db,
@@ -115,6 +117,32 @@ final class AccountingFrameworkService
         string $framework,
         ?int $userId = null,
     ): bool {
+        return $this->change($supplierId, $effectiveFrom, $framework, $userId, false);
+    }
+
+    /**
+     * Přímé přepnutí rámce z Nastavení. Přechod 500 → 504 smí jen firma bez
+     * účetní historie (žádný zápis v deníku, žádná účtová osnova). Firma
+     * s historií musí projít řízeným převodem {@see Conversion\FrameworkConversionWorkflow},
+     * který převede zůstatky a osnovu; prosté přepnutí by výkazy rozbilo
+     * a převod by pak už nešel spustit (zdroj musí být v rámci 500).
+     */
+    public function changeFromSettings(
+        int $supplierId,
+        string $effectiveFrom,
+        string $framework,
+        ?int $userId = null,
+    ): bool {
+        return $this->change($supplierId, $effectiveFrom, $framework, $userId, true);
+    }
+
+    private function change(
+        int $supplierId,
+        string $effectiveFrom,
+        string $framework,
+        ?int $userId,
+        bool $fromSettings,
+    ): bool {
         $this->assertDate($effectiveFrom);
         if (!in_array($framework, [self::CZ_500, self::CZ_504], true)) {
             throw new AccountingFrameworkException(
@@ -159,6 +187,17 @@ final class AccountingFrameworkService
             if ($current === $framework) {
                 $this->finishTransaction($ownsTransaction);
                 return false;
+            }
+            if ($fromSettings
+                && $framework === self::CZ_504
+                && $this->frameworks->hasAccountingHistoryForUpdate($supplierId)
+            ) {
+                throw new AccountingFrameworkException(
+                    self::CONVERSION_REQUIRED,
+                    'Firma už má účetní historii (zápisy v deníku nebo účtovou osnovu). '
+                        . 'Na rámec vyhlášky 504 ji převeďte řízeným převodem v Účetnictví → Převod rámce.',
+                    409,
+                );
             }
 
             try {
