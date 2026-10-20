@@ -8,6 +8,7 @@ use MyInvoice\Repository\NonprofitTaxAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxSourceRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Nonprofit\Funding\FundingEligibilityGuard;
+use MyInvoice\Service\Tax\Nonprofit\Authoritative\J6FundingDependencyGuard;
 
 final class NonprofitTaxAssessmentService
 {
@@ -18,6 +19,8 @@ final class NonprofitTaxAssessmentService
         private readonly DimensionPeriodGuard $periodGuard,
         private readonly J6FundingCapacity $fundingCapacity,
         private readonly FundingEligibilityGuard $fundingEligibility,
+        private readonly J6FundingDependencyGuard $laterFunding,
+        private readonly J6FundingProjection $funding,
     ) {}
 
     public function read(int $supplierId, int $periodId): array
@@ -56,7 +59,7 @@ final class NonprofitTaxAssessmentService
             $previous = $history === [] ? null : $history[array_key_last($history)];
             if (($previous['id'] ?? null) !== $expectedAssessmentId) throw new NonprofitTaxAssessmentException('nonprofit_tax_assessment_changed', 'Mezitím vzniklo jiné posouzení. Je nutné zkontrolovat aktuální revizi.', 409);
             $this->assertGiftElections($this->assessments->confirmedHistory($supplierId, true), $snapshot, $assessment);
-            $this->assertLaterFunding($supplierId, $periodId, $snapshot, $result, $previous['result'] ?? null);
+            $this->laterFunding->assertRevisionsUnused($supplierId, $periodId, array_values(array_filter([$previous, ['result' => $result]])));
             return $this->assessments->append($supplierId, $periodId, $previous,
                 'confirmed', $reason, $key, $requestHash, $snapshot, $assessment, $result, $actor);
         });
@@ -73,7 +76,7 @@ final class NonprofitTaxAssessmentService
             if ($previous === null || $previous['id'] !== $expectedId || $previous['status'] !== 'confirmed') {
                 throw new NonprofitTaxAssessmentException('nonprofit_tax_assessment_changed', 'Potvrzené posouzení se změnilo nebo již bylo odvoláno.', 409);
             }
-            $this->assertLaterFunding($supplierId, $periodId, $previous['snapshot'], $previous['result']);
+            $this->laterFunding->assertRevisionsUnused($supplierId, $periodId, [$previous]);
             return $this->assessments->append($supplierId, $periodId, $previous, 'withdrawn', $reason, $key, $requestHash,
                 $previous['snapshot'], $previous['assessment'], $previous['result'], $actor);
         });
@@ -116,12 +119,15 @@ final class NonprofitTaxAssessmentService
         $elections = [];
         foreach ($history as $revision) {
             if ($revision['status'] !== 'confirmed') continue;
-            foreach ($revision['result']['rows'] as $row) {
-                if (($row['decision']['title'] ?? '') !== 'gift') continue;
-                $origin = (int) $row['origin']['line_id'];
-                $choice = $row['decision']['facts']['claim_exemption'];
-                if (isset($elections[$origin]) && $elections[$origin] !== $choice) $this->giftElectionLocked();
-                $elections[$origin] = $choice;
+            // Stránkovaná revize nemá řádky v JSON; volbu z ní přečte stejná projekce jako financování.
+            foreach ($this->funding->resultPages($revision) as $rows) {
+                foreach ($rows as $row) {
+                    if (($row['decision']['title'] ?? '') !== 'gift') continue;
+                    $origin = (int) $row['origin']['line_id'];
+                    $choice = $row['decision']['facts']['claim_exemption'];
+                    if (isset($elections[$origin]) && $elections[$origin] !== $choice) $this->giftElectionLocked();
+                    $elections[$origin] = $choice;
+                }
             }
         }
         $current = [];
@@ -148,25 +154,5 @@ final class NonprofitTaxAssessmentService
     private function inconsistentGiftElection(): never
     {
         NonprofitTaxRules::invalid('Části téhož daru musí mít shodnou volbu osvobození a právní titul.');
-    }
-
-    private function assertLaterFunding(int $supplierId, int $periodId, array $snapshot, array $result, ?array $previousResult = null): void
-    {
-        $members = [];
-        foreach ([$previousResult, $result] as $candidate) {
-            foreach ($candidate['rows'] ?? [] as $row) {
-                if ($row['kind'] === 'revenue' && in_array($row['decision']['title'], ['gift', 'public_operating_grant', 'public_investment_grant'], true)) $members[$row['id']] = true;
-            }
-            foreach ($candidate['funding_usage'] ?? [] as $usage) foreach ($usage['members'] as $id) $members[$id] = true;
-        }
-        if ($members === []) return;
-        foreach ($this->assessments->effectiveOtherPeriods($supplierId, $periodId, true) as $revision) {
-            if ($revision['status'] !== 'confirmed' || $revision['snapshot']['period']['starts_on'] <= $snapshot['period']['ends_on']) continue;
-            foreach ($revision['result']['funding_usage'] ?? [] as $usage) {
-                if (array_intersect(array_keys($members), $usage['members']) !== []) {
-                    throw new NonprofitTaxAssessmentException('nonprofit_tax_review_required', 'Na zdroj navazuje potvrzené čerpání v pozdějším období. Nejprve je nutné doloženě přehodnotit navazující posouzení.', 409);
-                }
-            }
-        }
     }
 }

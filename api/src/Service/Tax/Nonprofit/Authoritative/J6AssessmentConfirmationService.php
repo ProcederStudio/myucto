@@ -10,7 +10,9 @@ use MyInvoice\Repository\NonprofitTaxPagedAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxSnapshotManifestRepository;
 use MyInvoice\Repository\NonprofitTaxSourceEvidenceManifestRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Nonprofit\Funding\FundingEligibilityGuard;
 use MyInvoice\Service\Tax\Nonprofit\J6AuthoritativeCalculator;
+use MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 use MyInvoice\Service\Tax\Nonprofit\Snapshot\NonprofitTaxSnapshotHasher;
@@ -32,6 +34,9 @@ final readonly class J6AssessmentConfirmationService
         private J6CalculationPageHasher $calculationHasher,
         private NonprofitTaxSourceEvidenceManifestRepository $evidenceManifests,
         private J6SourceEvidencePageHasher $evidenceHasher,
+        private FundingEligibilityGuard $fundingEligibility,
+        private J6FundingDependencyGuard $laterFunding,
+        private J6FundingCapacity $fundingCapacity,
     ) {}
 
     public function confirm(J6DraftContext $context, string $idempotencyKey, string $reason, ?int $expectedAssessmentId): J6AssessmentCompletion
@@ -90,6 +95,13 @@ final readonly class J6AssessmentConfirmationService
             $receipt = J6AssessmentGraphReceipt::fromCalculation($snapshot, $snapshotManifest['finding_count'], $calculation);
             $assessment = $this->assessments->appendConfirmed($context->supplierId, $context->periodId, $previous,
                 $reason, $idempotencyKey, $requestHash, $draft['header'], $receipt, $context->actor);
+            // Stejné brány jako legacy potvrzení: krytí nákladů napříč zdroji, politiky zdrojů
+            // a navazující čerpání pozdějších období se ověří nad právě uloženým grafem;
+            // selhání odvolá celou transakci.
+            $this->fundingCapacity->assertRevisionCoverage($context->supplierId, $assessment);
+            $this->fundingEligibility->assertRevision($context->supplierId, $assessment, true);
+            $this->laterFunding->assertRevisionsUnused($context->supplierId, $context->periodId,
+                array_values(array_filter([$previous, $assessment])));
             return $this->completion($assessment);
         });
     }

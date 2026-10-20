@@ -10,64 +10,142 @@ use MyInvoice\Service\Accounting\Funding\NativeCostCoverage;
 use MyInvoice\Service\Accounting\PostingException;
 final class J6FundingCapacity
 {
-    public function __construct(private readonly Connection $db,private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources) {}
+    public function __construct(private readonly Connection $db,private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources,private readonly J6FundingProjection $funding) {}
     public function claimedCost(int $supplier,int $line,?int $excludePeriod=null):string
     {
         $total='0';foreach($this->costClaims($supplier,$line,$excludePeriod)as$claim)$total=bcadd($total,$claim['amount_cents'],0);return $total;
     }
+    /**
+     * Přímé krytí nákladu potvrzenými posouzeními ostatních období (legacy i stránkovanými).
+     * Čerpání se čte přes J6FundingProjection, takže stránkovaná revize se nevynechá.
+     */
     public function costClaims(int $supplier,int $line,?int $excludePeriod=null):array
     {
         $guard=new DimensionPeriodGuard($this->db);
         return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):array{
-            $guard->lockPeriods($supplier);$claims=[];
+            $guard->lockPeriods($supplier);
+            $claims=[];
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
                 if($row['status']!=='confirmed')continue;
-                $links=array_values(array_filter($row['assessment']['funding']??[],static fn(array $link):bool=>$link['cost_id']==='line:'.$line));
-                if($links===[])continue;$this->assertCurrentReceipt($supplier,$row);$total='0';
-                foreach($links as$link){if(!is_int($link['amount_cents'])||$link['amount_cents']<=0)self::changed();$total=bcadd($total,(string)$link['amount_cents'],0);}
-                $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
+                $links=$this->funding->links($row,[],['line:'.$line]);
+                if($links===[])continue;
+                $this->assertCurrentRevision($supplier,$row);
+                $total='0';
+                foreach($links as$link){
+                    if(!is_int($link['amount_cents']??null)||$link['amount_cents']<=0)self::changed();
+                    $total=bcadd($total,(string)$link['amount_cents'],0);
+                }
+                $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,
+                    'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
             }
             return $claims;
         });
     }
+
+    /** Deklarovaný fond nákladu (čistý náklad po opravách) z potvrzeného posouzení ostatních období. */
     public function costEnvelope(int $supplier,int $line,?int $excludePeriod=null):?array
     {
         $guard=new DimensionPeriodGuard($this->db);
         return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):?array{
-            $guard->lockPeriods($supplier);$found=null;
+            $guard->lockPeriods($supplier);
+            $found=null;
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
-                if($row['status']!=='confirmed')continue;$declared=null;
-                foreach($row['assessment']['funding_costs']??[]as$pool)if(in_array('line:'.$line,$pool['members']??[],true))$declared=$pool;
-                if($declared===null)continue;$this->assertCurrentReceipt($supplier,$row);if($found!==null)self::changed();
-                $rows=array_column($row['result']['rows'],null,'id');$pools=NonprofitTaxCalculator::forConnection($this->db)->fundingCostPools($row['result'],$row['assessment']);$pool=$pools[$declared['anchor']]??null;if($pool===null)self::changed();$amounts=[];
-                foreach($pool['members']as$id)$amounts[(int)$rows[$id]['line_id']]=$rows[$id]['amount_cents'];ksort($amounts,SORT_NUMERIC);
-                $found=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'anchor'=>(int)$rows[$pool['id']]['line_id'],'members'=>array_keys($amounts),'line_amounts'=>$amounts,'net_cents'=>$pool['amount_cents'],'proof'=>['input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'declared'=>$declared,'rows'=>array_intersect_key($rows,array_flip($pool['members']))]];
+                if($row['status']!=='confirmed')continue;
+                $pools=$this->funding->costPools($row,['line:'.$line]);
+                if($pools===[])continue;
+                $this->assertCurrentRevision($supplier,$row);
+                if($found!==null||count($pools)!==1)self::changed();
+                $pool=reset($pools);
+                $rows=$this->funding->rows($row,$pool['members']);
+                $amounts=[];$net=0;
+                foreach($pool['members']as$id){
+                    if(!isset($rows[$id]['line_id'],$rows[$id]['amount_cents']))self::changed();
+                    $amounts[(int)$rows[$id]['line_id']]=$rows[$id]['amount_cents'];
+                    $net+=$rows[$id]['amount_cents'];
+                }
+                ksort($amounts,SORT_NUMERIC);
+                $found=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'anchor'=>(int)$rows[$pool['anchor']]['line_id'],
+                    'members'=>array_keys($amounts),'line_amounts'=>$amounts,'net_cents'=>$net,
+                    'proof'=>['input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'declared'=>$pool['declared'],'rows'=>$rows]];
             }
             return $found;
         });
     }
+
+    /** Potvrzená revize jiného období musí odpovídat dnešním podkladům, jinak se z ní krytí nečte. */
+    private function assertCurrentRevision(int $supplier,array $row):void
+    {
+        if(J6FundingProjection::isPaged($row)){
+            if(!$this->funding->pagedCurrent($row,true))self::changed();
+            return;
+        }
+        $this->assertCurrentReceipt($supplier,$row);
+    }
+    /** Legacy potvrzení: podklady se nezměnily a krytí nákladů napříč zdroji nepřekročí skutečný náklad. */
     public function assertAssessment(int $supplier,array $snapshot,array $assessment,array $result):void
     {
         $guard=new DimensionPeriodGuard($this->db);
         $guard->transaction(function()use($guard,$supplier,$snapshot,$assessment,$result):void{
-            $guard->lockPeriods($supplier);$period=(int)$snapshot['period']['id'];$current=$this->sources->snapshot($supplier,$period,true);if(!hash_equals($snapshot['input_hash'],$current['input_hash']))self::changed();
-            $rows=array_column($result['rows'],null,'id');$catalog=$rows+($snapshot['funding_reference_sources']??[]);$byCost=[];$income=[];
-            foreach($assessment['funding']??[]as$link){$byCost[$link['cost_id']]=bcadd($byCost[$link['cost_id']]??'0',(string)$link['amount_cents'],0);$income[$link['source_id']]=true;}
-            $native=new NativeCostCoverage($this->db);$coverage=new CostCoverage($this->db);
-            try{
-                $incomePools=NonprofitTaxCalculator::forConnection($this->db)->fundingIncomePools($result,$snapshot,$assessment);$checked=[];
-                foreach(array_keys($income)as$anchor){$pool=$incomePools[$anchor]??null;if($pool===null)self::changed();foreach($pool['members']as$id){if(isset($checked[$id]))continue;$checked[$id]=true;$source=$catalog[$id]??null;if(!$source)self::changed();if($source['amount_cents']<0)$native->incomePoolMember($supplier,(int)$source['line_id'],['6']);else$native->income($supplier,(int)$source['line_id'],['6']);}}
-                $declared=[];foreach($assessment['funding_costs']??[]as$pool)$declared[$pool['anchor']]=true;
-                foreach(NonprofitTaxCalculator::forConnection($this->db)->fundingCostPools($result,$assessment)as$pool){
-                    $needs=isset($declared[$pool['id']]);foreach($pool['members']as$id)if(isset($byCost[$id]))$needs=true;if(!$needs)continue;
-                    $total='0';
-                    foreach($pool['members']as$id){$cost=$rows[$id];if($cost['amount_cents']<=0)continue;$proof=$native->forCost($supplier,(int)$cost['line_id']);if(!$proof['eligible'])throw new NonprofitTaxAssessmentException('nonprofit_tax_funding_native_credit_note','Náklad má nativní dobropis a vyžaduje průkazné vypořádání před financováním.',409);$direct=$proof['covered_cents'];$claimed=$coverage->claimed($supplier,(int)$cost['line_id'],['j6_period_id'=>$period]);$rowUse=bcadd(bcadd($byCost[$id]??'0',$claimed,0),(string)$direct,0);
-                        if(bccomp($rowUse,(string)$cost['amount_cents'],0)>0)$this->overcovered();$total=bcadd($total,$rowUse,0);
-                    }
-                    if(bccomp($total,(string)max(0,$pool['amount_cents']),0)>0)$this->overcovered();
-                }
-            }catch(PostingException $e){throw new NonprofitTaxAssessmentException($e->errorCode,$e->getMessage(),$e->httpStatus);}
+            $guard->lockPeriods($supplier);
+            $period=(int)$snapshot['period']['id'];
+            $current=$this->sources->snapshot($supplier,$period,true);
+            if(!hash_equals($snapshot['input_hash'],$current['input_hash']))self::changed();
+            $this->assertCoverage($supplier,$period,['snapshot'=>$snapshot,'assessment'=>$assessment,'result'=>$result]);
         });
+    }
+
+    /**
+     * Krytí nákladů uložené revize (i stránkované) napříč zdroji: přímé krytí, nároky ostatních
+     * modulů a ostatních období J6 a nativní doklad členů fondu příjmů. Volá stránkové potvrzení
+     * nad právě uloženým grafem ve stejné transakci.
+     */
+    public function assertRevisionCoverage(int $supplier,array $revision):void
+    {
+        $guard=new DimensionPeriodGuard($this->db);
+        $guard->transaction(function()use($guard,$supplier,$revision):void{
+            $guard->lockPeriods($supplier);
+            $this->assertCoverage($supplier,(int)$revision['period_id'],$revision);
+        });
+    }
+
+    private function assertCoverage(int $supplier,int $period,array $revision):void
+    {
+        $facts=$this->funding->coverageFacts($revision);
+        $rows=$facts['rows'];
+        $byCost=[];
+        foreach($facts['links'] as $link)$byCost[$link['cost_id']]=bcadd($byCost[$link['cost_id']]??'0',(string)$link['amount_cents'],0);
+        $native=new NativeCostCoverage($this->db);
+        $coverage=new CostCoverage($this->db);
+        try{
+            $checked=[];
+            foreach($facts['income_pools'] as $members){
+                foreach($members as $id){
+                    if(isset($checked[$id]))continue;
+                    $checked[$id]=true;
+                    $source=$rows[$id]??null;
+                    if(!$source)self::changed();
+                    if($source['amount_cents']<0)$native->incomePoolMember($supplier,(int)$source['line_id'],['6']);
+                    else $native->income($supplier,(int)$source['line_id'],['6']);
+                }
+            }
+            foreach($facts['cost_pools'] as $pool){
+                $total='0';
+                $net=0;
+                foreach($pool['members'] as $id){
+                    $cost=$rows[$id]??null;
+                    if($cost===null)self::changed();
+                    $net+=$cost['amount_cents'];
+                    if($cost['amount_cents']<=0)continue;
+                    $proof=$native->forCost($supplier,(int)$cost['line_id']);
+                    if(!$proof['eligible'])throw new NonprofitTaxAssessmentException('nonprofit_tax_funding_native_credit_note','Náklad má nativní dobropis a vyžaduje průkazné vypořádání před financováním.',409);
+                    $claimed=$coverage->claimed($supplier,(int)$cost['line_id'],['j6_period_id'=>$period]);
+                    $rowUse=bcadd(bcadd($byCost[$id]??'0',$claimed,0),(string)$proof['covered_cents'],0);
+                    if(bccomp($rowUse,(string)$cost['amount_cents'],0)>0)$this->overcovered();
+                    $total=bcadd($total,$rowUse,0);
+                }
+                if(bccomp($total,(string)max(0,$net),0)>0)$this->overcovered();
+            }
+        }catch(PostingException $e){throw new NonprofitTaxAssessmentException($e->errorCode,$e->getMessage(),$e->httpStatus);}
     }
     public function assertCurrentReceipt(int $supplier,array $row):void
     {
