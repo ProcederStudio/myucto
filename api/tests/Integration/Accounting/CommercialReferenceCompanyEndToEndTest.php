@@ -49,6 +49,7 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
     private int $vat12;
     private int $vat0;
     private int $period2024;
+    private int $period2025;
     /** @var array<string,int> protistrany podle referenčního značení */
     private array $parties = [];
     /** @var array<string,int> doklady podle referenčního značení */
@@ -69,7 +70,7 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         $this->supplier = $this->createIsolatedSupplier($this->pdo, $seed);
         $this->pdo->prepare("UPDATE supplier SET company_name='Vzorová obchodní s.r.o.', accounting_mode='double_entry', taxpayer_type='po',
                 stock_enabled=0, vat_period='monthly', ic='12345679', dic='CZ12345679', financial_office_code='451',
-                proforma_payment_document='always_tax_document' WHERE id=?")
+                proforma_payment_document='always_tax_document', cz_nace_code='62020', opr_jmeno='Jana', opr_prijmeni='Syntetická', opr_postaveni='jednatelka' WHERE id=?")
             ->execute([$this->supplier]);
         $this->setVatPayerAt($this->pdo, $this->supplier, '1900-01-01', true);
         $this->pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework) VALUES(?,'2024-01-01','cz_500')")
@@ -124,6 +125,76 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
             '411' => '-200000.00', '428' => '-220000.00', '501' => '31000.00', '511' => '30000.00', '518' => '65000.00', '548' => '36500.00',
             '602' => '-378500.00', '663' => '-600.00'], $this->balances('2024-12-31'));
         $this->assertVatReports2024();
+        $this->clearVat(2024);
+        $this->closing2024();
+    }
+
+    /**
+     * Uzávěrka 2024. Kroky uzávěrky:
+     *   odpisy: 120 000 / 60 měsíců = 2 000 měsíčně, zařazení 15. 1. → únor až prosinec = 22 000 (551/082);
+     *           daňově rovnoměrně sk. 2, první rok 11 % = 13 200;
+     *   dohad: audit 15 000 (518/389); výdaj příštích období: prosincový nájem 12 000 (518/383);
+     *   náklad příštích období 27 300 (381/548) a výnos příštích období 33 400 (602/384) z dokladů s obdobím;
+     *   ostatní rezerva 25 000 (554/459), daňově neuznatelná.
+     * Výsledek před zdaněním: výnosy 602 345 100 + 663 600 = 345 700; náklady 501 31 000 + 511 30 000
+     * + 518 92 000 + 548 9 200 + 551 22 000 + 554 25 000 = 209 200; VH = 136 500.
+     * DPPO: ř. 10 136 500, ř. 40 rezerva 25 000, ř. 50 odpisy 22 000 − 13 200 = 8 800, ř. 200 170 300,
+     * zaokrouhleno 170 000, daň 21 % = 35 700. Zálohy § 38a na 2025: daň mezi 30 000 a 150 000 →
+     * pololetní 40 % = 14 280, zaokrouhleno nahoru na stovky 14 300.
+     */
+    private function closing2024(): void
+    {
+        $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        $period = $this->period2024;
+        $meta = ['user_id' => $this->actor, 'posted_by' => $this->actor];
+        $closing->start($this->supplier, $period, $this->periodVersion($period), $meta);
+        $closing->runPrecheck($this->supplier, $period, $this->periodVersion($period), $meta);
+        $depreciation = $closing->bookDepreciation($this->supplier, $period, $meta);
+        self::assertEquals([22000.0, 13200.0], [$depreciation['total_accounting'], $depreciation['total_tax']]);
+        $closing->confirmStep($this->supplier, $period, 'depreciation', 'done', null, $this->periodVersion($period), $meta);
+        $closing->runFxRevaluation($this->supplier, $period, [], $this->periodVersion($period), $meta);
+        $this->assisted($period, 'estimates', 'estimate.liability', 15000.00, 'Syntetický dohad na audit 2024', '518');
+        $closing->confirmStep($this->supplier, $period, 'estimates', 'done', null, $this->periodVersion($period), $meta);
+        self::assertEquals(27300.0, $closing->runPrepaidExpenseAccrual($this->supplier, $period, $this->periodVersion($period), $meta)['total']);
+        self::assertEquals(33400.0, $closing->runDeferredRevenueAccrual($this->supplier, $period, $this->periodVersion($period), $meta)['total']);
+        $this->assisted($period, 'deferrals', 'accrual.accrued.expense', 12000.00, 'Syntetický nájem za prosinec 2024', '518');
+        $closing->confirmStep($this->supplier, $period, 'deferrals', 'done', null, $this->periodVersion($period), $meta);
+        $this->assisted($period, 'provisions', 'reserve.other.create', 25000.00, 'Syntetická rezerva na soudní spor');
+        $closing->confirmStep($this->supplier, $period, 'provisions', 'done', null, $this->periodVersion($period), $meta);
+
+        $dppo = $this->finalDppo(2024, []);
+        self::assertSame([10 => 136500.0, 40 => 25000.0, 50 => 8800.0, 70 => 33800.0, 200 => 170300.0, 270 => 170000.0, 290 => 35700.0, 340 => 35700.0],
+            $this->dppoLines($dppo, [10, 40, 50, 70, 150, 200, 270, 290, 340]));
+        self::assertEquals(['regime' => 'semiannual', 'count' => 2, 'amount' => 14300], array_intersect_key($dppo['next_advances'], array_flip(['regime', 'count', 'amount'])));
+
+        $tax = $closing->incomeTaxPreview($this->supplier, $period);
+        self::assertSame('finalized_return', $tax['suggested_source']);
+        self::assertEquals(35700.0, $tax['suggested_amount']);
+        $closing->runIncomeTax($this->supplier, $period, 35700.00, $this->periodVersion($period), $meta);
+        self::assertSame(self::TRIAL_BALANCE_2024, $this->balances('2024-12-31'));
+        // Rozvaha: daňové závazky = DPH 24 375 (zúčtování za měsíce na 343.900) + daň z příjmů 35 700 = 60 075.
+        // Čistý obrat od roku 2024 tvoří výnosy obchodního modelu (602), kurzový zisk 663 do něj nepatří.
+        $this->assertStatements($period, '2024-12-31', 666275,
+            ['B.II.2.' => 98000, 'C.II.2.1.' => 44165, 'C.IV.1.' => 21210, 'C.IV.2.' => 475600, 'D.1.' => 27300],
+            ['A.I.1.' => 200000, 'A.IV.1.' => 220000, 'A.V.' => 100800, 'B.4.' => 25000, 'C.II.8.5.' => 60075, 'C.II.8.6.' => 15000,
+                'D.1.' => 12000, 'D.2.' => 33400],
+            ['I.' => 345100, 'A.2.' => 31000, 'A.3.' => 122000, 'E.1.1.' => 22000, 'F.4.' => 25000, 'F.5.' => 9200, 'VII.' => 600, 'L.1.' => 35700],
+            100800, 345100);
+        self::assertStringContainsString('kc_ii_340="35700"', $this->container->get(\MyInvoice\Service\Tax\Return\TaxReturnService::class)
+            ->buildXml($this->supplier, 2024, 'po')['xml']);
+
+        $this->inventory($period);
+        self::assertNotNull($closing->closeBooks($this->supplier, $period, $this->periodVersion($period), $meta)['document_no']);
+        self::assertSame([], $this->balances('2024-12-31'), 'Po uzavření knih jsou všechny účty nulové.');
+        $opened = $closing->openNext($this->supplier, $period, $this->periodVersion($period), $meta);
+        $this->period2025 = (int) $opened['next_period_id'];
+        // Otevření 2025: rozvahové zůstatky, výsledek 100 800 na 431 a rozpuštění 381 do 548 a 384 do 602.
+        $opening = self::TRIAL_BALANCE_2024;
+        foreach (array_keys($opening) as $account) if (in_array(((string) $account)[0], ['5', '6'], true)) unset($opening[$account]);
+        unset($opening['381'], $opening['384']);
+        $opening += ['431' => '-100800.00', '548' => '27300.00', '602' => '-33400.00'];
+        ksort($opening, SORT_STRING);
+        self::assertSame($opening, $this->balances('2025-01-01', '2025-01-01'));
     }
 
     /**
@@ -161,6 +232,15 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         $sh = $this->container->get(\MyInvoice\Service\Report\SouhrnneHlaseniBuilder::class)->build($this->supplier, 2024, 4);
         self::assertSame([['k_stat' => 'DE', 'vat_id' => '123456789', 'sh_type' => '3', 'amount' => 50000.0, 'count' => 1]],
             array_map(static fn (array $row): array => array_intersect_key($row, array_flip(['k_stat', 'vat_id', 'sh_type', 'amount', 'count'])), $sh['summary']['rows']));
+    }
+
+    /** Zúčtování DPH za každý měsíc roku: obrat 343.100 a 343.200 přejde na 343.900. */
+    private function clearVat(int $year): void
+    {
+        $clearing = $this->container->get(\MyInvoice\Service\Accounting\Vat\VatClearingService::class);
+        for ($month = 1; $month <= 12; $month++) {
+            $clearing->postForPeriod($this->supplier, $year, $month, ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+        }
     }
 
     /** @return array<string,string> nenulové hodnoty řádků přiznání DPH z XML */
@@ -289,6 +369,99 @@ final class CommercialReferenceCompanyEndToEndTest extends TestCase
         // FV-LIC: licence 36 500 + 21 % 7 665 na 1. 12. 2024 – 30. 11. 2025, 365 dnů → do roku 2025 patří 334 dnů = 33 400 (384).
         $this->docs['FV-LIC'] = $this->issued('alfa', '2024-12-01', [['Syntetická roční licence', 36500, $this->vat21,
             ['accrual_from' => '2024-12-01', 'accrual_to' => '2025-11-30']]]);
+    }
+
+    // ---------------------------------------------------------------- uzávěrka a daň
+
+    /** Konečné zůstatky 2024 před uzavřením knih (ručně spočtená předvaha, syntetické účty). */
+    private const TRIAL_BALANCE_2024 = ['022' => '120000.00', '082' => '-22000.00', '211' => '21210.00', '221' => '475600.00', '311' => '44165.00',
+        '341' => '-35700.00', '343' => '-24375.00', '381' => '27300.00', '383' => '-12000.00', '384' => '-33400.00', '389' => '-15000.00',
+        '411' => '-200000.00', '428' => '-220000.00', '459' => '-25000.00', '501' => '31000.00', '511' => '30000.00', '518' => '92000.00',
+        '548' => '9200.00', '551' => '22000.00', '554' => '25000.00', '591' => '35700.00', '602' => '-345100.00', '663' => '-600.00'];
+
+    private function periodVersion(int $period): int
+    {
+        $q = $this->pdo->prepare('SELECT row_version FROM accounting_periods WHERE supplier_id=? AND id=?');
+        $q->execute([$this->supplier, $period]);
+        return (int) $q->fetchColumn();
+    }
+
+    /**
+     * Rozvaha a výsledovka 500 (plný rozsah) z produkčního výkazu: nenulové řádky nejnižší
+     * úrovně (aktiva netto), bilanční suma, výsledek a čistý obrat.
+     */
+    private function assertStatements(int $period, string $asOf, int $total, array $assets, array $liabilities, array $income, int $profit, int $turnover): void
+    {
+        $statements = $this->container->get(\MyInvoice\Service\Accounting\Reports\FinancialStatementService::class);
+        $balance = $statements->balanceSheet($this->supplier, $period, $asOf, 'full');
+        self::assertTrue($balance['checks']['balanced']);
+        self::assertEquals([$total, $total, $profit], [$balance['checks']['assets_net'], $balance['checks']['liabilities_total'], $balance['checks']['profit_current']]);
+        self::assertEquals($assets, self::leaves($balance['assets'], 'net'), 'aktiva ' . $asOf);
+        self::assertEquals($liabilities, self::leaves($balance['liabilities'], 'amount'), 'pasiva ' . $asOf);
+        $statement = $statements->incomeStatement($this->supplier, $period, $asOf, 'full');
+        self::assertEquals([$profit, $turnover], [$statement['checks']['profit_current'], $statement['checks']['net_turnover']]);
+        self::assertEquals($income, self::leaves(array_filter($statement['rows'], static fn (array $row): bool => $row['row_type'] !== 'computed'), 'amount'), 'výsledovka ' . $asOf);
+    }
+
+    /** @return array<string,float> nenulové řádky, pod kterými už žádný nenulový řádek není */
+    private static function leaves(array $rows, string $column): array
+    {
+        $nonzero = [];
+        foreach ($rows as $row) {
+            if ((float) $row[$column] !== 0.0 && preg_match('/^[A-Z]+\.|^[IVX]+\./', (string) $row['display_code'])) $nonzero[(string) $row['display_code']] = (float) $row[$column];
+        }
+        $out = [];
+        foreach ($nonzero as $code => $value) {
+            $parent = false;
+            foreach (array_keys($nonzero) as $other) {
+                if ($other !== $code && str_starts_with((string) $other, $code)) $parent = true;
+            }
+            if (!$parent) $out[$code] = $value;
+        }
+        return $out;
+    }
+
+    /** Inventarizace: skutečný stav každého rozvahového účtu odpovídá účetnímu. */
+    private function inventory(int $period): void
+    {
+        $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        $items = [];
+        foreach ($closing->inventoryPreview($this->supplier, $period)['rows'] as $row) {
+            $items[(int) $row['account_id']] = ['counted_balance' => (float) $row['book_balance'], 'resolution' => 'resolved', 'note' => null];
+        }
+        $closing->saveInventory($this->supplier, $period, $this->periodVersion($period), ['complete' => true], $items, ['user_id' => $this->actor]);
+    }
+
+    private function assisted(int $period, string $step, string $rule, float $amount, string $description, ?string $counter = null): void
+    {
+        $body = ['row_version' => $this->periodVersion($period), 'rule_key' => $rule, 'amount' => $amount, 'description' => $description];
+        if ($counter !== null) $body['counter_account'] = $counter;
+        $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class)
+            ->createAssistedEntry($this->supplier, $period, $step, $body, ['user_id' => $this->actor, 'posted_by' => $this->actor]);
+    }
+
+    /** Řádné DPPO: koncept, ruční vstupy, finalizace; vrací vypočtené hodnoty finálního přiznání. */
+    private function finalDppo(int $year, array $inputs): array
+    {
+        $service = $this->container->get(\MyInvoice\Service\Tax\Return\TaxReturnService::class);
+        $draft = $service->getReturn($this->supplier, $year, 'po', $this->actor);
+        if ($inputs !== []) {
+            $draft = $service->saveInputs($this->supplier, $year, 'po', $inputs, $draft['return']['row_version'], $this->actor, partial: true);
+        }
+        $final = $service->finalize($this->supplier, $year, 'po', $draft['return']['row_version'], $this->actor);
+        self::assertSame('final', $final['return']['status']);
+        return $final['computed'];
+    }
+
+    /** @return array<int,float> nenulové hodnoty vybraných řádků DPPO */
+    private function dppoLines(array $computed, array $lines): array
+    {
+        $out = [];
+        foreach ($computed['lines'] as $row) {
+            if (in_array((int) $row['line'], $lines, true) && (float) $row['value'] !== 0.0) $out[(int) $row['line']] = (float) $row['value'];
+        }
+        ksort($out);
+        return $out;
     }
 
     // ---------------------------------------------------------------- doklady
