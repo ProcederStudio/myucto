@@ -79,7 +79,8 @@ final class ChargeDebtRegistrationTest extends TestCase
         $created=$registrar->registerPosted($supplier,$batch['charges'],$dataset['actor']);
         $after=$this->statements();
         self::assertCount(400,$created);
-        self::assertSame(3,$after['Com_insert']-$before['Com_insert'],'Debts, debt lines and audit must be inserted in one statement each.');
+        // Trigger property_party_claim_keys_debt přidá v serveru jeden INSERT na řádek dluhu, aplikace posílá jen tři.
+        self::assertSame(3+count($created),$after['Com_insert']-$before['Com_insert'],'Debts, debt lines and audit must be inserted in one statement each.');
         self::assertLessThanOrEqual(3,$after['Com_select']-$before['Com_select']);
 
         $before=$this->statements();

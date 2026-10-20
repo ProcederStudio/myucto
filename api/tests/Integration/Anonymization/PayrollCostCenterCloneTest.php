@@ -164,7 +164,7 @@ final class PayrollCostCenterCloneTest extends TestCase
             $this->assertCaptureFails($connection,'native allocations differ');
             $pdo->rollBack();
             $pdo->beginTransaction();
-            $pdo->exec('UPDATE journal_entry_lines SET amount=amount+1 ORDER BY id LIMIT 1');
+            $pdo->exec('UPDATE journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id SET l.amount=l.amount+1 WHERE a.account_code="521.071"');
             $this->assertCaptureFails($connection,'native journal differs');
             $pdo->rollBack();
             $pdo->beginTransaction();
@@ -173,15 +173,15 @@ final class PayrollCostCenterCloneTest extends TestCase
             $pdo->rollBack();
             $pdo->beginTransaction();
             self::assertGreaterThan(0,(int)$pdo->query('SELECT COUNT(*) FROM journal_entry_line_dimensions')->fetchColumn());
-            $pdo->exec('DELETE FROM journal_entry_line_dimensions ORDER BY line_id,dimension_type_id LIMIT 1');
+            $pdo->exec('DELETE d FROM journal_entry_line_dimensions d JOIN journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id ON l.id=d.line_id WHERE a.account_code="521.071"');
             $this->assertCaptureFails($connection,'native journal differs');
             $pdo->rollBack();
             $pdo->beginTransaction();
-            $pdo->exec('UPDATE journal_entries SET source_type="manual" ORDER BY id LIMIT 1');
+            $pdo->exec('UPDATE journal_entries e JOIN journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id ON l.entry_id=e.id SET e.source_type="manual" WHERE a.account_code="521.071"');
             $this->assertCaptureFails($connection,'native journal header differs');
             $pdo->rollBack();
             $pdo->beginTransaction();
-            $pdo->exec('UPDATE journal_entry_lines SET currency_code="EUR",fx_rate=25,amount_foreign=1 ORDER BY id LIMIT 1');
+            $pdo->exec('UPDATE journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id SET l.currency_code="EUR",l.fx_rate=25,l.amount_foreign=1 WHERE a.account_code="521.071"');
             $this->assertCaptureFails($connection,'native journal currency or storno differs');
             $pdo->rollBack();
         } finally {
