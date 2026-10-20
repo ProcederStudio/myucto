@@ -183,9 +183,10 @@ final class SecuritiesValuation504ReadRepository
         } catch (ClosingException) {
             return false;
         }
-        return ($record['source_hash'] ?? null) === $beforeClose['source_hash']
-            && ($carry['source_hash'] ?? null) === $beforeOpen['source_hash']
-            && self::entryMatches($closing['lines'], $beforeClose['lines'])
+        // Dodatečný důkaz porovnává řádky jako AnnualOpeningReadProof a LegalClosing504Repository.
+        // Otisk zdrojových řádků z okamžiku zápisu se po pozdějším stornu do otevřeného roku
+        // (rozpuštění dohadu) legitimně mění, ačkoli uzavírací ani zahajovací řádky ne.
+        return self::entryMatches($closing['lines'], $beforeClose['lines'])
             && self::entryMatches($opening['lines'], $beforeOpen['lines']);
     }
 

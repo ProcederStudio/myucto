@@ -349,6 +349,54 @@ final class SecuritiesValuation504Test extends TestCase
         self::assertNotSame($next['snapshot_hash'], $changed['snapshot_hash']);
     }
 
+    /**
+     * Storno zápisu uzavřeného roku do otevřeného roku (např. rozpuštění dohadu) změní jen
+     * příznak stornování původního řádku. Zahajovací zápis zůstává doložený, jinak by kurzový
+     * krok 504 druhého roku zablokoval každou účetní jednotku, která běžně stornuje dohady.
+     */
+    public function testLaterReversalOfClosedYearEntryKeepsAnnualOpeningProven(): void
+    {
+        $evidence = $this->evidence();
+        $pdo = $this->db->pdo();
+        $container = Bootstrap::buildContainer();
+        $closing = $container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        foreach (['901', '911', '931', '932', '933', '961', '962'] as $code) {
+            $pdo->prepare("INSERT IGNORE INTO chart_of_accounts(supplier_id,account_code,name,account_type,is_active) VALUES (?,?,?,'equity',1)")->execute([$this->supplier, $code, 'Synthetic ' . $code]);
+        }
+        $estimate = $container->get(PostingService::class)->postDocument($this->supplier, 'manual', null, [
+            ['account_code' => '911', 'side' => 'debit', 'amount' => '100.00'],
+            ['account_code' => '901', 'side' => 'credit', 'amount' => '100.00'],
+        ], ['entry_date' => '2025-12-30', 'posted' => true]);
+        $pdo->prepare("UPDATE accounting_periods SET status='closing' WHERE supplier_id=? AND id=?")->execute([$this->supplier, $this->period]);
+        $version = fn (): int => (int) $pdo->query('SELECT row_version FROM accounting_periods WHERE id=' . $this->period)->fetchColumn();
+        $inventory = [];
+        foreach ($closing->inventoryPreview($this->supplier, $this->period)['rows'] as $row) $inventory[(int) $row['account_id']] = ['counted_balance' => (float) $row['book_balance'], 'resolution' => 'resolved', 'note' => null];
+        $closing->saveInventory($this->supplier, $this->period, $version(), ['complete' => true], $inventory);
+        $closing->runPrecheck($this->supplier, $this->period, $version());
+        foreach (['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'] as $step) $closing->confirmStep($this->supplier, $this->period, $step, 'skipped', null, $version());
+        $this->service->run($this->supplier, $this->period, ['snapshot_hash' => $this->preview($evidence)['snapshot_hash'], 'securities_evidence' => $evidence], $version());
+        \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($container, $this->supplier, $this->period, (int) $pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn());
+        $closing->closeBooks($this->supplier, $this->period, $version());
+        $nextId = (int) $closing->openNext($this->supplier, $this->period, $version())['next_period_id'];
+        $pdo->exec("INSERT INTO exchange_rates(rate_date,currency_code,rate) VALUES ('2026-12-31','EUR',24) ON DUPLICATE KEY UPDATE rate=24");
+        $evidence['profile']['as_of'] = '2026-12-31';
+        $nextFacts = $evidence['profile']['category_facts'][0];
+        $nextFacts['period_id'] = $nextId;
+        $nextFacts['starts_on'] = '2026-01-01';
+        $nextFacts['ends_on'] = '2026-12-31';
+        $evidence['profile']['category_facts'][] = $nextFacts;
+        $evidence['valuations'][0]['as_of'] = '2026-12-31';
+        $evidence['valuations'][0]['evidence']['valuation_date'] = '2026-12-31';
+        $evidence['valuations'][0]['evidence']['recoverability_date'] = '2026-12-31';
+        $before = $this->service->preview($this->supplier, $nextId, [], false, null, $evidence);
+        self::assertTrue($before['complete'], json_encode($before['securities']['findings']));
+        $container->get(PostingService::class)->reverse($this->supplier, $estimate, ['entry_date' => '2026-01-15']);
+        $after = $this->service->preview($this->supplier, $nextId, [], false, null, $evidence);
+        self::assertSame([], $after['securities']['findings']);
+        self::assertTrue($after['complete']);
+        self::assertSame($before['securities']['opening_entry_ids'], $after['securities']['opening_entry_ids']);
+    }
+
     public function testMixed069SingleOriginalCellPartitionsExactlyWithoutHidingMonetaryRemainder(): void
     {
         $this->moveHolding('069');
