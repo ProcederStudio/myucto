@@ -7,10 +7,10 @@ import en from '@/i18n/en.json'
 import PartySaldoPanel from '../PartySaldoPanel.vue'
 import type { PartySaldoPage } from '@/api/propertyReceivables'
 
-const page = (next: string | null): PartySaldoPage => ({
+const page = (next: string | null, first = true): PartySaldoPage => ({
   accounting_date: '2027-04-25',
   knowledge_basis: 'current_ledger',
-  totals: { receivable: '1450000', credit: '600000' },
+  totals: first ? { receivable: '1450000', credit: '600000' } : null,
   next_cursor: next,
   items: [
     { party_ids: [11, 12], parties: [{ id: 11, label: 'Synthetic A' }, { id: 12, label: '' }], unit_ids: [7], group_keys: ['joint'],
@@ -35,7 +35,7 @@ beforeEach(() => {
 afterEach(() => { api.defaults.adapter = original; vi.restoreAllMocks() })
 
 describe('party saldo panel', () => {
-  it('loads the accounting date, shows house totals, units and review and pages by cursor', async () => {
+  it('loads the accounting date, shows house totals, units and review and keeps first-page totals while paging by cursor', async () => {
     const w = mount(PartySaldoPanel, { props: { supplier: 2, units: [{ id: 7, code: 'U07' } as never] }, global: globals() })
     await w.get('[data-field="party-saldo-date"]').setValue('2027-04-25')
     const load = w.findAll('button').find(b => b.text() === cs.propertySaldo.parties.load)!
@@ -46,10 +46,11 @@ describe('party saldo panel', () => {
     expect(w.get('[data-party-row]').text()).toContain('Synthetic A')
     expect(w.get('[data-party-row]').text()).toContain('U07')
     expect(w.find('[data-review]').exists()).toBe(true)
-    respond = () => page(null)
+    respond = () => page(null, false)
     await w.get('[data-action="party-saldo-next"]').trigger('click')
     await flushPromises()
     expect(calls[1]!.params.after).toBe('11,12')
+    expect(w.get('[data-total="receivable"]').text()).toBe('14500.00 CZK')
     w.unmount()
   })
 })

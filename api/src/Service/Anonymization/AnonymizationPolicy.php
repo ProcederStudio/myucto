@@ -234,6 +234,8 @@ final class AnonymizationPolicy
         'property_claim_party_events' => ['idempotency_key' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep'],
         'property_claim_party_event_debts' => [],
         'property_claim_party_members' => ['group_key' => 'keep', 'role' => 'keep'],
+        // Jen otisky množin ID osob a ID jednotek, žádné jméno ani text.
+        'property_party_claim_keys' => ['source_kind' => 'keep', 'key_hash' => 'keep'],
         'property_debt_certificates' => ['idempotency_key' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep'],
         'unit_payment_workflows' => ['idempotency_key' => 'keep', 'plan_json' => 'keep', 'preview_hash' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'source_kind' => 'keep', 'status' => 'keep'],
         'unit_payment_workflow_operations' => ['part_key' => 'keep'],
