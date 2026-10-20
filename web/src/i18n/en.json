@@ -37406,7 +37406,7 @@
     "keyMismatch": "Selected source amounts do not match the evidenced key across all units. Check the allocation.",
     "sourceUsed": "Another operation owns this evidence. Refresh and select an independent source.",
     "stale": "The state or evidence changed. Reload it and prepare a new preview.",
-    "chronology": "A later operation exists for this building. Use a current date and an evidenced reversal.",
+    "chronology": "A later operation exists for the same source (unit account). Use a later date or an evidenced reversal.",
     "costPeriod": "The expense and its coverage must belong to the same accounting period.",
     "advanceTerm": "The target advance does not match the evidenced settlement date.",
     "closed": "The selected date or accounting period is locked. Choose an open accounting date.",

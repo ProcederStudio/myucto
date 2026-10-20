@@ -37406,7 +37406,7 @@
     "keyMismatch": "Částky vybraných zdrojů neodpovídají doloženému klíči po všech jednotkách. Zkontrolujte rozvržení.",
     "sourceUsed": "Podklad již vlastní jiná operace. Obnovte stav a zvolte samostatný zdroj.",
     "stale": "Stav nebo podklady se změnily. Načtěte je znovu a připravte nový náhled.",
-    "chronology": "Po zvoleném datu již existuje operace tohoto domu. Použijte aktuální datum a doložené storno.",
+    "chronology": "Po zvoleném datu již existuje operace se stejným zdrojem (účet jednotky). Použijte pozdější datum nebo doložené storno.",
     "costPeriod": "Náklad a jeho krytí musí patřit do stejného účetního období.",
     "advanceTerm": "Cílová záloha neodpovídá doloženému termínu vypořádání.",
     "closed": "Zvolené datum nebo účetní období je uzamčené. Zvolte otevřené účetní datum.",
