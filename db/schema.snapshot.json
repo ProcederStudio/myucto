@@ -1015,7 +1015,8 @@
         "2058_logbook_trip_templates_odometer_readings.sql",
         "2070_asset_imported_depreciation_plan.sql",
         "2071_logbook_odometer_sources.sql",
-        "2072_oauth_sessions.sql"
+        "2072_oauth_sessions.sql",
+        "2073_payment_thanks_stale_guard.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6336,6 +6337,7 @@
                 "payment_ordered_at": "timestamp NULL DEFAULT NULL",
                 "payment_thanks_sent_at": "timestamp NULL DEFAULT NULL",
                 "payment_thanks_sent_to": "varchar(512) NULL DEFAULT NULL",
+                "payment_thanks_suppressed_at": "timestamp NULL DEFAULT NULL",
                 "payment_variable_symbol": "varchar(10) NULL DEFAULT NULL",
                 "payment_variable_symbol_match_key": "varchar(10) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`payment_variable_symbol`,'[^0-9]','')),''))",
                 "pdf_generated_at": "timestamp NULL DEFAULT NULL",
@@ -22030,6 +22032,7 @@
                 "payment_thanks_auto_send": "tinyint(1) NOT NULL DEFAULT 0",
                 "payment_thanks_default_checked": "tinyint(1) NOT NULL DEFAULT 0",
                 "payment_thanks_enabled": "tinyint(1) NOT NULL DEFAULT 0",
+                "payment_thanks_max_age_days": "smallint(5) unsigned NOT NULL DEFAULT 30",
                 "payroll_attendance_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "payroll_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "pdf_logo_show_name": "tinyint(1) NOT NULL DEFAULT 0",

@@ -24135,6 +24135,8 @@
     "payment_thanks_enabled": "Posílat poděkování za úhradu",
     "payment_thanks_enabled_hint": "Po označení faktury jako uhrazené lze zákazníkovi poslat krátký děkovný e-mail. Výchozí stav: vypnuto.",
     "payment_thanks_auto_send": "Automaticky při spárování platby z banky",
+    "payment_thanks_max_age_days": "Jen za platbu ne starší než",
+    "payment_thanks_max_age_days_hint": "Starší platba (např. z pozdě nahraného výpisu) automatické poděkování nevyvolá. 0 = bez omezení. Po smazání a opětovném nahrání výpisu se za již známou platbu automaticky neděkuje.",
     "payment_thanks_default_checked": "Předzaškrtnout při ručním označení jako zaplacené",
     "payment_thanks_attach_paid_pdf": "Přiložit PDF faktury (se stavem Uhrazeno)",
     "self_copy": {

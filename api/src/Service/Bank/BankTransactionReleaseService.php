@@ -212,6 +212,23 @@ final class BankTransactionReleaseService
               WHERE id = ?"
         )->execute([$txId]);
 
+        // Smazaný výpis se typicky nahraje znovu a táž platba se spáruje podruhé —
+        // automatické poděkování za ni už nemá odejít ({@see \MyInvoice\Service\Mail\PaymentThanksMailer}).
+        $paymentsStmt = $pdo->prepare('SELECT invoice_id, source FROM invoice_payments WHERE bank_transaction_id = ?');
+        $paymentsStmt->execute([$txId]);
+        $paidInvoices = [];
+        foreach ($paymentsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $p) {
+            $paidInvoices[(int) $p['invoice_id']] = ($paidInvoices[(int) $p['invoice_id']] ?? false) || $p['source'] === 'bank';
+        }
+        $bankPaidInvoiceIds = array_keys(array_filter($paidInvoices));
+        if ($mode === self::MODE_DELETE && $bankPaidInvoiceIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($bankPaidInvoiceIds), '?'));
+            $pdo->prepare(
+                "UPDATE invoices SET payment_thanks_suppressed_at = NOW()
+                  WHERE payment_thanks_sent_at IS NULL AND id IN ($placeholders)"
+            )->execute($bankPaidInvoiceIds);
+        }
+
         // Platbu založenou párováním smaže, dřívější platbu jen odpojí; stav faktury
         // se přepočte z plateb (může se vrátit ze stavu 'paid').
         $deletedPayment = $this->payments->deleteForBankTransaction($txId);

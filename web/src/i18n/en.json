@@ -24135,6 +24135,8 @@
     "payment_thanks_enabled": "Send payment thank-you e-mails",
     "payment_thanks_enabled_hint": "After an invoice is marked as paid, a short thank-you e-mail can be sent to the customer. Default: off.",
     "payment_thanks_auto_send": "Automatically on bank payment matching",
+    "payment_thanks_max_age_days": "Only for payments no older than",
+    "payment_thanks_max_age_days_hint": "An older payment (e.g. from a statement uploaded late) does not trigger an automatic thank-you. 0 = no limit. After a statement is deleted and uploaded again, no automatic thank-you is sent for an already known payment.",
     "payment_thanks_default_checked": "Pre-check when marking as paid manually",
     "payment_thanks_attach_paid_pdf": "Attach the invoice PDF (marked Paid)",
     "self_copy": {
