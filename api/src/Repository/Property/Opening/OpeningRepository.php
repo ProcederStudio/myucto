@@ -65,6 +65,22 @@ final class OpeningRepository
         return $this->transaction($supplier,function()use($supplier,$id){$batch=(new OpeningReadProof($this->db))->batch($supplier,$id,true);$rows=$this->all('SELECT id,kind,unit_id,service_id,amount_cents,case_key FROM property_opening_items WHERE supplier_id=? AND batch_id=? ORDER BY id',[$supplier,$id]);foreach($rows as &$row)foreach(['id','unit_id','service_id'] as $key)if($row[$key]!==null)$row[$key]=(int)$row[$key];unset($row);return $batch+['items'=>$rows];});
     }
     public function list(int $supplier):array{return $this->transaction($supplier,fn()=>array_map(fn($row)=>$this->find($supplier,(int)$row['id']),$this->all('SELECT id FROM property_opening_batches WHERE supplier_id=? ORDER BY id DESC',[$supplier])));}
+    /**
+     * Živé otevírací zápisy otevřených období, ke kterým lze převzetí navázat (režim bind_existing).
+     * Uživatel zápis vybírá, číslo a verzi zápisu tedy nevypisuje ručně. Otevřených období je jen pár.
+     */
+    public function bindCandidates(int $supplier):array
+    {
+        $closing=new \MyInvoice\Repository\ClosingRepository($this->db);$entries=[];
+        foreach($this->all("SELECT id FROM accounting_periods WHERE supplier_id=? AND status='open' ORDER BY starts_on",[$supplier]) as $period)
+            foreach($closing->openingEntriesInPeriod($supplier,(int)$period['id']) as $entry)$entries[$entry['id']]=$entry;
+        if($entries===[])return [];
+        $versions=[];
+        foreach($this->all('SELECT id,row_version FROM journal_entries WHERE supplier_id=? AND id IN ('.implode(',',array_fill(0,count($entries),'?')).')',[$supplier,...array_keys($entries)]) as $row)$versions[(int)$row['id']]=(int)$row['row_version'];
+        $out=[];
+        foreach($entries as $id=>$entry)$out[]=['journal_entry_id'=>$id,'journal_version'=>$versions[$id],'document_no'=>$entry['document_no'],'entry_date'=>$entry['entry_date'],'description'=>$entry['description']];
+        return $out;
+    }
     public function catalog(int $supplier,int $after,int $limit):array
     {
         return $this->transaction($supplier,function()use($supplier,$after,$limit){$rows=$this->all('SELECT id FROM property_opening_batches WHERE supplier_id=? AND id>? ORDER BY id LIMIT '.($limit+1),[$supplier,$after]);$more=count($rows)>$limit;if($more)array_pop($rows);$items=[];
