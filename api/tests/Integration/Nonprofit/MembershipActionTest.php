@@ -172,6 +172,23 @@ final class MembershipActionTest extends TestCase
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM nonprofit_membership_charge_operations WHERE supplier_id=' . $this->supplier)->fetchColumn());
     }
 
+    public function testForeignTenantClientIsRejectedAsInvalidReference(): void
+    {
+        $this->pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+        $this->pdo->exec("INSERT INTO supplier(company_name,street,city,zip,email,country_id,default_currency_id,default_vat_rate_id) VALUES('Synthetic foreign association','Synthetic street','Synthetic city','10000','membership-foreign@example.test',203,1,1)");
+        $foreignSupplier = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare("INSERT INTO clients(supplier_id,company_name,street,city,zip,country_id,main_email,language,currency_default_id,is_customer,is_vendor) VALUES(?,'Synthetic foreign member','Synthetic street','Synthetic city','10000',203,'membership-foreign-client@example.test','cs',1,1,0)")
+            ->execute([$foreignSupplier]);
+        $foreignClient = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+
+        [$status, $error] = $this->call('POST', 'createMember', ['client_id' => $foreignClient, 'member_number' => 'M-ACTION-FOREIGN']);
+        self::assertSame(400, $status);
+        self::assertSame('invalid_reference', $error['error']['code']);
+        self::assertStringNotContainsString('Synthetic foreign member', json_encode($error, JSON_THROW_ON_ERROR));
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM nonprofit_members WHERE supplier_id IN (' . $this->supplier . ',' . $foreignSupplier . ')')->fetchColumn());
+    }
+
     private function call(string $httpMethod, string $method, ?array $body, array $args = [], ?array $permissions = null, string $auth = 'session'): array
     {
         $permissions ??= ['accounting' => 1, 'accounting.journal.post' => 2];

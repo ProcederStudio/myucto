@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Nonprofit;
 
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
+use MyInvoice\Http\TenantReferenceGuard;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipBalanceRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipChargeRepository;
@@ -29,9 +30,11 @@ final class MembershipAction
     private readonly MembershipMemberService $memberService;
     private readonly MembershipChargeService $chargeService;
     private readonly MembershipReconciliationService $reconciliation;
+    private readonly TenantReferenceGuard $tenantRefs;
 
     public function __construct(Connection $db, PostingService $posting)
     {
+        $this->tenantRefs = new TenantReferenceGuard($db);
         $this->members = new MembershipRepository($db);
         $charges = new MembershipChargeRepository($db);
         $this->memberService = new MembershipMemberService($db, $this->members);
@@ -78,6 +81,8 @@ final class MembershipAction
         return $this->handle($request, $response, true, function (int $supplier) use ($request): array {
             $body = $this->body($request, ['client_id', 'member_number']);
             if (!is_int($body['client_id']) || !is_string($body['member_number'])) throw new MembershipException('nonprofit_membership_invalid', 'Člen vyžaduje klienta a členské číslo.');
+            $badRefs = $this->tenantRefs->violations($supplier, $body, ['client_id']);
+            if ($badRefs !== []) throw new MembershipException('invalid_reference', TenantReferenceGuard::message($badRefs), 400);
             return $this->memberService->create($supplier, $body['client_id'], $body['member_number'], $this->actor($request));
         }, 201);
     }
