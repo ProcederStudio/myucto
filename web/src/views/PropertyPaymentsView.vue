@@ -263,7 +263,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
 </script>
 
 <template>
-  <main class="space-y-5">
+  <div class="space-y-5">
     <div><h1 class="text-2xl font-semibold">{{ t('propertyPayments.title') }}</h1><p class="text-sm text-neutral-500 mt-0.5">{{ t('propertyPayments.czkOnly') }}</p></div>
     <div class="flex flex-wrap items-end gap-3"><fieldset :disabled="anyBusy" class="min-w-0"><PropertyInstantInput :model-value="asOf" @update:model-value="changeAsOf" :label="t('propertyPayments.asOf')" required /></fieldset><PropertyButton icon="cycle" :disabled="anyBusy || loading" @click="load">{{ t('propertyPayments.refresh') }}</PropertyButton></div>
     <p v-if="error" role="alert" class="text-danger-600">{{ error }}</p>
@@ -334,5 +334,5 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
     <SaldoPanel v-else-if="context && supplier && tab === 'saldo'" :supplier="supplier" :as-of="asOf" :units="context.units" />
     <CardPanel v-else-if="context && supplier && tab === 'card'" :supplier="supplier" :as-of="asOf" :units="context.units" />
     <section v-if="tab === 'receive'" class="rounded-lg border border-neutral-200 p-4 space-y-2"><h2 class="font-semibold">{{ t('propertyPayments.history') }}</h2><article v-for="row in history" :key="row.id" class="flex flex-wrap gap-4 border-t border-neutral-200 py-2"><span>{{ row.date }}</span><span>{{ paymentDecimal(row.amount_cents) }} CZK</span><span>{{ t('propertyPayments.settled') }}: {{ paymentDecimal(row.settled_cents) }} CZK</span><span>{{ t('propertyPayments.remainingAtConfirmation') }}: {{ paymentDecimal(row.available_cents) }} CZK</span></article><div v-if="historyNextCursor !== null" class="flex flex-wrap"><PropertyButton icon="chevron" data-action="load-more-history" :disabled="historyLoadingMore" @click="loadMoreHistory">{{ t('propertyPayments.loadMore') }}</PropertyButton></div></section>
-  </main>
+  </div>
 </template>
