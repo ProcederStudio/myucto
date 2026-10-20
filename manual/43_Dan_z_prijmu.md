@@ -881,9 +881,8 @@ zachová číslo revize i původní uložená data, výsledek znovu přepočít�
 tehdy, když se s původním výsledkem shoduje. Samotné zobrazení žádný převod ani jiný
 zápis nespouští.
 
-DPPO 504 zatím přebírá posouzení uložené ve starším formátu nebo převedené
-posouzení. Revizi potvrzenou pouze v novém stránkovaném formátu výpočet DPPO
-odmítne s hláškou, že vyžaduje aktuální potvrzené posouzení.
+DPPO 504 přebírá aktuální potvrzenou revizi v obou formátech. Pokud se po potvrzení
+změnily účetní podklady období, výpočet DPPO posouzení odmítne a je potřeba je potvrdit znovu.
 
 U SVJ jsou doložené příspěvky vlastníků na správu domu a pozemku a úhrady služeb
 vedeny odděleně jako příjmy mimo předmět daně. Toto zařazení nelze změnit ani ručním
