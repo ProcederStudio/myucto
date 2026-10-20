@@ -1158,12 +1158,10 @@ final class AssetService
                 }
                 if ($accEntry !== null && $capital->retainsDepreciation($supplierId, (int) $accEntry['id'])) {
                     // Na řádek odkazuje neměnná historie investičního zdroje, proto se
-                    // nemaže: vynuluje se a jeho stornovaný zápis uvolní klíč
-                    // ('depreciation', id), aby šel rok znovu zaúčtovat čerstvým výpočtem.
-                    $pdo->prepare(
-                        'UPDATE depreciation_entries SET amount = 0, full_amount = 0, months_count = NULL, detail = NULL
-                          WHERE supplier_id = ? AND id = ?'
-                    )->execute([$supplierId, (int) $accEntry['id']]);
+                    // nemaže: zruší se, plán rok dopočte jako před vyřazením, a jeho
+                    // stornovaný zápis uvolní klíč ('depreciation', id), aby šel rok znovu
+                    // zaúčtovat čerstvým výpočtem.
+                    $this->entries->void($supplierId, (int) $accEntry['id']);
                     if ($accJournal !== null) {
                         $pdo->prepare('UPDATE journal_entries SET source_id = NULL WHERE id = ? AND supplier_id = ?')
                             ->execute([(int) $accJournal['id'], $supplierId]);

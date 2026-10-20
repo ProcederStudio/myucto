@@ -139,6 +139,26 @@ final class CapitalAssetDisposalTest extends TestCase
         self::assertSame('0.00', $this->balance('901'));
     }
 
+    public function testRevertedDisposalRestoresTheDepreciationPlanOfTheDisposalYear(): void
+    {
+        $this->enrollFullDonation();
+        $this->bookFirstYear();
+        $before = $this->assets->plan($this->supplier, $this->asset);
+
+        $this->assets->dispose($this->supplier, $this->asset, ['date' => '2027-08-31', 'type' => 'sold', 'price' => 350000], $this->meta());
+        $this->assets->revertDisposal($this->supplier, $this->asset, $this->meta());
+
+        $after = $this->assets->plan($this->supplier, $this->asset);
+        self::assertSame($before['accounting'], $after['accounting']);
+        self::assertSame($before['tax'], $after['tax']);
+        self::assertSame($before['asset_summary'], $after['asset_summary']);
+
+        $result = $this->depreciation->bookYear($this->supplier, 2027, $this->meta());
+        self::assertSame([], $result['errors']);
+        self::assertSame(120000.0, $result['total_accounting']);
+        self::assertSame(24000000, $this->capital->read($this->supplier)['sources'][0]['used_cents']);
+    }
+
     public function testPartialInvestmentSourceReleasesOnlyItsProportionalRemainder(): void
     {
         $this->enroll('300000.00');
