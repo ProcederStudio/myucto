@@ -33,7 +33,10 @@ final class PaymentOperationsAction
     {
         return $this->run($request,$response,'property',false,function(int $supplier)use($request):array{
             $q=$request->getQueryParams();$kind=(string)($q['kind']??'');$permission=$kind==='bank'?'bank.post':'cash.document.write';
-            return $this->sources->candidates($supplier,$kind,$this->integer($q,'after_id',0),$this->integer($q,'limit',25),RequestAuthorization::isSessionAuth($request)&&RequestAuthorization::allows($request,$permission,AccessLevel::WRITE));
+            $allowNative=RequestAuthorization::isSessionAuth($request)&&RequestAuthorization::allows($request,$permission,AccessLevel::WRITE);
+            $search=is_string($q['q']??null)?$q['q']:'';
+            $id=isset($q['id'])?$this->integer($q,'id'):null;
+            return $this->sources->candidates($supplier,$kind,$this->integer($q,'after_id',0),$this->integer($q,'limit',25),$allowNative,$search,$id);
         });
     }
     public function parties(Request $request,Response $response):Response
@@ -78,7 +81,16 @@ final class PaymentOperationsAction
     }
     public function cancelExport(Request $request,Response $response,array $args):Response
     {
-        return $this->run($request,$response,'property.payments.manage',true,function(int $supplier)use($request,$args):array{$body=$this->body($request,['expected_version','reason','evidence','idempotency_key']);$result=$this->exports->cancelSubmission($supplier,$this->integer($args,'id'),$this->integer($body,'expected_version'),PropertyInput::text($body['reason']??null,'reason',4000),PropertyInput::text($body['evidence']??null,'evidence',4000),$this->token($body),$this->userId($request));return ['id'=>$result['id'],'row_version'=>$result['row_version'],'status'=>$result['status']];});
+        return $this->run($request,$response,'property.payments.manage',true,function(int $supplier)use($request,$args):array{$body=$this->body($request,['expected_version','reason','evidence','idempotency_key']);$result=$this->exports->cancelSubmission($supplier,$this->integer($args,'id'),$this->integer($body,'expected_version'),PropertyInput::text($body['reason']??null,'reason',4000),PropertyInput::text($body['evidence']??null,'evidence',4000),$this->token($body),$this->userId($request));return ['id'=>$result['id'],'row_version'=>$result['row_version'],'status'=>$result['status'],'cancel_requested'=>$result['cancel_requested']];});
+    }
+    public function releaseUnexecuted(Request $request,Response $response,array $args):Response
+    {
+        return $this->run($request,$response,'property.payments.manage',true,function(int $supplier)use($request,$args):array{
+            $body=$this->body($request,['expected_version','statement_id','evidence','idempotency_key']);
+            $result=$this->exports->releaseUnexecuted($supplier,$this->integer($args,'id'),$this->integer($body,'expected_version'),$this->integer($body,'statement_id'),
+                PropertyInput::text($body['evidence']??null,'evidence',4000),$this->token($body),$this->userId($request));
+            return ['id'=>$result['id'],'row_version'=>$result['row_version'],'status'=>$result['status'],'cancel_requested'=>$result['cancel_requested']];
+        });
     }
     public function registerDebt(Request $request,Response $response):Response
     {

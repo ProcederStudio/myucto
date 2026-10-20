@@ -2517,6 +2517,7 @@ final class Routes
             $g->post('/payments/reservations/abo/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportPreview']);
             $g->post('/payments/reservations/abo/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportConfirm']);
             $g->post('/payments/reservations/{id:[0-9]+}/cancel-submission', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelExport']);
+            $g->post('/payments/reservations/{id:[0-9]+}/release-unexecuted', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'releaseUnexecuted']);
             $g->post('/payments/debts/register', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'registerDebt']);
             $g->post('/payments/credits/{id:[0-9]+}/reserve', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'reserve']);
             $g->post('/payments/reservations/{id:[0-9]+}/cancel', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelReservation']);

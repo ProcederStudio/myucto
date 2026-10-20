@@ -332,7 +332,7 @@ final class UnitPaymentSourceTest extends TestCase
     private function creditRequest(int $source,string $cents,int $party,int $version): array
     {
         return ['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$source,'expected_version'=>$version],'amount_cents'=>$cents,'accounting_date'=>'2026-02-01','reason'=>'Synthetic separately entitled credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>array_values($this->f['units'])[0],'party_ids'=>[$party],'evidence'=>'Synthetic independently established creditor title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>array_values($this->f['units'])[0],'party_ids'=>[$party],'evidence'=>'Synthetic independently established creditor title','due_date'=>'2026-03-01']];
     }
     private function bank(string $amount,string $counter='379.900'): int
     {

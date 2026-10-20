@@ -191,7 +191,7 @@ final class PaymentWorkflowRefundTest extends TestCase
         $supplier = $this->f['supplier']; $actor = $this->f['actor']; $payments = $this->correctionPayments();
         $request = ['kind' => 'allocation', 'source' => ['kind' => 'bank', 'id' => $this->correctionBank('10.00'), 'expected_version' => 0],
             'amount_cents' => '1000', 'accounting_date' => '2026-02-01', 'reason' => 'Synthetic evidenced credit', 'debts' => [],
-            'credit_entitlement' => ['unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]],
+            'credit_entitlement' => ['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id' => $this->f['units']['G12'], 'party_ids' => [$this->f['clients'][1]],
                 'evidence' => 'Synthetic entitlement', 'due_date' => '2026-03-01']];
         $credit = $payments->apply($supplier, $request, $payments->preview($supplier, $request)['preview_hash'], 'credit-origin', $actor)['credit_id'];
         $reservations = [];

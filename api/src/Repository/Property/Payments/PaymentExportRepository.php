@@ -33,20 +33,102 @@ final class PaymentExportRepository
             return $this->result($supplier,$this->one('SELECT * FROM unit_payment_exports WHERE supplier_id=? AND id=? FOR UPDATE',[$supplier,$id]));
         });
     }
+    /**
+     * Žádost o zrušení příkazu, který už odešel bance. Rezervaci NEuvolní: banka mohla
+     * platbu provést, takže kredit zůstává blokovaný ve stavu „odesláno, zrušení čeká na
+     * potvrzení banky". Uvolní ho až {@see releaseUnexecuted()} s výpisem, který neprovedení
+     * dokládá, nebo spárování provedené vratky z výpisu (tím se rezervace vyplatí).
+     */
     public function cancelSubmission(int $supplier,int $id,int $expected,string $reason,string $evidence,string $token,int $actor):array
     {
         PropertyInput::id($actor,'actor');PropertyInput::code($token,'idempotency_key');PropertyInput::text($reason,'reason',4000);PropertyInput::text($evidence,'evidence',4000);
         return $this->transaction($supplier,function()use($supplier,$id,$expected,$reason,$evidence,$token,$actor):array{
-            $payload=['expected_version'=>$expected,'reason'=>$reason,'evidence'=>$evidence,'token'=>$token,'actor'=>$actor,'kind'=>'submission_cancelled'];
-            foreach($this->all("SELECT payload_json,payload_hash FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND object_id=? AND action='cancelled' ORDER BY id FOR UPDATE",[$supplier,$id]) as $event){$fact=self::decode($event['payload_json']);self::hash($event['payload_hash'],$fact);if(($fact['token']??null)===$token){if(PropertyInput::hash($fact)!==PropertyInput::hash($payload))PaymentException::reject('idempotency_conflict');return $this->payments->reservation($supplier,$id);}}
+            $payload=['expected_version'=>$expected,'reason'=>$reason,'evidence'=>$evidence,'token'=>$token,'actor'=>$actor,'kind'=>'submission_cancel_requested'];
+            $old=$this->auditByToken($supplier,$id,'cancel_requested',$token);
+            if($old!==null){if(PropertyInput::hash($old)!==PropertyInput::hash($payload))PaymentException::reject('idempotency_conflict');return $this->reservationState($supplier,$id);}
+            $reservation=$this->payments->reservation($supplier,$id);
+            if($reservation['row_version']!==$expected)PaymentException::reject('reservation_version_conflict');
+            if($reservation['status']!=='submitted')PaymentException::reject('reservation_not_submitted');
+            if($this->cancelRequest($supplier,$id)!==null)PaymentException::reject('reservation_cancel_already_requested');
+            $this->submittedExport($supplier,$id);
+            $this->cas("UPDATE unit_credit_reservations SET row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=? AND status='submitted'",[$supplier,$id,$expected]);
+            $this->audit($supplier,$id,'cancel_requested',$payload,$actor);
+            return $this->reservationState($supplier,$id);
+        });
+    }
+
+    /**
+     * Uvolní rezervaci odeslaného příkazu, který banka neprovedla. Doklad je výpis účtu,
+     * ze kterého příkaz odešel, k datu splatnosti nebo později, a ten nesmí obsahovat
+     * odchozí platbu příjemci v částce příkazu. Textové prohlášení samo nestačí.
+     */
+    public function releaseUnexecuted(int $supplier,int $id,int $expected,int $statementId,string $evidence,string $token,int $actor):array
+    {
+        PropertyInput::id($actor,'actor');PropertyInput::code($token,'idempotency_key');PropertyInput::id($statementId,'statement_id');PropertyInput::text($evidence,'evidence',4000);
+        return $this->transaction($supplier,function()use($supplier,$id,$expected,$statementId,$evidence,$token,$actor):array{
+            $payload=['expected_version'=>$expected,'statement_id'=>$statementId,'evidence'=>$evidence,'token'=>$token,'actor'=>$actor,'kind'=>'submission_not_executed'];
+            $old=$this->auditByToken($supplier,$id,'failed',$token);
+            if($old!==null){if(PropertyInput::hash($old)!==PropertyInput::hash($payload))PaymentException::reject('idempotency_conflict');return $this->reservationState($supplier,$id);}
             $reservation=$this->payments->reservation($supplier,$id);$credit=$this->payments->credit($supplier,$reservation['credit_id']);
             if($reservation['row_version']!==$expected)PaymentException::reject('reservation_version_conflict');
             if($reservation['status']!=='submitted')PaymentException::reject('reservation_not_submitted');
-            $export=$this->one('SELECT e.* FROM unit_payment_exports e JOIN unit_payment_export_items i ON i.supplier_id=e.supplier_id AND i.export_id=e.id WHERE i.supplier_id=? AND i.reservation_id=? FOR UPDATE',[$supplier,$id]);if(!$export)PaymentException::reject('export_receipt_missing');$this->result($supplier,$export);
-            $this->cas("UPDATE unit_credit_reservations SET status='cancelled',row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=? AND status='submitted'",[$supplier,$id,$expected]);
+            $export=$this->submittedExport($supplier,$id);
+            $snapshot=self::decode($export['snapshot_json']);
+            $statement=$this->one('SELECT bs.id,bs.account_number,bs.bank_code,bs.statement_date FROM bank_statements bs WHERE bs.id=? AND '.\MyInvoice\Repository\BankStatementOwnershipResolver::sql().' FOR UPDATE',
+                [$statementId,...\MyInvoice\Repository\BankStatementOwnershipResolver::params($supplier)]);
+            if(!$statement)PaymentException::reject('statement_not_found');
+            if(self::account((string)$statement['account_number'],(string)$statement['bank_code'])!==self::account((string)$snapshot['payer']['account_number'],(string)$snapshot['payer']['bank_code']))PaymentException::reject('statement_account_mismatch');
+            if((string)$statement['statement_date']<(string)$snapshot['request']['due_date'])PaymentException::reject('statement_before_due_date');
+            $amount=bcsub($reservation['amount_cents'],$reservation['paid_cents'],0);
+            $recipient=(string)$reservation['request']['recipient_account'];
+            foreach($this->all('SELECT bt.amount,bt.counterparty_account,bt.counterparty_bank FROM bank_transactions bt WHERE '.\MyInvoice\Service\Bank\StatementTransactionScope::sql($statementId).' AND bt.amount<0 FOR UPDATE',[]) as $tx){
+                [$number,$bank]=array_pad(explode('/',$recipient,2),2,'');
+                if(bcmul(ltrim((string)$tx['amount'],'-'),'100',0)===$amount&&self::account((string)$tx['counterparty_account'],(string)$tx['counterparty_bank'])===self::account($number,$bank))PaymentException::reject('refund_executed_on_statement',['statement_id'=>$statementId]);
+            }
+            $this->cas("UPDATE unit_credit_reservations SET status='failed',row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=? AND status='submitted'",[$supplier,$id,$expected]);
             $this->cas('UPDATE unit_credit_lots SET row_version=row_version+1 WHERE supplier_id=? AND id=? AND row_version=?',[$supplier,$credit['id'],$credit['row_version']]);
-            $this->audit($supplier,$id,'cancelled',$payload,$actor);return $this->payments->reservation($supplier,$id);
+            $this->audit($supplier,$id,'failed',$payload,$actor);
+            return $this->reservationState($supplier,$id);
         });
+    }
+
+    /** Rezervace se stavem žádosti o zrušení odeslaného příkazu. */
+    private function reservationState(int $supplier,int $id):array
+    {
+        $request=$this->cancelRequest($supplier,$id);
+        $reservation=$this->payments->reservation($supplier,$id);
+        return $reservation+['cancel_requested'=>$request!==null&&$reservation['status']==='submitted','cancel_request'=>$request];
+    }
+
+    private function cancelRequest(int $supplier,int $id):?array
+    {
+        foreach($this->all("SELECT payload_json,payload_hash,recorded_at FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND object_id=? AND action='cancel_requested' ORDER BY id FOR UPDATE",[$supplier,$id]) as $event){
+            $fact=self::decode($event['payload_json']);self::hash($event['payload_hash'],$fact);
+            return ['reason'=>$fact['reason'],'evidence'=>$fact['evidence'],'recorded_at'=>$event['recorded_at']];
+        }
+        return null;
+    }
+
+    private function auditByToken(int $supplier,int $id,string $action,string $token):?array
+    {
+        foreach($this->all("SELECT payload_json,payload_hash FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND object_id=? AND action=? ORDER BY id FOR UPDATE",[$supplier,$id,$action]) as $event){
+            $fact=self::decode($event['payload_json']);self::hash($event['payload_hash'],$fact);
+            if(($fact['token']??null)===$token)return $fact;
+        }
+        return null;
+    }
+
+    private function submittedExport(int $supplier,int $id):array
+    {
+        $export=$this->one('SELECT e.* FROM unit_payment_exports e JOIN unit_payment_export_items i ON i.supplier_id=e.supplier_id AND i.export_id=e.id WHERE i.supplier_id=? AND i.reservation_id=? FOR UPDATE',[$supplier,$id]);
+        if(!$export)PaymentException::reject('export_receipt_missing');
+        $this->result($supplier,$export);
+        return $export;
+    }
+
+    private static function account(string $number,string $bank):string
+    {
+        return (\MyInvoice\Service\Bank\AccountNumberNormalizer::czechNational($number)??trim($number)).'/'.trim($bank);
     }
     public function find(int $supplier,int $id):array
     {
@@ -69,7 +151,7 @@ final class PaymentExportRepository
             $result=$this->result($supplier,$row);
             $snapshot=self::decode($row['snapshot_json']);$selected=array_values(array_filter($snapshot['reservations'],fn($part)=>$part['id']===$id));
             if(count($selected)!==1||($fact['amount_cents']??null)!==$selected[0]['amount_cents'])PaymentException::reject('export_receipt_mismatch');
-            foreach($result['reservation_statuses'] as $status)if(!in_array($status,['submitted','paid','cancelled'],true))PaymentException::reject('export_receipt_mismatch');
+            foreach($result['reservation_statuses'] as $status)if(!in_array($status,['submitted','paid','cancelled','failed'],true))PaymentException::reject('export_receipt_mismatch');
             return array_intersect_key($result,array_flip(['id','filename','encoding','reservation_ids','reservation_statuses']));
         });
     }
@@ -78,7 +160,7 @@ final class PaymentExportRepository
         if(!$this->db->pdo()->inTransaction())throw new \LogicException('Reservation restoration requires current payment context.');
         $row=$this->one('SELECT e.* FROM unit_payment_exports e JOIN unit_payment_export_items i ON i.supplier_id=e.supplier_id AND i.export_id=e.id WHERE i.supplier_id=? AND i.reservation_id=? FOR UPDATE',[$supplier,$reservation['id']]);
         if($row)$this->result($supplier,$row);
-        return $reservation['status']==='cancelled'?'cancelled':($row!==null?'submitted':'reserved');
+        return in_array($reservation['status'],['cancelled','failed'],true)?$reservation['status']:($row!==null?'submitted':'reserved');
     }
     private function plan(int $supplier,array $request):array
     {

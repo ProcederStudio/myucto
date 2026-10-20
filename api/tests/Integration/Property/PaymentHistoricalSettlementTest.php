@@ -112,7 +112,7 @@ final class PaymentHistoricalSettlementTest extends TestCase
     {
         $f=$this->f;$base=$this->settledPaymentFixture('1','0');$bank=$this->correctionBank('1.00');$this->retire($base);
         $request=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$bank,'expected_version'=>0],'amount_cents'=>'100','accounting_date'=>'2026-02-01','reason'=>'Synthetic new credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>$base['charge']['unit_id'],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>$base['charge']['unit_id'],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic title','due_date'=>'2026-03-01']];
         try{$carrier=\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof::fromCurrentPayment($this->db,$this->correctionPayments(),$f['supplier'],$request);$journal=$carrier->journal($this->db);
         (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->assertPropertyPaymentCarrierJournal($journal['header'],$journal['lines'],$carrier);self::fail('Historical source authorized new retired-unit credit.');}
         catch(\MyInvoice\Service\Accounting\PostingException|\MyInvoice\Service\Property\PropertyException $e){self::assertSame('property_dimension_unavailable',$e->errorCode);}
@@ -145,7 +145,7 @@ final class PaymentHistoricalSettlementTest extends TestCase
     {
         $f=$this->f;$base=$this->settledPaymentFixture('1','0');$debtor=$base['charge']['snapshot']['liability_groups'][0]['members'][0];$payments=$this->correctionPayments();
         $request=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$this->correctionBank('1.00'),'expected_version'=>0],'amount_cents'=>'100','accounting_date'=>'2026-02-01','reason'=>'Synthetic historical credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>$base['charge']['unit_id'],'party_ids'=>[$debtor],'evidence'=>'Synthetic reciprocal title','due_date'=>'2026-02-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>$base['charge']['unit_id'],'party_ids'=>[$debtor],'evidence'=>'Synthetic reciprocal title','due_date'=>'2026-02-01']];
         $origin=$payments->apply($f['supplier'],$request,$payments->preview($f['supplier'],$request)['preview_hash'],'historical-credit',$f['actor']);$this->retire($base);
         $request=['kind'=>'setoff','credit_id'=>$origin['credit_id'],'expected_credit_version'=>1,'amount_cents'=>'100','accounting_date'=>'2026-02-01','reason'=>'Synthetic reciprocal setoff','debts'=>[$base['debt']['id']],
             'payment'=>['debtor_id'=>$debtor,'payer_id'=>$debtor,'received_at'=>'2026-02-01T10:00:00+01:00','choice'=>['claim_ids'=>[$base['debt']['id']],'evidence'=>'Synthetic order']],

@@ -162,7 +162,7 @@ SQL;
     private function creditRequest(array $f,int $bank):array
     {
         return ['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$bank,'expected_version'=>0],'amount_cents'=>'10000','accounting_date'=>'2026-02-01','reason'=>'Synthetic independently entitled credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>array_values($f['units'])[0],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic creditor title','due_date'=>'2026-03-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>array_values($f['units'])[0],'party_ids'=>[$f['clients'][1]],'evidence'=>'Synthetic creditor title','due_date'=>'2026-03-01']];
     }
     private function writer(Connection $db):PaymentRepository
     {

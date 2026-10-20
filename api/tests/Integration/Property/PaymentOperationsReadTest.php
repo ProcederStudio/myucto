@@ -53,7 +53,7 @@ final class PaymentOperationsReadTest extends TestCase
         $bank=$this->correctionBank('1.00');
         for($i=0;$i<5;$i++){
             $request=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$bank,'expected_version'=>$i],'amount_cents'=>'10','accounting_date'=>'2026-02-01','reason'=>'Synthetic page credit','debts'=>[],
-                'credit_entitlement'=>['unit_id'=>$this->f['units']['G12'],'party_ids'=>[$this->f['clients'][1]],'evidence'=>'Synthetic title','due_date'=>'2026-03-01']];
+                'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>$this->f['units']['G12'],'party_ids'=>[$this->f['clients'][1]],'evidence'=>'Synthetic title','due_date'=>'2026-03-01']];
             $this->correctionPayments()->apply($supplier,$request,$this->correctionPayments()->preview($supplier,$request)['preview_hash'],'page-credit-'.$i,$this->f['actor']);
         }
         $counts=[];

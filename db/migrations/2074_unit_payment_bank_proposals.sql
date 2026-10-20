@@ -30,3 +30,7 @@ CREATE TABLE IF NOT EXISTS unit_payment_bank_proposals (
  CONSTRAINT fk_unit_bank_proposal_transaction FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions(id) ON DELETE CASCADE,
  CONSTRAINT fk_unit_bank_proposal_unit FOREIGN KEY (supplier_id, unit_id) REFERENCES property_objects(supplier_id, id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Žádost o zrušení odeslaného příkazu k vratce a doložené neprovedení se čtou z auditu
+-- rezervace po stránkách; bez indexu by dotaz procházel celý audit plateb firmy.
+ALTER TABLE unit_payment_audit ADD INDEX IF NOT EXISTS ix_unit_payment_audit_object (supplier_id, object_kind, object_id, action);

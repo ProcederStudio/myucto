@@ -43,7 +43,7 @@ final class PaymentOperationUnitScopeTest extends TestCase
         $unit=array_values(array_filter($this->f['units'],fn($id)=>$id!==$base['charge']['unit_id']))[0];
         $payments=$this->correctionPayments();
         $creditRequest=['kind'=>'allocation','source'=>['kind'=>'bank','id'=>$this->correctionBank('100.00'),'expected_version'=>0],'amount_cents'=>'10000','accounting_date'=>'2026-02-01','reason'=>'Synthetic independent cross-unit credit','debts'=>[],
-            'credit_entitlement'=>['unit_id'=>$unit,'party_ids'=>[$debtor],'evidence'=>'Synthetic reciprocal creditor title','due_date'=>'2026-02-01']];
+            'credit_entitlement'=>['third_party' => ['basis' => 'other_documented', 'evidence' => 'Synthetic documented creditor title'], 'unit_id'=>$unit,'party_ids'=>[$debtor],'evidence'=>'Synthetic reciprocal creditor title','due_date'=>'2026-02-01']];
         $credit=$payments->apply($supplier,$creditRequest,$payments->preview($supplier,$creditRequest)['preview_hash'],'cross-unit-credit',$this->f['actor']);
         $request=['kind'=>'setoff','credit_id'=>$credit['credit_id'],'expected_credit_version'=>1,'amount_cents'=>'100','accounting_date'=>'2026-02-01','reason'=>'Synthetic cross-unit setoff','debts'=>[$base['debt']['id']],
             'payment'=>['debtor_id'=>$debtor,'payer_id'=>$debtor,'received_at'=>'2026-02-01T10:00:00+01:00','choice'=>['claim_ids'=>[$base['debt']['id']],'evidence'=>'Synthetic debtor direction']],
