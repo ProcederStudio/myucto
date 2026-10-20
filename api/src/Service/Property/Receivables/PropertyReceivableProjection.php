@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace MyInvoice\Service\Property\Receivables;
 use MyInvoice\Infrastructure\Database\Connection;
-use MyInvoice\Repository\Property\Receivables\{FinancialHistoryRepository,PartyEventRepository};
+use MyInvoice\Repository\Property\Receivables\{FinancialHistoryRepository,PartyEventRepository,PropertySaldoReadRepository};
 use MyInvoice\Service\Property\{PropertyInput,PropertyInstant};
 final class PropertyReceivableProjection
 {
@@ -13,6 +13,15 @@ final class PropertyReceivableProjection
         if($currentRead&&!$this->db->pdo()->inTransaction())throw new \LogicException('Current projection requires owner period locks.');
         $owned=!$this->db->pdo()->inTransaction();if($owned){$this->db->pdo()->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');$this->db->pdo()->exec('START TRANSACTION READ ONLY');}
         try{
+            if(!$currentRead&&isset($scope['unit_id'])){
+                // Karta jednotky čte jen uzávěr dané jednotky po indexech, ne celou firmu.
+                $snapshot=PropertyInstant::withNormalizationContext(function()use($supplier,$asOf,$knownAt,$scope):array{
+                    $scoped=(new PropertySaldoReadRepository($this->db))->unitHistory($supplier,[$scope['unit_id']]);
+                    $history=(new PropertyReceivableHistoryByUnit($scoped['history']))->forUnit($scope['unit_id']);
+                    return self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$scoped['events']);
+                });
+                if($owned)$this->db->pdo()->commit();return $snapshot+['snapshot_hash'=>PropertyInput::hashLists($snapshot,['claims','credits','current_party_heads'])];
+            }
             $history=(new FinancialHistoryRepository($this->db))->readProjection($supplier,$currentRead);$events=(new PartyEventRepository($this->db))->history($supplier,$currentRead);
             $snapshot=self::reduceReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events);
             unset($history,$events);

@@ -26,27 +26,44 @@ final class PropertySaldoReadRepository
             $q=$pdo->prepare("SELECT id,code FROM property_objects WHERE supplier_id=? AND kind='unit' AND id>? ORDER BY id LIMIT ".($limit+1));$q->execute([$supplier,$after]);$units=$q->fetchAll(PDO::FETCH_ASSOC);$more=count($units)>$limit;if($more)array_pop($units);$ids=array_map('intval',array_column($units,'id'));
             $items=[];$provenance=[];
             if($ids!==[]){
-                $reader=new PropertySaldoReadClosure($this->db);$partyReader=new PartyEventRepository($this->db);$selected=[];
-                do{
-                    $closure=$reader->units($supplier,$ids,$selected);$party=$partyReader->readHistoryForDebts($supplier,$closure->debtIds,$ids);$selected=$party['debt_ids'];$debtIds=$closure->debtIds;sort($debtIds,SORT_NUMERIC);
-                }while($selected!==$debtIds);
-                $charges=(new IssuanceReadRepository($this->db))->findMany($supplier,$closure->chargeIds);
-                PropertySaldoReadProof::materializations($closure->rows,$charges);PropertySaldoReadProof::creditEvents($closure->rows);
-                $history=(new FinancialHistoryRepository($this->db))->reduceReadHistory($charges,fn(string $table)=>$closure->rows[$table]??[]);
-                PropertySaldoReadProof::parties($history,$party['events']);
-                $accessoryAllocations=[];foreach($closure->rows['unit_payment_allocations'] as $allocation)if($allocation['accessory_id']!==null)$accessoryAllocations[(int)$allocation['id']]=true;
-                foreach($closure->rows as $table=>$rows)foreach($rows as $row)$provenance[$table][]=PropertyInput::hash($row);
-                foreach($charges as $charge)$provenance['unit_charges'][]=PropertyInput::hash($charge);
-                foreach($party['events'] as $event)$provenance['party_events'][]=PropertyInput::hash($event);
-                $provenance['financial_history'][]=PropertyInput::hash($history);
-                unset($closure,$charges);
-                $histories=new PropertyReceivableHistoryByUnit($history);unset($history);
-                foreach($units as $unit){$id=(int)$unit['id'];$card=PropertyReceivableProjection::reduceReadHistory($supplier,$asOf,$knownAt,['unit_id'=>$id],$histories->forUnit($id),$party['events']);$items[]=PropertySaldoSummary::fromCard($card,$accessoryAllocations)+['unit_code'=>$unit['code']];}
+                $scoped=$this->unitHistory($supplier,$ids);$provenance=$scoped['provenance'];
+                $histories=new PropertyReceivableHistoryByUnit($scoped['history']);
+                foreach($units as $unit){$id=(int)$unit['id'];$card=PropertyReceivableProjection::reduceReadHistory($supplier,$asOf,$knownAt,['unit_id'=>$id],$histories->forUnit($id),$scoped['events']);$items[]=PropertySaldoSummary::fromCard($card,$scoped['accessory_allocations'])+['unit_code'=>$unit['code']];}
+                unset($scoped,$histories);
             }
             $digest=PropertyInput::hash(['schema'=>1,'supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'unit_ids'=>$ids,'provenance'=>$provenance]);
             $result=['kind'=>'recorded_property_saldo_page','as_of'=>$asOf,'known_at'=>$knownAt,'items'=>$items,'next_cursor'=>$more?PropertySaldoCursor::encode($supplier,$asOf,$knownAt,$ids[array_key_last($ids)]):null,
                 'read_scope_digest'=>$digest,'proof_scope'=>['kind'=>'selected_unit_financial_closure','unit_ids'=>$ids,'schema'=>1],
                 'consistency'=>'request_snapshot','coverage'=>['scope'=>'recorded_s3_s4_s6','complete'=>false,'service_settlements'=>'not_implemented','opening_import'=>'verified_recorded_batches']];
             return $result;
+    }
+    /**
+     * Uzavřená finanční historie vybraných jednotek: dluhy, platby a právní události jen těchto
+     * jednotek po indexech, bez čtení celé firmy. Volající drží konzistentní transakci.
+     */
+    public function unitHistory(int $supplier,array $unitIds):array
+    {
+        if(!$this->db->pdo()->inTransaction())throw new \LogicException('Unit history requires a consistent transaction.');
+        foreach($unitIds as $id)PropertyInput::id($id,'unit_id');
+        $reader=new PropertySaldoReadClosure($this->db);$partyReader=new PartyEventRepository($this->db);$selected=[];
+        do{
+            $closure=$reader->units($supplier,$unitIds,$selected);
+            $party=$partyReader->readHistoryForDebts($supplier,$closure->debtIds,$unitIds);
+            $selected=$party['debt_ids'];
+            $debtIds=$closure->debtIds;sort($debtIds,SORT_NUMERIC);
+        }while($selected!==$debtIds);
+        $charges=(new IssuanceReadRepository($this->db))->findMany($supplier,$closure->chargeIds);
+        PropertySaldoReadProof::materializations($closure->rows,$charges);
+        PropertySaldoReadProof::creditEvents($closure->rows);
+        $history=(new FinancialHistoryRepository($this->db))->reduceReadHistory($charges,fn(string $table)=>$closure->rows[$table]??[]);
+        PropertySaldoReadProof::parties($history,$party['events']);
+        $accessoryAllocations=[];
+        foreach($closure->rows['unit_payment_allocations'] as $allocation)if($allocation['accessory_id']!==null)$accessoryAllocations[(int)$allocation['id']]=true;
+        $provenance=[];
+        foreach($closure->rows as $table=>$rows)foreach($rows as $row)$provenance[$table][]=PropertyInput::hash($row);
+        foreach($charges as $charge)$provenance['unit_charges'][]=PropertyInput::hash($charge);
+        foreach($party['events'] as $event)$provenance['party_events'][]=PropertyInput::hash($event);
+        $provenance['financial_history'][]=PropertyInput::hash($history);
+        return ['history'=>$history,'events'=>$party['events'],'accessory_allocations'=>$accessoryAllocations,'provenance'=>$provenance];
     }
 }
