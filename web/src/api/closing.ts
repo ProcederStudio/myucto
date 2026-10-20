@@ -479,10 +479,12 @@ export interface PrepaidExpenseAccrualPreview {
   existing: { entry_id: number; amount: number | null } | null
 }
 
-/** Časové rozlišení výnosů příštích období (384) z řádků vydaných faktur. */
+/** Časové rozlišení výnosů příštích období (384) z řádků vydaných faktur a členských předpisů NNO. */
 export interface DeferredRevenueAccrualItem {
+  source: 'invoice' | 'nonprofit_membership'
   item_id: number
-  invoice_id: number
+  invoice_id: number | null
+  membership_case_id: number | null
   invoice_number: string
   description: string
   currency_code: string
@@ -503,7 +505,7 @@ export interface DeferredRevenueAccrualPreview {
   period: { id: number; fiscal_year: number; starts_on: string; ends_on: string }
   next_period_start: string
   items: DeferredRevenueAccrualItem[]
-  documents: { invoice_id: number; invoice_number: string; deferred_amount: number }[]
+  documents: { source: 'invoice' | 'nonprofit_membership'; invoice_id: number | null; membership_case_id: number | null; invoice_number: string; deferred_amount: number }[]
   by_account: Record<string, number>
   total: number
   existing: { entry_id: number; amount: number | null } | null

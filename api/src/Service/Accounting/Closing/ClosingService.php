@@ -1986,7 +1986,7 @@ final class ClosingService
             $deferFrom = $from < $nextStart ? $nextStart : $from;
             $deferDays = self::daysInclusive($deferFrom, $to);
             [$netCzk, $accounts] = $this->deferredRevenueItem($supplierId, $row, $contexts);
-            $deferred = round($netCzk - self::prepaidCumRecognized($netCzk, $from, $to, $endsOn), 2);
+            $deferred = self::deferredRevenueAmount($netCzk, $from, $to, $endsOn);
             if ((int) round($deferred * 100) === 0) {
                 continue;
             }
@@ -2007,15 +2007,21 @@ final class ClosingService
             foreach (self::spreadByAccount($deferred, $accounts) as $account => $part) {
                 $byAccount[$account] = round(($byAccount[$account] ?? 0.0) + $part, 2);
             }
-            $invoiceId = (int) $row['invoice_id'];
-            $documents[$invoiceId] = [
+            $membershipCaseId = $row['membership_case_id'] === null ? null : (int) $row['membership_case_id'];
+            $invoiceId = $row['invoice_id'] === null ? null : (int) $row['invoice_id'];
+            $documentKey = $membershipCaseId === null ? 'invoice:' . $invoiceId : 'membership:' . $membershipCaseId;
+            $documents[$documentKey] = [
+                'source' => (string) $row['source'],
                 'invoice_id' => $invoiceId,
+                'membership_case_id' => $membershipCaseId,
                 'invoice_number' => (string) $row['varsymbol'],
-                'deferred_amount' => round(($documents[$invoiceId]['deferred_amount'] ?? 0.0) + $deferred, 2),
+                'deferred_amount' => round(($documents[$documentKey]['deferred_amount'] ?? 0.0) + $deferred, 2),
             ];
             $items[] = [
+                'source' => (string) $row['source'],
                 'item_id' => (int) $row['item_id'],
                 'invoice_id' => $invoiceId,
+                'membership_case_id' => $membershipCaseId,
                 'invoice_number' => (string) $row['varsymbol'],
                 'description' => (string) $row['description'],
                 'currency_code' => (string) $row['currency_code'],
@@ -2176,7 +2182,49 @@ final class ClosingService
               ORDER BY i.id, ii.order_index, ii.id'
         );
         $stmt->execute([$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom]);
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $rows[] = $row + ['source' => 'invoice', 'membership_case_id' => null, 'revenue_account_code' => null];
+        }
+        return [...$rows, ...$this->membershipDeferredRevenueRows($supplierId, $afterDate, $postedFrom, $postedTo, $startsBy)];
+    }
+
+    /**
+     * Členské příspěvky NNO s obdobím přesahujícím `afterDate`. Předpis účtuje celý příspěvek
+     * do výnosu (684) k účetnímu datu; období od–do nese účetní případ. Odklad i rozpuštění
+     * jde stejnou cestou jako u řádků vydaných faktur, výnosový účet je ten zaúčtovaný.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function membershipDeferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT o.id AS item_id, NULL AS invoice_id, cc.id AS membership_case_id,
+                    o.amount_cents / 100 AS total_without_vat,
+                    cc.period_from AS accrual_from, cc.period_to AS accrual_to,
+                    cc.title_key AS varsymbol, 'CZK' AS currency_code,
+                    coa.account_code AS revenue_account_code, 'nonprofit_membership' AS source
+               FROM nonprofit_membership_charge_cases cc
+               JOIN nonprofit_membership_charge_operations o
+                 ON o.supplier_id = cc.supplier_id AND o.case_id = cc.id AND o.operation = 'issue'
+               JOIN journal_entries je
+                 ON je.supplier_id = o.supplier_id AND je.id = o.journal_entry_id
+               JOIN chart_of_accounts coa
+                 ON coa.supplier_id = o.supplier_id AND coa.id = o.revenue_account_id
+              WHERE cc.supplier_id = ?
+                AND cc.period_to > ?
+                AND (? IS NULL OR cc.period_from <= ?)
+                AND je.posted_at IS NOT NULL AND je.reversed_by IS NULL
+                AND je.entry_date <= ?
+                AND (? IS NULL OR je.entry_date >= ?)
+              ORDER BY cc.id, o.id"
+        );
+        $stmt->execute([$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom]);
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $rows[] = $row + ['description' => 'Členský příspěvek ' . $row['varsymbol']];
+        }
+        return $rows;
     }
 
     /**
@@ -2192,6 +2240,9 @@ final class ClosingService
      */
     private function deferredRevenueItem(int $supplierId, array $row, array &$contexts): array
     {
+        if ($row['source'] === 'nonprofit_membership') {
+            return [round((float) $row['total_without_vat'], 2), [(string) $row['revenue_account_code'] => 1.0]];
+        }
         $invoiceId = (int) $row['invoice_id'];
         if (!isset($contexts[$invoiceId])) {
             $resolved = $this->posting->issuedItemRevenueAccounts($supplierId, $invoiceId);
@@ -2299,6 +2350,15 @@ final class ClosingService
      * kumulativních hodnot na hranicích období telescopuje přesně na odloženou částku, takže
      * 381 se rozpustí do haléře bez zbytku napříč N+1, N+2, …
      */
+    /**
+     * Část výnosu [from..to], kterou uzávěrka k `endsOn` odloží na 384. Volají ji i náhledy
+     * dokladů (členský předpis NNO), aby návrh odkladu seděl s krokem uzávěrky na haléř.
+     */
+    public static function deferredRevenueAmount(float $netCzk, string $from, string $to, string $endsOn): float
+    {
+        return round($netCzk - self::prepaidCumRecognized($netCzk, $from, $to, $endsOn), 2);
+    }
+
     private static function prepaidCumRecognized(float $netCzk, string $from, string $to, string $through): float
     {
         $from = substr($from, 0, 10);

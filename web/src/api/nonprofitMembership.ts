@@ -85,6 +85,7 @@ export interface MembershipPreview {
     classification?: MembershipProofClassification
   }
   journal_plan?: JournalPlanLine[]
+  deferral?: { mechanism: 'closing.deferred_revenue_accrual'; balance_sheet_date: string; deferred_amount: string } | null
   original_operation_id?: number; original_record_hash?: string
   original?: { id: number; amount_cents?: number; proof?: { accounts?: { receivable?: { account_code: string; name: string }; revenue?: { account_code: string; name: string } } } }
   target_period?: { id: number; fiscal_year: number; starts_on: string; ends_on: string; status: string }

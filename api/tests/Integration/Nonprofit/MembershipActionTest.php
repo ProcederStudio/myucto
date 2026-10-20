@@ -15,6 +15,7 @@ use MyInvoice\Repository\Nonprofit\Membership\MembershipBalanceRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipChargeRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipRepository;
 use MyInvoice\Security\EffectiveRole;
+use MyInvoice\Service\Accounting\Closing\ClosingService;
 use MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Nonprofit\Membership\MembershipPublicCatalog;
@@ -35,10 +36,11 @@ final class MembershipActionTest extends TestCase
     private int $actor;
     private int $client;
     private array $classification;
+    private \Psr\Container\ContainerInterface $container;
 
     protected function setUp(): void
     {
-        $container = Bootstrap::buildContainer();
+        $container = $this->container = Bootstrap::buildContainer();
         $this->db = $container->get(Connection::class);
         $this->pdo = $this->db->pdo();
         self::assertStringEndsWith('_test', (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn());
@@ -170,6 +172,77 @@ final class MembershipActionTest extends TestCase
         }
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM nonprofit_membership_charge_cases WHERE supplier_id=' . $this->supplier)->fetchColumn());
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM nonprofit_membership_charge_operations WHERE supplier_id=' . $this->supplier)->fetchColumn());
+    }
+
+    public function testRevenueAccountMustBeMembershipRevenueRole(): void
+    {
+        $this->pdo->prepare("INSERT INTO chart_of_accounts(supplier_id,account_code,name,account_type) VALUES(?,'649.100','Synthetic other revenue','revenue')")->execute([$this->supplier]);
+        $member = $this->activeMember('M-ACTION-ROLE');
+        $charge = $this->charge($member, '2026-01-01', '2026-12-31', '2026-01-01', '1200.00');
+        $charge['revenue_account'] = '649.100';
+        [$status, $error] = $this->call('POST', 'preview', ['operation' => 'issue', 'request' => $charge]);
+        self::assertSame(409, $status);
+        self::assertSame('nonprofit_membership_revenue_account_invalid', $error['error']['code']);
+        self::assertSame('684', $error['error']['required_account'] ?? null);
+
+        $charge['revenue_account'] = '684.100';
+        [$status, $preview] = $this->call('POST', 'preview', ['operation' => 'issue', 'request' => $charge]);
+        self::assertSame(200, $status);
+        self::assertNull($preview['deferral']);
+    }
+
+    public function testChargeCrossingBalanceSheetDateIsDeferredByClosingStep(): void
+    {
+        $member = $this->activeMember('M-ACTION-DEFER');
+        $charge = $this->charge($member, '2026-07-01', '2027-06-30', '2026-07-01', '12000.00');
+        [$status, $preview] = $this->call('POST', 'preview', ['operation' => 'issue', 'request' => $charge]);
+        self::assertSame(200, $status);
+        // 365 dní období, 184 z nich do 31. 12. 2026: odloží se 12 000 × 181 / 365.
+        self::assertSame(['mechanism' => 'closing.deferred_revenue_accrual', 'balance_sheet_date' => '2026-12-31', 'deferred_amount' => '5950.68'], $preview['deferral']);
+
+        [$status, $confirmed] = $this->call('POST', 'confirm', ['operation' => 'issue', 'request' => $charge,
+            'expected_case_version' => $preview['expected_case_version'], 'preview_hash' => $preview['preview_hash'], 'idempotency_key' => 'membership-action-defer']);
+        self::assertSame(200, $status);
+
+        $closing = $this->container->get(ClosingService::class);
+        $closingPreview = $closing->deferredRevenueAccrualPreview($this->supplier, $this->period);
+        $items = array_values(array_filter($closingPreview['items'], fn (array $item): bool => $item['source'] === 'nonprofit_membership'));
+        self::assertCount(1, $items);
+        self::assertSame((int) $confirmed['case']['id'], $items[0]['membership_case_id']);
+        self::assertNull($items[0]['invoice_id']);
+        self::assertSame('684.100', $items[0]['debit_account']);
+        self::assertSame(5950.68, $items[0]['deferred_amount']);
+        self::assertSame([['fiscal_year' => 2027, 'amount' => 5950.68]], $items[0]['release_schedule']);
+        self::assertSame(5950.68, $closingPreview['by_account']['684.100']);
+
+        [$status, $reversePreview] = $this->call('POST', 'preview', ['operation' => 'reverse',
+            'request' => ['case_id' => (int) $confirmed['case']['id'], 'accounting_date' => '2026-08-01', 'reason' => 'Synthetic reversal']]);
+        self::assertSame(200, $status);
+        [$status] = $this->call('POST', 'confirm', ['operation' => 'reverse',
+            'request' => ['case_id' => (int) $confirmed['case']['id'], 'accounting_date' => '2026-08-01', 'reason' => 'Synthetic reversal'],
+            'expected_case_version' => $reversePreview['expected_case_version'], 'preview_hash' => $reversePreview['preview_hash'], 'idempotency_key' => 'membership-action-defer-reverse']);
+        self::assertSame(200, $status);
+        $afterReverse = $closing->deferredRevenueAccrualPreview($this->supplier, $this->period);
+        self::assertSame([], array_values(array_filter($afterReverse['items'], fn (array $item): bool => $item['source'] === 'nonprofit_membership')));
+    }
+
+    private function activeMember(string $number): int
+    {
+        [$status, $member] = $this->call('POST', 'createMember', ['client_id' => $this->client, 'member_number' => $number]);
+        self::assertSame(201, $status);
+        [$status] = $this->call('POST', 'appendRevision', ['status' => 'active', 'effective_from' => '2026-01-01', 'expected_revision' => 0,
+            'idempotency_key' => 'active-' . $number, 'legal_basis' => ['organisation_form' => 'association', 'relationship' => 'nonreciprocal_membership',
+                'reference' => 'Synthetic statutes article 5', 'evidence' => 'Synthetic signed membership application']], ['id' => (string) $member['id']]);
+        self::assertSame(201, $status);
+        return (int) $member['id'];
+    }
+
+    private function charge(int $member, string $from, string $to, string $accountingDate, string $amount): array
+    {
+        return ['member_id' => $member, 'title_key' => 'dues-' . $from, 'period_from' => $from, 'period_to' => $to,
+            'accounting_date' => $accountingDate, 'due_date' => $accountingDate, 'amount' => $amount, 'receivable_account' => '315.100',
+            'revenue_account' => '684.100', 'title_reference' => 'Synthetic statutes article 5', 'evidence' => 'Synthetic annual resolution',
+            'nonreciprocal' => true, 'reason' => 'Synthetic membership charge', 'classification' => $this->classification];
     }
 
     public function testForeignTenantClientIsRejectedAsInvalidReference(): void

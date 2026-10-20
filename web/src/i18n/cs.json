@@ -37610,6 +37610,7 @@
     "proofProfile": "Právní profil zachycený serverem: č. {id}.",
     "profileMismatch": "Profil v náhledu se liší od posledního načteného profilu období. Před potvrzením si ho ověřte.",
     "taxUnclassified": "Daňové zařazení příspěvku tímto zápisem není určeno. Neposuzuje se osvobození ani jiná daňová úleva.",
+    "deferralProposal": "Období příspěvku přesahuje rozvahový den {date}. Krok uzávěrky Časové rozlišení odloží {amount} z výnosu 684 na 384 a v dalším období ho rozpustí.",
     "classificationLoading": "Načítám účetní členění (osy činnosti, druhu činnosti a daňového režimu).",
     "classificationError": "Účetní členění se nepodařilo načíst.",
     "classificationRetry": "Načíst znovu",
