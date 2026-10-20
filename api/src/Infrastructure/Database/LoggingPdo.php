@@ -66,6 +66,11 @@ final class LoggingPdo extends PDO
         return $this->transactions->marker($name, parent::inTransaction());
     }
 
+    public function statementsTracked(): bool
+    {
+        return $this->statementsTracked;
+    }
+
     public function hasTransactionMarker(object $marker): bool
     {
         return $this->statementsTracked && $this->transactions->contains($marker, parent::inTransaction());

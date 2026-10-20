@@ -19,7 +19,7 @@ final class ServiceLifecycleWorkflow
     {
         return match ($operation) {
             'start','start_opening' => 'property.settlements.manage',
-            'unwind' => 'property.settlements.reverse',
+            'unwind' => 'property.settlements.unwind',
             'finalize' => 'property.settlements.post',
             default => throw new PropertyException('property_invalid_field','Neplatná operace.',422),
         };
@@ -133,6 +133,8 @@ final class ServiceLifecycleWorkflow
             $case=$c['case_id'];
             if($op==='unwind') $journals=$this->owner->unwind($supplier,$case,$c['accounting_date'],$actor);
             else {
+                // Konečné zúčtování rozpustí dohad ke stejnému datu, pokud se tak ještě nestalo.
+                if(!$this->owner->isUnwound($supplier,$case)) $journals=$this->owner->unwindWithFinal($supplier,$case,$c['accounting_date'],$actor);
                 $final=$this->owner->finalize($supplier,$case,$c['invoice_id'],$c['line_id'],$c['accounting_date'],$c['title'],$actor);
                 if(isset($final['ledger'])) $journals[]=$final['ledger']['entry']['id'];
             }

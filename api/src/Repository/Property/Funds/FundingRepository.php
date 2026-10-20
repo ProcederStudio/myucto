@@ -60,7 +60,6 @@ final class FundingRepository
     private function plan(int $supplier,array $r,int $actor):array
     {
         PropertyInput::id($actor,'actor');$house=$r['house_id'];$date=$r['accounting_date'];if($this->revision($supplier,$house)!==$r['expected_revision'])E::reject('revision_conflict');(new PaymentPostingDate($this->db))->assertOpen($supplier,$date);
-        $latest=$this->q('SELECT MAX(accounting_date) FROM property_funding_operations WHERE supplier_id=? AND house_id=? AND receipt_json IS NOT NULL',[$supplier,$house])->fetchColumn();if($latest!==null&&$latest!==false&&$latest>$date)E::reject('chronology');
         $source=new FundingSourceProof($this->db);$lines=[];$effects=[];$claims=[];$proofs=[];$sourceEntry=null;$kind=$r['kind'];$sourceType='property_funding';$sourceId=null;
         if($kind==='draw'||$kind==='income'){
             if(!is_array($r['key']??null))PropertyInput::invalid('key');$registry=$source->registry($supplier,$house,$date,$r['key'],$r['amount_cents']);if(PropertyInstant::normalize($r['key']['at'])>$r['effective_at'])E::reject('key_date');$proofs['registry']=$registry;
@@ -110,9 +109,37 @@ final class FundingRepository
 
             foreach($original['receipt']['effects'] as $effect)$this->addEffect($effects,$effect['unit_id'],$effect['account_code'],bcsub('0',$effect['amount_cents'],0),$effect['source_kind']===null?null:['kind'=>$effect['source_kind'],'id'=>$effect['source_id']],$effect['parties']);
         }
+        $this->assertChronology($supplier,$house,$date,$effects);
         $this->assertClaims($r,array_values($claims));
         $period=$this->q("SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on<=? AND ends_on>=? AND status='open' FOR UPDATE",[$supplier,$date,$date])->fetchColumn();if(!$period)E::reject('period');
         $plan=['request'=>$r,'actor'=>$actor,'proofs'=>$proofs,'effects'=>$effects,'claims'=>array_values($claims),'journal'=>['header'=>['supplier_id'=>$supplier,'period_id'=>(int)$period,'entry_date'=>$date,'document_date'=>$date,'document_no'=>null,'description'=>'SVJ '.$kind,'source_type'=>$sourceType,'source_id'=>$sourceId],'lines'=>$lines,'source_entry_id'=>$sourceEntry]];$proof=new \MyInvoice\Service\Property\Funds\FundingJournalProof($this->db);$plan['journal']['lines']=$proof->lines($supplier,$plan,true);$proof->assertPlan($supplier,$plan);return $plan;
+    }
+    /**
+     * Zpětné datum smí operace mít jen vůči zůstatkům, kterých se týká. Pozdější pohyb
+     * jiného zdroje (např. lednový příjem na 379.920) prosincové čerpání z 955 nijak
+     * neovlivní, kdežto pozdější pohyb téhož účtu jednotky by zpětně změnil zůstatek,
+     * proti kterému proběhla kontrola kapacity.
+     */
+    private function assertChronology(int $supplier,int $house,string $date,array $effects):void
+    {
+        $pairs=[];
+        foreach($effects as $effect){
+            $pairs[$effect['unit_id'].':'.$effect['account_code']]=[$effect['unit_id'],$effect['account_code']];
+        }
+        if($pairs===[])return;
+        $conditions=[];$args=[$supplier,$house,$date];
+        foreach($pairs as [$unit,$account]){
+            $conditions[]='(e.unit_id=? AND e.account_code=?)';
+            array_push($args,$unit,$account);
+        }
+        $later=$this->q(
+            'SELECT o.id FROM property_funding_operations o'
+            .' JOIN property_funding_effects e ON e.supplier_id=o.supplier_id AND e.operation_id=o.id'
+            .' WHERE o.supplier_id=? AND o.house_id=? AND o.accounting_date>? AND o.receipt_json IS NOT NULL'
+            .' AND ('.implode(' OR ',$conditions).') LIMIT 1',
+            $args
+        )->fetchColumn();
+        if($later!==false)E::reject('chronology');
     }
     private function assertClaims(array $r,array $actual):void
     {

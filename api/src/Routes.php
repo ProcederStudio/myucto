@@ -2478,6 +2478,9 @@ final class Routes
             $g->get('/service-settlements/{id:[0-9]+}', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'detail']);
             $g->get('/service-settlements/{id:[0-9]+}/dossier', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'dossier']);
             $g->post('/service-settlements/{id:[0-9]+}/dossier-events', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'appendDossierEvent']);
+            $g->get('/service-settlements/{id:[0-9]+}/deadlines', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'deadlines']);
+            $g->post('/service-settlements/{id:[0-9]+}/objections', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'recordObjection']);
+            $g->post('/service-settlements/objections/{id:[0-9]+}/resolve', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'resolveObjection']);
             $g->get('/service-settlements/{id:[0-9]+}/disposition', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'disposition']);
             $g->get('/service-settlements/{id:[0-9]+}/current', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'current']);
             $g->post('/service-settlements/prepare', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'prepare']);

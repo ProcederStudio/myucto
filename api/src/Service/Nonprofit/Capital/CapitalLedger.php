@@ -3,6 +3,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Nonprofit\Capital;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\DimensionAssignmentRepository;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\AccountRoleResolver;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use PDO;
 final class CapitalLedger
@@ -24,15 +26,23 @@ final class CapitalLedger
     }
     public function source(int $supplier,array $policy,bool $lock=true):array
     {
-        $line=$this->line($supplier,$policy['source_line_id'],$lock);$prefix=$policy['kind']==='investment'?'901':'911';
+        $line=$this->line($supplier,$policy['source_line_id'],$lock);
+        $prefix=self::sourceAccount($this->db,$supplier,$policy['kind'],$line['date']);
         if(!str_starts_with($line['account_code'],$prefix)||$line['account_type']!=='equity'||$line['side']!=='credit'||$line['amount_cents']<=0||$line['dimension_splits']!==[])CapitalPolicy::invalid('Zdroj musí být samostatný kladný kreditní řádek správného účtu901 nebo911.');
         return $line;
+    }
+    /** Účet zdroje z rolí účetního rámce: vlastní jmění (901) pro investiční zdroj, fondy (911) pro fond. */
+    public static function sourceAccount(Connection $db,int $supplier,string $kind,string $date):string
+    {
+        $profile=AccountRoleResolver::fromConnection($db)->forDate($supplier,$date);
+        if($profile->framework!==AccountingFrameworkService::CZ_504)CapitalPolicy::invalid('Investiční zdroje a fondy vyžadují účetní rámec504.');
+        return $profile->account($kind==='investment'?'result.own_equity':'result.funds');
     }
     public function cost(int $supplier,int $line,bool $lock=true):array
     {
         $cost=$this->line($supplier,$line,$lock);
         if($cost['account_type']!=='expense'||!str_starts_with($cost['account_code'],'5')||str_starts_with($cost['account_code'],'59')||$cost['amount_cents']<=0||$cost['side']!=='debit'||$cost['activity_kind_id']===null||$cost['dimension_splits']!==[])CapitalPolicy::invalid('Čerpání vyžaduje samostatný kladný náklad s doloženým druhem činnosti.');
-        try{(new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->financingCost($supplier,$line);}catch(\MyInvoice\Service\Accounting\PostingException $e){throw new CapitalException($e->errorCode,$e->getMessage(),$e->httpStatus);}
+        try{(new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->financingCost($supplier,$line,$lock);}catch(\MyInvoice\Service\Accounting\PostingException $e){throw new CapitalException($e->errorCode,$e->getMessage(),$e->httpStatus);}
         return $cost;
     }
 }

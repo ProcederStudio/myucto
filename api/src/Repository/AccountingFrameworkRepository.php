@@ -167,6 +167,28 @@ final class AccountingFrameworkRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    /**
+     * Current read účetní historie firmy: jakýkoli zápis v deníku (i nezaúčtovaný)
+     * nebo jakýkoli účet v osnově. Obojí jde po indexu začínajícím supplier_id
+     * a končí na prvním nalezeném řádku.
+     */
+    public function hasAccountingHistoryForUpdate(int $supplierId): bool
+    {
+        $this->assertTransaction();
+        foreach ([
+            'SELECT id FROM journal_entries WHERE supplier_id = ? ORDER BY supplier_id, id LIMIT 1 FOR UPDATE',
+            'SELECT id FROM chart_of_accounts WHERE supplier_id = ? LIMIT 1 FOR UPDATE',
+        ] as $sql) {
+            $stmt = $this->db->pdo()->prepare($sql);
+            $stmt->execute([$supplierId]);
+            if ($stmt->fetchColumn() !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function assertTransaction(): void
     {
         if (!$this->db->pdo()->inTransaction()) {

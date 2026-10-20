@@ -31,6 +31,15 @@ export interface SettlementApplyRequest { accounting_date: string; evidence: str
 export interface SettlementApplicationPreview { preview_hash: string; plan: SettlementPlan; expected_version: number }
 const path = '/property/service-settlements'
 const options = (supplier: number) => ({ headers: { 'X-Supplier-Id': String(supplier) } })
+export type SettlementDeadlineWarning = 'delivery_overdue' | 'delivery_unrecorded' | 'delivery_late' | 'due_missing' | 'due_beyond_limit' | 'objection_without_delivery' | 'objection_late' | 'objection_resolution_overdue' | 'objection_resolved_late'
+export interface SettlementObjection { id: number; recipient_id: number; received_on: string; content: string; resolved_on: string | null; resolution: string | null; recorded_at: string }
+export interface SettlementDeadlines {
+ today: string; period_to: string; delivery_deadline: string; blocking: false
+ deliveries: Array<{ segment_ordinal: number; recipient_id: number; status: 'pending' | 'delivered'; delivery_deadline: string; delivered_on: string | null; due_date: string | null; due_limit: string | null; objection_deadline: string | null; warnings: SettlementDeadlineWarning[] }>
+ objections: Array<SettlementObjection & { submission_deadline: string | null; resolution_deadline: string; warnings: SettlementDeadlineWarning[] }>
+ warnings: Array<{ code: SettlementDeadlineWarning; recipient_id?: number; deadline?: string }>
+ parties: Array<{ id: number; name: string }>
+}
 export const propertySettlementsApi = {
  list: (supplier: number, after_id = 0) => api.get<{ items: SettlementCard[]; next_cursor: number | null; capabilities: SettlementCapabilities }>(path, { ...options(supplier), params: { after_id, limit: 25 } }).then(r => r.data),
  detail: (supplier: number, id: number) => api.get<SettlementDetail>(`${path}/${id}`, options(supplier)).then(r => r.data),
@@ -42,5 +51,8 @@ export const propertySettlementsApi = {
  disposition: (supplier: number, id: number, accounting_date: string) => api.get<SettlementDisposition>(`${path}/${id}/disposition`, { ...options(supplier), params: { accounting_date } }).then(r => r.data),
  preview: (supplier: number, id: number, request: SettlementApplyRequest, expected_version: number) => api.post<SettlementApplicationPreview>(`${path}/${id}/preview`, { request, expected_version }, options(supplier)).then(r => r.data),
  apply: (supplier: number, id: number, request: SettlementApplyRequest, expected_version: number, preview_hash: string, idempotency_key: string) => api.post<SettlementApplication>(`${path}/${id}/apply`, { request, expected_version, preview_hash, idempotency_key }, options(supplier)).then(r => r.data),
+ deadlines: (supplier: number, id: number) => api.get<SettlementDeadlines>(`${path}/${id}/deadlines`, options(supplier)).then(r => r.data),
+ recordObjection: (supplier: number, id: number, body: { recipient_id: number; received_on: string; content: string }) => api.post<SettlementObjection>(`${path}/${id}/objections`, body, options(supplier)).then(r => r.data),
+ resolveObjection: (supplier: number, id: number, body: { resolved_on: string; resolution: string }) => api.post<SettlementObjection>(`${path}/objections/${id}/resolve`, body, options(supplier)).then(r => r.data),
  reverse: (supplier: number, id: number, body: { accounting_date: string; expected_version: number; reason: string; idempotency_key: string }) => api.post<SettlementApplication>(`${path}/applications/${id}/reverse`, body, options(supplier)).then(r => r.data),
 }

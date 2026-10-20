@@ -11,11 +11,12 @@ final class CapitalRepository
     public function sources(int $supplier,bool $lock=true):array
     {
         $q=$this->db->pdo()->prepare('SELECT * FROM nonprofit_capital_sources WHERE supplier_id=? ORDER BY id'.($lock?' FOR UPDATE':''));$q->execute([$supplier]);$out=[];
-        foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row){
+        $rows=$q->fetchAll(PDO::FETCH_ASSOC);$commands=$this->commands($supplier,array_column($rows,'command_id'),$lock);
+        foreach($rows as$row){
             foreach(['id','supplier_id','command_id','source_line_id','asset_id','provider_id','amount_cents']as$key)$row[$key]=$row[$key]===null?null:(int)$row[$key];
             foreach(['policy','basis']as$key){$row[$key]=json_decode($row[$key.'_json'],true,flags:JSON_THROW_ON_ERROR);unset($row[$key.'_json']);}
             if(!hash_equals($row['record_hash'],self::sourceHash($row)))CapitalPolicy::changed();
-            $command=$this->command($supplier,$row['command_id'],$lock);
+            $command=$commands[$row['command_id']]??CapitalPolicy::changed();
             if(($command['request']['action']??null)!=='register'||($command['request']['policy']??null)!==$row['policy']||($command['request']['input_hash']??null)!==CapitalPolicy::hash(['policy'=>$row['policy'],'basis'=>$row['basis']])||$row['kind']!==$row['policy']['kind']||$row['source_line_id']!==$row['policy']['source_line_id']||$row['asset_id']!==$row['policy']['asset_id']||$row['provider_id']!==$row['policy']['provider_id']||$row['amount_cents']!==$row['basis']['source']['amount_cents'])CapitalPolicy::changed();
             $out[$row['id']]=$row;
         }
@@ -24,12 +25,13 @@ final class CapitalRepository
     public function events(int $supplier,bool $lock=true):array
     {
         $q=$this->db->pdo()->prepare('SELECT * FROM nonprofit_capital_events WHERE supplier_id=? ORDER BY id'.($lock?' FOR UPDATE':''));$q->execute([$supplier]);$out=[];$last=[];
-        foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row){
+        $rows=$q->fetchAll(PDO::FETCH_ASSOC);$commands=$this->commands($supplier,array_column($rows,'command_id'),$lock);
+        foreach($rows as$row){
             foreach(['id','supplier_id','source_id','command_id','previous_id','original_id','amount_cents','entry_id','depreciation_id','cost_line_id']as$key)$row[$key]=$row[$key]===null?null:(int)$row[$key];
             foreach(['snapshot','receipt']as$key){$row[$key]=json_decode($row[$key.'_json'],true,flags:JSON_THROW_ON_ERROR);unset($row[$key.'_json']);}
             $prior=$last[$row['source_id']]??null;
             if($row['previous_id']!==($prior['id']??null)||$row['parent_hash']!==($prior['record_hash']??str_repeat('0',64))||!hash_equals($row['record_hash'],self::eventHash($row)))CapitalPolicy::changed();
-            $command=$this->command($supplier,$row['command_id'],$lock);
+            $command=$commands[$row['command_id']]??CapitalPolicy::changed();
             if(($command['request']['source_id']??null)!==$row['source_id']||($command['request']['action']??null)!==$row['operation']||CapitalPolicy::hash($command['request']['plan']??[])!==CapitalPolicy::hash($row['snapshot'])||($command['request']['input_hash']??null)!==CapitalPolicy::hash($row['snapshot']))CapitalPolicy::changed();
             foreach(['original_id','amount_cents','depreciation_id','cost_line_id']as$key)if(($command['request']['intent'][$key]??null)!==$row[$key])CapitalPolicy::changed();
             $last[$row['source_id']]=$row;$out[$row['id']]=$row;
@@ -42,7 +44,21 @@ final class CapitalRepository
     }
     public function command(int $supplier,int $id,bool $lock=true):array
     {
-        $q=$this->db->pdo()->prepare('SELECT * FROM nonprofit_capital_commands WHERE supplier_id=? AND id=?'.($lock?' FOR UPDATE':''));$q->execute([$supplier,$id]);$row=$q->fetch(PDO::FETCH_ASSOC);if(!$row)CapitalPolicy::changed();
+        return $this->commands($supplier,[$id],$lock)[$id]??CapitalPolicy::changed();
+    }
+    /** Příkazy zdrojů a čerpání jedním dotazem po (supplier_id, id) místo dotazu na každý řádek. */
+    private function commands(int $supplier,array $ids,bool $lock):array
+    {
+        $ids=array_values(array_unique(array_map('intval',$ids)));sort($ids,SORT_NUMERIC);$out=[];
+        foreach(array_chunk($ids,500)as$chunk){
+            $marks=implode(',',array_fill(0,count($chunk),'?'));
+            $q=$this->db->pdo()->prepare('SELECT * FROM nonprofit_capital_commands WHERE supplier_id=? AND id IN ('.$marks.') ORDER BY id'.($lock?' FOR UPDATE':''));$q->execute([$supplier,...$chunk]);
+            foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row)$out[(int)$row['id']]=self::commandRow($row);
+        }
+        return $out;
+    }
+    private static function commandRow(array $row):array
+    {
         $row['id']=(int)$row['id'];$row['supplier_id']=(int)$row['supplier_id'];$row['created_by']=$row['created_by']===null?null:(int)$row['created_by'];$row['request']=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);unset($row['request_json']);
         if(!hash_equals($row['request_hash'],CapitalPolicy::hash($row['request']))||($row['request']['actor']??null)!==$row['created_by'])CapitalPolicy::changed();return $row;
     }

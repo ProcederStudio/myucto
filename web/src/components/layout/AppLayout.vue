@@ -3,9 +3,9 @@ import { OPERATIONAL_SETTINGS_KEYS } from '@/security/permissions'
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { frameworkConversionMessages } from '@/components/accounting/frameworkConversionMessages'
 import { useAuthStore } from '@/stores/auth'
 import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
+import { hasFrameworkScope } from '@/security/frameworkScope'
 import { useSupplierStore } from '@/stores/supplier'
 import { useAutomationStore } from '@/stores/automation'
 import { updateApi, type PublicVersion } from '@/api/update'
@@ -44,8 +44,6 @@ import { manualChapter, manualChapterPath } from '@/config/manualChapters'
 import { canFitCompactNavigation, prefersCompactNavigation, shouldUseAutomaticSideNavigation } from '@/utils/navigationLayout'
 
 const { t, locale } = useI18n()
-const conversionI18n = useI18n({ useScope: 'local', inheritLocale: true, messages: frameworkConversionMessages })
-const conversionLabel = (key: keyof typeof frameworkConversionMessages.cs.conversion) => conversionI18n.t(`conversion.${key}`)
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -413,6 +411,10 @@ const navSections = computed<NavSection[]>(() => {
   // Sklad (Epic SKLAD) — nezávislé na accounting_mode (funguje i pro tax_evidence).
   // Firma → Dimenze (migrace 1860) — opt-in; vypnuté nesmí v menu nic přidat.
   const dimensionsEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.dimensions_enabled === true
+  // Agendy NNO/504 a SVJ jen firmám, kterých se týkají; stejnou podmínku vynucuje router.
+  const nonprofitScope = hasFrameworkScope(supplierStore.currentSupplier, 'nonprofit504')
+  const conversionScope = hasFrameworkScope(supplierStore.currentSupplier, 'conversion504')
+  const svjScope = hasFrameworkScope(supplierStore.currentSupplier, 'svj')
   const sections: NavSection[] = [
     {
       // Grafy — přehledové/analytické položky nahoře v menu: akce k řešení, náhled
@@ -524,14 +526,16 @@ const navSections = computed<NavSection[]>(() => {
         ...(auth.isSuperadmin ? [{ to: '/portal/purchase-invoice-submissions', label: t('nav.submit_documents'), icon: ICONS.documents, permission: 'documents.submit' as PermissionKey }] : []),
         { to: '/documents/scan-attach', label: t('scan_attach.nav'), icon: ICONS.documents, permission: 'documents.upload' },
         { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook, newTo: '/logbook?tab=trips&new=trip' },
-        { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey, dividerBefore: true },
-        { to: '/property/charges', label: t('nav.property_charges'), icon: ICONS.property, permission: 'property' as PermissionKey },
-        { to: '/property/charges/issues', label: t('nav.property_issuance'), icon: ICONS.property, permission: 'property' as PermissionKey },
-        { to: '/property/service-settlements', label: t('nav.property_settlements'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
-        { to: '/property/service-lifecycles', label: t('nav.property_service_lifecycle'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
-        { to: '/property/funds', label: t('nav.property_funds'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
-        { to: '/property/openings', label: t('nav.property_openings'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
-        { to: '/property/payments', label: t('nav.property_payments'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+        ...(svjScope ? [
+          { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey, dividerBefore: true },
+          { to: '/property/charges', label: t('nav.property_charges'), icon: ICONS.property, permission: 'property' as PermissionKey },
+          { to: '/property/charges/issues', label: t('nav.property_issuance'), icon: ICONS.property, permission: 'property' as PermissionKey },
+          { to: '/property/service-settlements', label: t('nav.property_settlements'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+          { to: '/property/service-lifecycles', label: t('nav.property_service_lifecycle'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+          { to: '/property/funds', label: t('nav.property_funds'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+          { to: '/property/openings', label: t('nav.property_openings'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+          { to: '/property/payments', label: t('nav.property_payments'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
+        ] : []),
       ],
     },
     ...(isStockEnabled ? [{
@@ -623,10 +627,14 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/accounting/income-statement', label: t('nav.accounting_income_statement'), icon: ICONS.tax_income },
         { to: '/accounting/income-statement-by-function', label: t('nav.accounting_income_statement_by_function'), icon: ICONS.tax_income },
         ...(dimensionsEnabled ? [{ to: '/accounting/dimension-profit', label: t('nav.accounting_dimension_profit'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey }] : []),
-        { to: '/accounting/nonprofit-dppo', label: t('nonprofitDppo.title'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey },
+        ...(nonprofitScope ? [{ to: '/accounting/nonprofit-dppo', label: t('nonprofitDppo.title'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey }] : []),
         { to: '/accounting/statement-mapping', label: t('nav.accounting_statement_mapping'), icon: ICONS.codebooks, permission: 'accounting' },
+        ...(nonprofitScope ? [
           { to: '/accounting/securities/debt', label: t('securitiesDebt.title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
-        { to: '/accounting/framework-conversion', label: conversionLabel('title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
+        ] : []),
+        ...(conversionScope ? [
+          { to: '/accounting/framework-conversion', label: t('nav.framework_conversion'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
+        ] : []),
         { to: '/accounting/saldo',            label: t('nav.accounting_saldo'),            icon: ICONS.coin },
         { to: '/other-items', label: t('nav.other_items'), icon: ICONS.crm, permission: 'other_items' as PermissionKey, newTo: '/other-items/new' },
         { to: '/accounting/document-completeness', label: t('nav.accounting_document_completeness'), icon: ICONS.approvals, permission: 'accounting' },
@@ -670,9 +678,11 @@ const navSections = computed<NavSection[]>(() => {
         // Uzávěrka — účetní období vytažená ze záložky Nástrojů do vlastní top-level
         // položky menu (jen podvojné účetnictví).
         { to: '/accounting/periods', label: t('nav.section_closing'), icon: ICONS.approvals },
-        { to: '/accounting/nonprofit-capital', label: t('nonprofitCapital.title'), icon: ICONS.approvals },
-        { to: '/accounting/nonprofit-funding', label: t('nonprofitFunding.title'), icon: ICONS.approvals },
-        { to: '/accounting/nonprofit-membership', label: t('nonprofitMembership.title'), icon: ICONS.approvals },
+        ...(nonprofitScope ? [
+          { to: '/accounting/nonprofit-capital', label: t('nonprofitCapital.title'), icon: ICONS.approvals },
+          { to: '/accounting/nonprofit-funding', label: t('nonprofitFunding.title'), icon: ICONS.approvals },
+          { to: '/accounting/nonprofit-membership', label: t('nonprofitMembership.title'), icon: ICONS.approvals },
+        ] : []),
         // EPO podání a archív se přesunulo dolů do sekce Daně — archív podání patří
         // k výkazům, které se jím podávají, ne mezi setup nástroje.
       ],
