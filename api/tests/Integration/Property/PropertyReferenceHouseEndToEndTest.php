@@ -191,8 +191,6 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
         $this->pdo->prepare('INSERT INTO clients (supplier_id,company_name,street,city,zip,country_id,main_email,currency_default_id) VALUES (?,?,?,?,?,?,?,?)')
             ->execute([$this->supplier, 'Syntetická vodárna', 'Syntetická 1', 'Syntetické město', '10000', $country, 'voda@example.test', $currency]);
         $vendor = (int) $this->pdo->lastInsertId();
-        $this->container->get(\MyInvoice\Repository\PostingRuleRepository::class)
-            ->upsertOverride($this->supplier, 'invoice.services.received', '315.210', '321', 'Syntetická politika rozvahového profilu služeb');
         $rate = (int) $this->pdo->query('SELECT id FROM vat_rates WHERE rate_percent=0 ORDER BY id LIMIT 1')->fetchColumn();
         $invoices = $this->container->get(\MyInvoice\Repository\PurchaseInvoiceRepository::class);
         $posting = $this->container->get(PostingService::class);
@@ -202,11 +200,14 @@ final class PropertyReferenceHouseEndToEndTest extends TestCase
                 'due_date' => '2027-04-30', 'currency_id' => $currency, 'exchange_rate' => 1, 'status' => 'received', 'vat_deduction' => 'none',
                 'vendor_is_vat_payer' => false], $this->actor, $this->supplier);
             $invoices->replaceItems($invoice, [['description' => 'Syntetické vodné a stočné 2026 ' . $key, 'quantity' => 1, 'unit' => 'ks',
-                'unit_price_without_vat' => (int) $segment['invoice'], 'vat_rate_id' => $rate, 'expense_kind' => 'service', 'expense_account_code' => '315.210']]);
+                'unit_price_without_vat' => (int) $segment['invoice'], 'vat_rate_id' => $rate, 'expense_kind' => 'service']]);
             (new \MyInvoice\Service\Invoice\PurchaseInvoiceCalculator($this->db))->recompute($invoice);
             $this->container->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class)
                 ->saveDocument($this->supplier, 'purchase_invoice', $invoice, [], [1 => $this->serviceDimensions($key)]);
-            $entry = $posting->postDocument($this->supplier, 'purchase_invoice', $invoice, $posting->buildFromPurchaseInvoice($this->supplier, $invoice),
+            // Návrh zaúčtování bere účet z rozvahového profilu služby, ne z předkontace služeb 518.
+            $lines = $posting->buildFromPurchaseInvoice($this->supplier, $invoice);
+            self::assertSame(['315.210'], array_values(array_unique(array_column(array_filter($lines, fn ($l) => $l['side'] === 'debit'), 'account_code'))), $key);
+            $entry = $posting->postDocument($this->supplier, 'purchase_invoice', $invoice, $lines,
                 ['entry_date' => '2027-04-05', 'posted_by' => $this->actor]);
             $command = ['operation' => 'finalize', 'case_id' => $this->estimateCase[$key], 'accounting_date' => '2027-04-05', 'invoice_id' => $invoice,
                 'line_id' => $this->entryLine($entry, 'debit'), 'title' => 'Syntetické konečné rozúčtování dodávky vody 2026'];
