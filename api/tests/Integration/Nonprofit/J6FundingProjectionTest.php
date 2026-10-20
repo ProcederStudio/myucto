@@ -129,6 +129,25 @@ final class J6FundingProjectionTest extends TestCase
         self::assertIsInt($this->pagedFundingAssessment(70000));
     }
 
+    public function testLegacyConfirmationSeesGiftElectionFromPagedRevision(): void
+    {
+        $this->fundingSource(false);
+        $this->laterPagedUsage('later:unrelated', ['id' => 'later:gift', 'kind' => 'revenue', 'amount_cents' => 5000,
+            'origin' => ['line_id' => $this->income],
+            'decision' => ['title' => 'gift', 'facts' => ['claim_exemption' => false]], 'classification' => ['regime' => 'subject'],
+            'result_row_hash' => hash('sha256', 'result-row:later-gift')]);
+        $tax = $this->container->get(NonprofitTaxAssessmentService::class);
+        $snapshot = $tax->read($this->supplier, $this->period)['snapshot'];
+
+        try {
+            $tax->confirm($this->supplier, $this->period, $this->assessment, $snapshot['input_hash'], self::PRIVATE_SENTINEL,
+                'reconfirm-paged-election', $this->actor, $this->taxReceipt['id']);
+            self::fail('Gift election confirmed in a paged revision must stay locked for legacy confirmation.');
+        } catch (NonprofitTaxAssessmentException $failure) {
+            self::assertSame('nonprofit_tax_gift_election_locked', $failure->errorCode);
+        }
+    }
+
     /** Syntetická potvrzená stránkovaná revize pozdějšího období, která čerpá daný zdroj. */
     private function laterPagedUsage(string $member, ?array $resultRow = null): void
     {

@@ -20,6 +20,7 @@ final class NonprofitTaxAssessmentService
         private readonly J6FundingCapacity $fundingCapacity,
         private readonly FundingEligibilityGuard $fundingEligibility,
         private readonly J6FundingDependencyGuard $laterFunding,
+        private readonly J6FundingProjection $funding,
     ) {}
 
     public function read(int $supplierId, int $periodId): array
@@ -118,12 +119,15 @@ final class NonprofitTaxAssessmentService
         $elections = [];
         foreach ($history as $revision) {
             if ($revision['status'] !== 'confirmed') continue;
-            foreach ($revision['result']['rows'] as $row) {
-                if (($row['decision']['title'] ?? '') !== 'gift') continue;
-                $origin = (int) $row['origin']['line_id'];
-                $choice = $row['decision']['facts']['claim_exemption'];
-                if (isset($elections[$origin]) && $elections[$origin] !== $choice) $this->giftElectionLocked();
-                $elections[$origin] = $choice;
+            // Stránkovaná revize nemá řádky v JSON; volbu z ní přečte stejná projekce jako financování.
+            foreach ($this->funding->resultPages($revision) as $rows) {
+                foreach ($rows as $row) {
+                    if (($row['decision']['title'] ?? '') !== 'gift') continue;
+                    $origin = (int) $row['origin']['line_id'];
+                    $choice = $row['decision']['facts']['claim_exemption'];
+                    if (isset($elections[$origin]) && $elections[$origin] !== $choice) $this->giftElectionLocked();
+                    $elections[$origin] = $choice;
+                }
             }
         }
         $current = [];
