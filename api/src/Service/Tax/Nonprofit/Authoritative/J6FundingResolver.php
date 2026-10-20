@@ -20,6 +20,11 @@ final readonly class J6FundingResolver
 
     public function __construct(private J6WorkingStore $store) {}
 
+    private function label(): string
+    {
+        return J6WorkingStore::LABEL;
+    }
+
     public function prepare(bool $hasFunding): void
     {
         $id = self::ID;
@@ -81,9 +86,9 @@ final readonly class J6FundingResolver
             JOIN {sources} cost ON cost.source_id=e.cost_id
             WHERE src.regime='pending' AND cost.regime='pending' AND cost.deductible_cents<>0");
         $this->store->exec("CREATE TEMPORARY TABLE {activity_group_results} (
-            group_id $id PRIMARY KEY,
+            group_id {$this->label()} PRIMARY KEY,
             activity_kind_id $id,
-            cohort $id,
+            cohort {$this->label()},
             revenue_cents BIGINT NOT NULL,
             cost_cents BIGINT NOT NULL,
             regime VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL CHECK(regime IN ('subject','out_of_scope')),
@@ -391,7 +396,7 @@ final readonly class J6FundingResolver
     {
         $id = self::ID;
         $this->store->exec("CREATE TEMPORARY TABLE {cycle_groups} (
-            group_id $id PRIMARY KEY,
+            group_id {$this->label()} PRIMARY KEY,
             bit INT NOT NULL CHECK(bit>=0),
             UNIQUE KEY uq_j6_cycle_bit(bit)
         ) ENGINE=InnoDB");
@@ -401,7 +406,7 @@ final readonly class J6FundingResolver
                 JOIN {sources} src ON src.source_id=e.source_anchor
                 WHERE src.current_row=1 AND src.kind='revenue' AND src.regime='pending'
             ) d");
-        $this->store->exec("CREATE TEMPORARY TABLE {cycle_revenues} (source_id $id PRIMARY KEY, group_id $id) ENGINE=InnoDB");
+        $this->store->exec("CREATE TEMPORARY TABLE {cycle_revenues} (source_id $id PRIMARY KEY, group_id {$this->label()}) ENGINE=InnoDB");
         $this->store->exec("INSERT INTO {cycle_revenues}(source_id,group_id)
             SELECT s.source_id,s.group_id FROM {sources} s JOIN {cycle_groups} g ON g.group_id=s.group_id
             WHERE s.current_row=1 AND s.kind='revenue' AND s.regime='pending'");
@@ -466,9 +471,9 @@ final readonly class J6FundingResolver
     {
         $id = self::ID;
         return "CREATE TEMPORARY TABLE {" . $table . "} (
-            group_id $id PRIMARY KEY,
+            group_id {$this->label()} PRIMARY KEY,
             activity_kind_id $id,
-            cohort $id,
+            cohort {$this->label()},
             revenue_cents BIGINT NOT NULL,
             cost_cents BIGINT NOT NULL,
             regime VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -484,9 +489,9 @@ final readonly class J6FundingResolver
         $this->store->dropTable('candidate_activity_mix');
         $this->materializeExclusions('candidate_exclusions');
         $this->store->exec("CREATE TEMPORARY TABLE {candidate_group_totals} (
-            group_id $id PRIMARY KEY,
+            group_id {$this->label()} PRIMARY KEY,
             activity_kind_id $id,
-            cohort $id,
+            cohort {$this->label()},
             revenue_cents BIGINT NOT NULL,
             cost_cents BIGINT NOT NULL,
             KEY ix_j6_candidate_activity(activity_kind_id)

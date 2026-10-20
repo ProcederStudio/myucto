@@ -17,6 +17,9 @@ use PDO;
  */
 final class J6WorkingStore
 {
+    /** Skupina činnosti a cenová kohorta jsou doložené texty uživatele, nikoli technické identifikátory. */
+    public const string LABEL = 'VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL';
+
     private const array BASE_TABLES = ['activities', 'sources', 'funding_pools', 'funding_members',
         'funding_links', 'funding_history'];
 
@@ -155,7 +158,7 @@ final class J6WorkingStore
         $amount = $this->cents($row['amount_cents'] ?? null);
         $deductible = $this->cents($row['deductible_cents'] ?? 0);
         $activity = $this->identifier($row['activity_kind_id'] ?? null);
-        $group = $this->identifier($row['group'] ?? null);
+        $group = $this->label($row['group'] ?? null);
         $classification = $row['classification'] ?? null;
         if (!is_array($classification) || !is_string($classification['regime'] ?? null)
             || !is_string($classification['method'] ?? null)) {
@@ -167,7 +170,7 @@ final class J6WorkingStore
             (source_id,current_row,row_json,kind,amount_cents,deductible_cents,activity_kind_id,group_id,cohort,regime,method,title,reference_current)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([$id, $current ? 1 : 0, NonprofitTaxRules::canonicalJson($row), $row['kind'] ?? null,
-            $amount, $deductible, $activity, $group, (string) ($decision['cohort'] ?? ''),
+            $amount, $deductible, $activity, $group, $this->label((string) ($decision['cohort'] ?? ''), true),
             $classification['regime'], $classification['method'],
             $decision['title'] ?? null, ($row['reference_current'] ?? $current) === true ? 1 : 0]);
     }
@@ -284,6 +287,7 @@ final class J6WorkingStore
     {
         $id = 'VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL';
         $code = 'VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL';
+        $label = self::LABEL;
         $hash = 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL';
         $json = 'LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL';
         $statements = [
@@ -300,8 +304,8 @@ final class J6WorkingStore
                 amount_cents BIGINT NOT NULL,
                 deductible_cents BIGINT NOT NULL,
                 activity_kind_id $id,
-                group_id $id,
-                cohort $id,
+                group_id $label,
+                cohort $label,
                 regime $code,
                 method $code,
                 title $code,
@@ -360,6 +364,14 @@ final class J6WorkingStore
         $value = (string) $value;
         if ($value === '' || strlen($value) > 160 || preg_match('/^[A-Za-z0-9_.:-]+$/D', $value) !== 1) {
             throw new \InvalidArgumentException('J6 working identity is invalid.');
+        }
+        return $value;
+    }
+
+    private function label(mixed $value, bool $allowEmpty = false): string
+    {
+        if (!is_string($value) || ($value === '' && !$allowEmpty) || mb_strlen($value) > 600 || !mb_check_encoding($value, 'UTF-8')) {
+            throw new \InvalidArgumentException('J6 working label is invalid.');
         }
         return $value;
     }
