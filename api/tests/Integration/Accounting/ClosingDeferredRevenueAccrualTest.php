@@ -215,6 +215,26 @@ final class ClosingDeferredRevenueAccrualTest extends TestCase
         self::assertEqualsWithDelta(0.0, $this->balance384AsOf('2092-12-31'), 0.005, '384 se jednoletým předplatným rozpustí celý.');
     }
 
+    /** Faktura rozúčtovaná rovnou na 384 nese odklad sama, uzávěrka ji neodkládá podruhé. */
+    public function testPreviewSkipsInvoiceAlreadyPostedTo384(): void
+    {
+        $invoiceId = $this->invoice('20910010', 36600.00, self::YEAR . '-07-01');
+        $this->item($invoiceId, 36600.00, '2091-07-01', '2092-06-30');
+        $this->posting->postDocument($this->supplierId, 'invoice', $invoiceId, [
+            ['account_code' => '311', 'side' => 'debit', 'amount' => 36600.00],
+            ['account_code' => '602', 'side' => 'credit', 'amount' => 18400.00],
+            ['account_code' => '384', 'side' => 'credit', 'amount' => 18200.00],
+        ], ['entry_date' => self::YEAR . '-07-01', 'posted' => true, 'posted_by' => $this->userId, 'user_id' => $this->userId]);
+        $plain = $this->invoice('20910011', 36600.00, self::YEAR . '-07-01');
+        $this->item($plain, 36600.00, '2091-07-01', '2092-06-30');
+        $this->postInvoice($plain, 36600.00, self::YEAR . '-07-01');
+
+        $preview = $this->closing->deferredRevenueAccrualPreview($this->supplierId, $this->periodId);
+        self::assertCount(1, $preview['items'], 'Odloží se jen faktura zaúčtovaná na výnos.');
+        self::assertSame($plain, $preview['items'][0]['invoice_id']);
+        self::assertEqualsWithDelta(18200.00, (float) $preview['total'], 0.001);
+    }
+
     /**
      * Výnos odložený mimo uzávěrku (faktura rozúčtovaná rovnou na 384, rozpuštění ručním
      * zápisem v N+1) openNext nerozpouští podruhé.
