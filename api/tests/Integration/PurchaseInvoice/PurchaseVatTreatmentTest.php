@@ -128,10 +128,14 @@ final class PurchaseVatTreatmentTest extends TestCase
             'vat_allocations' => [$this->allocation('Celý doklad', 1000.0, 210.0, 'full')],
         ]);
         $b = $this->createPurchase(['vat_deduction' => 'none'], [$this->item('Kniha', 100.0, $this->rate12, '41')]);
-        $c = $this->createPurchase([], [$this->item('Oběd', 300.0), $this->item('Káva', 50.0)]);
-        // Stav z doby před opravou: hlavička 42, položky dostaly 40.
+        $c = $this->createPurchase([], [$this->item('Oběd', 300.0), $this->item('Káva', 50.0), $this->item('Bez kódu', 20.0)]);
+        // Stav z doby před opravou: hlavička 42, položky dostaly 40 nebo zůstaly bez kódu.
+        // Položka bez kódu jde do evidence s kódem hlavičky (COALESCE); uložení jí dřív
+        // dosadilo 40 a tiše uplatnilo odpočet.
         $pdo = $this->db->pdo();
         $pdo->prepare("UPDATE purchase_invoices SET vat_classification_code = '42' WHERE id = ?")->execute([$c]);
+        $pdo->prepare("UPDATE purchase_invoice_items SET vat_classification_code = NULL WHERE purchase_invoice_id = ? AND description = 'Bez kódu'")
+            ->execute([$c]);
         // Přijaté doklady (koncept do přiznání nevstupuje).
         $pdo->prepare("UPDATE purchase_invoices SET status = 'received' WHERE id IN (?, ?, ?)")->execute([$a, $b, $c]);
 

@@ -2008,7 +2008,7 @@ final class PurchaseInvoiceRepository
         //   EU vendor s 0% → '24e' (přijetí služby z EU, ř.5) — typický pro Microsoft Ireland apod.
         //   non-EU vendor s 0% → '24' (přijetí služby ze 3. země, ř.12) — Anthropic, GitHub apod.
         $metaStmt = $pdo->prepare(
-            'SELECT pi.supplier_id, pi.reverse_charge, co.iso2,
+            'SELECT pi.supplier_id, pi.reverse_charge, pi.vat_classification_code, co.iso2,
                     COALESCE(pi.tax_date, pi.issue_date) AS doc_date
                FROM purchase_invoices pi
                JOIN clients c     ON c.id  = pi.vendor_id
@@ -2016,9 +2016,25 @@ final class PurchaseInvoiceRepository
               WHERE pi.id = ?'
         );
         $metaStmt->execute([$purchaseInvoiceId]);
-        $meta = $metaStmt->fetch(PDO::FETCH_ASSOC) ?: ['supplier_id' => 0, 'reverse_charge' => 0, 'iso2' => 'CZ', 'doc_date' => null];
+        $meta = $metaStmt->fetch(PDO::FETCH_ASSOC) ?: ['supplier_id' => 0, 'reverse_charge' => 0, 'vat_classification_code' => null, 'iso2' => 'CZ', 'doc_date' => null];
         $reverseCharge = (bool) $meta['reverse_charge'];
         $countryIso = (string) ($meta['iso2'] ?? 'CZ');
+
+        // Hlavička s kódem „bez nároku" (42, „mimo" a jejich per-tenant obdoby) je vědomé
+        // rozhodnutí o celém dokladu. Položka bez vlastního kódu ho převezme; jinak by jí
+        // výchozí kód podle sazby (40/41) uplatnil odpočet, který hlavička odepírá.
+        // Kód s nárokem se nepřebírá: hlavička je u něj jen dominantní kód řádků a 12%
+        // položka pod hlavičkou 40 by skončila na ř. 40 místo ř. 41.
+        $headerNoClaimCode = null;
+        $headerCode = trim((string) ($meta['vat_classification_code'] ?? ''));
+        if (!$reverseCharge && $headerCode !== '' && (int) $meta['supplier_id'] > 0
+            && PurchaseVatTreatment::isNoClaimCode(
+                $headerCode,
+                \MyInvoice\Service\Report\VatLedgerService::classificationMapFor($pdo, (int) $meta['supplier_id']),
+            )
+        ) {
+            $headerNoClaimCode = $headerCode;
+        }
 
         // Skladová karta na řádku (volitelná, Epic SKLAD/ESHOP) — jen NAZNAČUJE
         // kartu pro předvyplnění příjemkového wizardu; skutečný pohyb dělá až
@@ -2083,7 +2099,7 @@ final class PurchaseInvoiceRepository
             // faktura NEDORAZILA do výkazů (VatClassificationMapper SKIPNE code=NULL).
             $code = $item['vat_classification_code'] ?? null;
             if ($code === null) {
-                $code = self::defaultClassificationCode(
+                $code = $headerNoClaimCode ?? self::defaultClassificationCode(
                     $rate,
                     $reverseCharge,
                     $countryIso,

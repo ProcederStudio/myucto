@@ -6707,6 +6707,9 @@ paths:
         Vynechané `vat_deduction` zachová uloženou hodnotu; na `none` se nastaví jen při změně
         dodavatele na neplátce. Vynechané `vat_classification_code` se odvodí znovu z položek, pokud
         se nahrazují `items` nebo se změní `reverse_charge`; jinak zůstane uložený kód.
+        Položka bez vlastního `vat_classification_code` převezme kód hlavičky, je-li to kód
+        bez nároku na odpočet (bez řádku přiznání i oddílu KH, např. `42`, `mimo`); jinak
+        se kód odvodí podle sazby a dodavatele. Platí to i pro POST.
 
         Změna `vat_deduction` u dokladu s rozpisem DPH (`vat_allocations`): měl-li celý rozpis
         dosavadní nárok hlavičky, převezme nový nárok i rozpis. Mění-li požadavek nárok
