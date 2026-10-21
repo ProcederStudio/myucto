@@ -171,7 +171,7 @@ final class AresGroupVatRegistrationTest extends TestCase
     {
         $ares = $this->cacheAres($this->normalize($this->raw()));
         $resolver = new VendorVatPayerResolver($ares, $this->vies($ares), new ClientRepository($this->connection()));
-        self::assertSame(['is_vat_payer' => true, 'source' => 'ares'], $resolver->resolve(self::IC, null));
+        self::assertSame(['is_vat_payer' => true, 'source' => 'ares', 'group_dic' => self::GROUP_DIC], $resolver->resolve(self::IC, null));
         $cached = $ares->lookup(self::IC);
         self::assertSame('cache', $cached['source']);
         self::assertSame(self::GROUP_DIC, $cached['data']['dic']);

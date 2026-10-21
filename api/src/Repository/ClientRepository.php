@@ -487,6 +487,27 @@ final class ClientRepository
     }
 
     /**
+     * Převezme DIČ aktivní skupinové registrace DPH na kartu člena skupiny. Přepíše jen
+     * prázdné DIČ nebo vlastní DIČ člena (číslice = IČO karty), jiné ručně zadané DIČ
+     * nechá. Vrací true, když se DIČ změnilo.
+     */
+    public function adoptGroupVatDic(int $id, string $ic, string $groupDic): bool
+    {
+        $icDigits = \MyInvoice\Support\CompanyIdNormalizer::ic($ic);
+        if ($icDigits === null) {
+            return false;
+        }
+        $stmt = $this->db->pdo()->prepare(
+            "UPDATE clients SET dic = ?
+              WHERE id = ?
+                AND LPAD(REGEXP_REPLACE(ic, '[^0-9]', ''), 8, '0') = ?
+                AND (dic IS NULL OR REGEXP_REPLACE(dic, '[^0-9]', '') IN ('', ?))"
+        );
+        $stmt->execute([$groupDic, $id, $icDigits, $icDigits]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
      * Označí klienta jako zákazníka (is_customer=1). Symetrické s markAsVendor.
      * Volá se např. při importu vystavené faktury pro nový kontakt.
      */

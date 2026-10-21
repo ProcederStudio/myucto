@@ -47,14 +47,23 @@ final class VendorVatPayerResolver
     /**
      * Zjistí plátcovství a (pokud je výsledek jednoznačný) uloží ho na klienta.
      *
+     * Plátcovství doložené aktivní skupinovou registrací převezme na kartu i DIČ skupiny,
+     * pokud karta nese vlastní DIČ člena (číslice = IČO) nebo žádné. Vlastní registrace
+     * člena vstupem do skupiny zaniká; karta plátce s ní by poslala do KH DIČ, které
+     * registr plátců nezná. Jiné ručně zadané DIČ zůstává.
+     *
      * @param ?string $vatDic DIČ k DPH z dokladu (skupinová registrace), viz {@see resolve()}
-     * @return array{is_vat_payer:?bool, source:'ares'|'vies'|'unknown'}
+     * @return array{is_vat_payer:?bool, source:'ares'|'vies'|'unknown', group_dic?:string, dic_updated?:string}
      */
     public function resolveAndPersist(int $clientId, ?string $ic, ?string $dic, ?string $vatDic = null): array
     {
         $res = $this->resolve($ic, $dic, $vatDic);
         if ($res['is_vat_payer'] !== null) {
             $this->clients->setVatPayer($clientId, $res['is_vat_payer']);
+        }
+        if ($res['is_vat_payer'] === true && isset($res['group_dic'])
+            && $this->clients->adoptGroupVatDic($clientId, (string) $ic, $res['group_dic'])) {
+            $res['dic_updated'] = $res['group_dic'];
         }
         return $res;
     }
@@ -69,7 +78,7 @@ final class VendorVatPayerResolver
      *        dohledání karty dodavatele ({@see \MyInvoice\Service\Import\ClientResolver}).
      *        Bez něj by krok 1 níže viděl „DIČ = CZ + IČO", vzal ARES negativum jako konečné
      *        a doklad by se vytěžil jako od neplátce (nulová daň, žádný odpočet).
-     * @return array{is_vat_payer:?bool, source:'ares'|'vies'|'unknown'}
+     * @return array{is_vat_payer:?bool, source:'ares'|'vies'|'unknown', group_dic?:string}
      */
     public function resolve(?string $ic, ?string $dic, ?string $vatDic = null): array
     {
@@ -84,6 +93,10 @@ final class VendorVatPayerResolver
             $resp = $this->ares->lookup($icDigits);
             if ($resp !== null && ($resp['found'] ?? false) && isset($resp['data'])) {
                 $aresResult = ['is_vat_payer' => (bool) ($resp['data']['is_vat_payer'] ?? false), 'source' => 'ares'];
+                $aresDic = preg_replace('/\D/', '', (string) ($resp['data']['dic'] ?? '')) ?? '';
+                if ($aresResult['is_vat_payer'] && CrpDphClient::isGroupRegistration($aresDic)) {
+                    $aresResult['group_dic'] = 'CZ' . $aresDic;
+                }
 
                 // Pozitiv je vždy konečný. Negativ je konečný jen když DIČ na dokladu
                 // odpovídá vlastní registraci (číselná část = IČO) — jinak jde o DIČ
