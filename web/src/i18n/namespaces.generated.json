@@ -971,6 +971,7 @@
       "settings"
     ],
     "admin-suppliers": [
+      "aiGateway",
       "settings"
     ],
     "payment-cards": [

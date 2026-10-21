@@ -22199,6 +22199,26 @@
     "delete_confirm": "Smazat dodavatele? Lze jen pokud nemá klienty ani faktury.",
     "create_title": "Nový dodavatel",
     "create_hint": "Po vytvoření se automaticky založí výchozí měny CZK + EUR. Bankovní spojení vyplňte v Nastavení po přepnutí na nového dodavatele.",
+    "carry_over": {
+      "title": "Převzít ze stávajících firem",
+      "hint": "Nabízí se jen to, co máte ve všech svých firmách stejné. Převezme se hned po založení firmy.",
+      "ai": "AI klíč a nastavení ({provider}, stejné jako ve vaší firmě) | AI klíč a nastavení ({provider}, stejné ve všech {n} firmách)",
+      "ai_different": "AI klíč se ve vašich firmách liší, proto se nepřebírá. Nastavte ho v nové firmě v Integracích.",
+      "certificate": "Certifikát {label}, platný do {date} (povolený ve vaší firmě) | Certifikát {label}, platný do {date} (povolený ve všech {n} firmách)",
+      "step_up_hint": "Povolení certifikátu v nové firmě potvrďte stejně jako v Elektronických podpisech. Ověření platí jen pro toto založení a nikam se neukládá.",
+      "done": "Převzato do nové firmy: {n}.",
+      "failed_ai": "AI klíč se nepřevzal: {reason}",
+      "failed_certificate": "Certifikát {label} se nepřevzal: {reason}",
+      "error": {
+        "not_available": "v žádné firmě není AI nastavená.",
+        "different": "nastavení se mezi firmami mezitím rozešlo.",
+        "forbidden": "v nové firmě k tomu nemáte oprávnění.",
+        "eu_residency": "poskytovatel nesplňuje požadavek na EU rezidenci dat.",
+        "not_owned": "certifikát ve vašem trezoru není nebo už neplatí.",
+        "not_shared_everywhere": "certifikát už není povolený ve všech vašich firmách.",
+        "failed": "nastala chyba, zkuste to v nastavení nové firmy."
+      }
+    },
     "ares_lookup": "IČO - načtení z ARES",
     "ares_load": "Načíst z ARES",
     "ares_invalid_ic": "IČO musí mít přesně 8 číslic.",

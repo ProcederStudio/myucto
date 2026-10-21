@@ -70,7 +70,31 @@ Zvolená firma se uloží jako vaše **výchozí firma**. Otevře se i v jiném 
    - **Plátce DPH** a zdaňovací období. Nový plátce je ze zákona měsíční (§ 99 ZDPH); čtvrtletní zvolte, jen pokud splňujete § 99a,
    - **Ulice + č.p.**, **Město**, **PSČ** a **E-mail**,
    - volitelně první bankovní účet (číslo a kód banky; automaticky se založí v měně CZK).
-5. Klikněte na **Vytvořit**.
+5. Pokud se formulář nabídne, zkontrolujte sekci **Převzít ze stávajících firem** (popis níže).
+6. Klikněte na **Vytvořit**.
+
+### Převzetí AI klíče a certifikátu ze stávajících firem
+
+Když máte AI extrakci nebo certifikát nastavené ve všech svých firmách stejně, nemusíte je v nové firmě
+zadávat znovu. Formulář nové firmy nabídne sekci **Převzít ze stávajících firem** s položkami, které jsou
+předem zaškrtnuté:
+
+- **AI klíč a nastavení** (poskytovatel, model nebo endpoint, region dat, EU rezidence a míra uvažování
+  z `Firma → AI nastavení`, [§ 25](25_AI_extrakce.md)). Nabízí se jen tehdy, když mají všechny vaše firmy s nastavenou AI totéž nastavení
+  včetně stejného klíče. Firmy bez AI nevadí. Liší-li se klíč nebo nastavení mezi firmami, AI se nepřebírá
+  a formulář to oznámí; v nové firmě ho pak nastavte ručně. Klíč se do prohlížeče nikdy neposílá, porovnává
+  ho jen server.
+- **Certifikát** z vašeho osobního trezoru (`Systém → Elektronické podpisy`), který je platný a povolený ve
+  všech firmách, kde smíte spravovat podpisy. Certifikát se nekopíruje, nová firma k němu jen dostane
+  přístup stejně jako při ručním povolení v dalších firmách. Převzetí certifikátu potvrďte stejně jako jeho
+  sdílení: passkey, nebo heslem do MyÚčta (a kódem z autentikátoru, máte-li ho zapnutý). Bez platného
+  ověření se firma nezaloží.
+
+Do porovnání se počítají jen firmy, ke kterým máte přístup. Položku, kterou převzít nechcete, odškrtněte.
+Převzetí proběhne hned po založení firmy. Když se některá položka převzít nepodaří (například se nastavení
+mezitím v některé firmě změnilo), firma přesto vznikne a aplikace oznámí, co se nepřevzalo a proč; položku
+pak nastavte v nové firmě ručně. Převzetí je dostupné jen z webového rozhraní a zapisuje se do historie
+změn.
 
 **Jak poznáte, že je hotovo:** Firma je v tabulce a okamžitě i v přepínači. Admin Plus k nové firmě automaticky
 získá práva Admin a může na ni rovnou přepnout (**Přepnout**).

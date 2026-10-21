@@ -22199,6 +22199,26 @@
     "delete_confirm": "Delete supplier? Only possible if no clients or invoices.",
     "create_title": "New supplier",
     "create_hint": "After creation, default CZK + EUR currencies are auto-seeded. Fill in bank account info in Settings after switching to the new supplier.",
+    "carry_over": {
+      "title": "Carry over from existing companies",
+      "hint": "Only what is the same in all your companies is offered. It is carried over right after the company is created.",
+      "ai": "AI key and settings ({provider}, same as in your company) | AI key and settings ({provider}, same in all {n} companies)",
+      "ai_different": "The AI key differs between your companies, so it is not carried over. Set it up in Integrations of the new company.",
+      "certificate": "Certificate {label}, valid until {date} (enabled in your company) | Certificate {label}, valid until {date} (enabled in all {n} companies)",
+      "step_up_hint": "Confirm enabling the certificate in the new company the same way as in Electronic signatures. The verification applies to this company only and is not stored.",
+      "done": "Carried over to the new company: {n}.",
+      "failed_ai": "The AI key was not carried over: {reason}",
+      "failed_certificate": "Certificate {label} was not carried over: {reason}",
+      "error": {
+        "not_available": "no company has AI set up.",
+        "different": "the settings have diverged between companies in the meantime.",
+        "forbidden": "you lack the permission in the new company.",
+        "eu_residency": "the provider does not meet the EU data residency requirement.",
+        "not_owned": "the certificate is not in your vault or is no longer valid.",
+        "not_shared_everywhere": "the certificate is no longer enabled in all your companies.",
+        "failed": "an error occurred, try it in the new company settings."
+      }
+    },
     "ares_lookup": "Company ID — load from ARES",
     "ares_load": "Load from ARES",
     "ares_invalid_ic": "Company ID must be exactly 8 digits.",
