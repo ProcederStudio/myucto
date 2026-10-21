@@ -29356,6 +29356,21 @@
     }
   },
   "diagnostics": {
+    "imported_postings": {
+      "title": "Nejednoznačné vlastnictví převzatých zápisů",
+      "scope": "Kontrola se týká právě vybrané firmy a vazeb doložených převodem ze Stereo NX, PREMIER, Money S3, Pohody nebo ABRA Flexi.",
+      "empty": "Žádné nevyřešené nejednoznačné vazby převzatých zápisů.",
+      "unavailable": "Kontrolu nelze dokončit. Ověřte dostupnost databáze, vybranou firmu a dokončení migrací v kontrolách prostředí.",
+      "summary": "Počet zápisů s více možnými vlastníky: {count}. Automatické doplnění vlastnictví je vynechalo.",
+      "guidance": "Otevřete zápis a kandidátní doklady, porovnejte původní evidenci a předejte ověřené přiřazení správci nebo podpoře. Tento přehled nemění částky ani vazby.",
+      "entry": "Zápis #{id}",
+      "owners": "Různých kandidátních dokladů: {count}",
+      "invoice": "Vydaný doklad",
+      "purchase_invoice": "Přijatý doklad",
+      "candidate_limit": "Zobrazeno prvních {count} kandidátů. Všechny souvislosti najdete v detailu zápisu.",
+      "first": "První stránka",
+      "next": "Další zápisy"
+    },
     "title": "Diagnostika",
     "subtitle": "Kontrola prostředí instalace a podklady pro incident podpory",
     "no_admin": "Diagnostika je dostupná jen administrátorům.",

@@ -29356,6 +29356,21 @@
     }
   },
   "diagnostics": {
+    "imported_postings": {
+      "title": "Ambiguous ownership of imported journal entries",
+      "scope": "This check covers the currently selected company and links proven by an import from Stereo NX, PREMIER, Money S3, Pohoda or ABRA Flexi.",
+      "empty": "No unresolved ambiguous ownership links for imported entries.",
+      "unavailable": "The check could not be completed. Verify database availability, the selected company and completed migrations in the environment checks.",
+      "summary": "Entries with multiple possible owners: {count}. Automatic ownership backfill skipped these entries.",
+      "guidance": "Open the entry and candidate documents, compare the original records and send the verified assignment to your administrator or support. This report does not change amounts or links.",
+      "entry": "Entry #{id}",
+      "owners": "Distinct candidate documents: {count}",
+      "invoice": "Issued document",
+      "purchase_invoice": "Received document",
+      "candidate_limit": "Showing the first {count} candidates. All related documents are available in the journal entry details.",
+      "first": "First page",
+      "next": "Next entries"
+    },
     "title": "Diagnostics",
     "subtitle": "Environment check and supporting material for a support incident",
     "no_admin": "Diagnostics is available to administrators only.",
