@@ -19762,6 +19762,17 @@
     "force_edit": "Upravit (force)",
     "force_delete": "Smazat (force)",
     "force_edit_hint": "Admin only - úprava received/booked/paid faktury. U zaplacené pozor: po změně částky může přestat sedět s bankovní transakcí. Po uložení se přepočítají sumy.",
+    "force_mode": {
+      "title": "Úprava dokladu v uzavřeném období",
+      "help": "Doklad je zaúčtovaný v uzavřeném účetním období. Zápis v uzavřeném období se nepřepisuje, proto zvolte, jak se má úprava provést.",
+      "reconcile": "Opravit a přeúčtovat do běžného období",
+      "reconcile_hint": "Doklad se opraví, původní zápis se stornuje a opravený doklad se zaúčtuje do aktuálního otevřeného období. Čísla uzavřeného roku zůstanou nedotčená.",
+      "notes_only": "Jen poznámky",
+      "notes_only_hint": "Smí se změnit jen neúčetní údaje (poznámky, jazyk). Změnu částek, dat, DPH nebo položek server odmítne.",
+      "confirm": "Pokračovat k úpravě",
+      "banner_reconcile": "Úprava v uzavřeném období: po uložení se původní zápis stornuje a doklad se přeúčtuje do aktuálního otevřeného období.",
+      "banner_notes_only": "Úprava v uzavřeném období jen pro poznámky: částky, data, DPH ani položky měnit nelze."
+    },
     "force_edit_confirm": "Opravdu upravit fakturu ve stavu '{status}'? U zaplacené faktury: změna částky může rozbít párování s bankovní transakcí. Pokračovat?",
     "opened_detail_not_draft": "Doklad je ve stavu '{status}', takže se neupravuje v editoru. Otevřel se jeho detail, kde ho můžete třeba spárovat se zálohou.",
     "bulk": {

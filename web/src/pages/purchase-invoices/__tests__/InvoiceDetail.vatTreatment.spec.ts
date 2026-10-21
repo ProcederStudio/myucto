@@ -299,3 +299,40 @@ describe('InvoiceDetail.vue — akce Změnit DPH zařazení', () => {
     expect(await actionKeys()).not.toContain('vat-treatment')
   })
 })
+
+describe('InvoiceDetail.vue — vynucená úprava v uzavřeném období', () => {
+  beforeEach(() => {
+    m.get.mockReset()
+    m.activity.mockReset()
+    m.activity.mockResolvedValue([])
+    m.receiptList.mockResolvedValue([])
+    m.receiptPropose.mockResolvedValue({ lines: [], cost_candidates: [], purchase_invoice_id: 258, not_receivable_kind: 'advance' })
+    m.push.mockReset()
+    m.perms = {}
+    m.isAdmin = true
+  })
+
+  it('zaúčtovaný doklad v uzavřeném období nabídne volbu režimu a předá ho editoru', async () => {
+    m.get.mockResolvedValue(makeInvoice({
+      status: 'booked',
+      locked: { is_locked: true, reasons: ['posted', 'period_closed'], booked_at: null, journal_entry_id: 9, period_status: 'closed', date_locked: false, accountant_managed: false },
+    }))
+    const confirm = vi.spyOn(window, 'confirm')
+    const wrapper = mount(InvoiceDetail, {
+      global: { stubs: { ...stubs, Modal: { name: 'Modal', props: ['title', 'widthClass'], template: '<div><slot /></div>' } } },
+    })
+    await flushPromises()
+    const actions = wrapper.findComponent({ name: 'ActionBar' }).props('actions') as { key: string; run?: () => void }[]
+    actions.find(a => a.key === 'force-edit')?.run?.()
+    await flushPromises()
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="force-mode-reconcile"] input').setValue(true)
+    await wrapper.get('[data-test="force-mode-confirm"]').trigger('click')
+    expect(m.push).toHaveBeenCalledWith('/purchase-invoices/258/edit?force=1&force_mode=reconcile')
+    confirm.mockRestore()
+    wrapper.unmount()
+  })
+})

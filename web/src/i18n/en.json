@@ -19762,6 +19762,17 @@
     "force_edit": "Edit (force)",
     "force_delete": "Delete (force)",
     "force_edit_hint": "Admin only — edit received/booked/paid invoice. For paid invoices, beware: changing the amount may break matching with the bank transaction. Totals will be recomputed.",
+    "force_mode": {
+      "title": "Editing a document in a closed period",
+      "help": "The document is posted in a closed accounting period. Entries in a closed period are not rewritten, so choose how the edit should be applied.",
+      "reconcile": "Correct and repost to the current period",
+      "reconcile_hint": "The document is corrected, the original entry is reversed and the corrected document is posted to the current open period. Figures of the closed year stay untouched.",
+      "notes_only": "Notes only",
+      "notes_only_hint": "Only non-accounting data may change (notes, language). The server rejects changes to amounts, dates, VAT or items.",
+      "confirm": "Continue to edit",
+      "banner_reconcile": "Editing in a closed period: after saving, the original entry is reversed and the document is reposted to the current open period.",
+      "banner_notes_only": "Editing in a closed period for notes only: amounts, dates, VAT and items cannot change."
+    },
     "force_edit_confirm": "Really edit invoice with status '{status}'? For paid invoices: changing the amount may break the bank-transaction match. Continue?",
     "opened_detail_not_draft": "The document has status '{status}', so it is not edited in the editor. Its detail opened instead, where you can e.g. pair it with an advance.",
     "bulk": {

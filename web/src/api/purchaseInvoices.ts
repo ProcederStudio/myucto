@@ -240,6 +240,12 @@ export type PurchaseVatTreatmentWarning =
 
 export type PurchaseVatItemState = 'allocations' | 'no_claim_header' | 'no_claim_code' | 'claim' | 'unclassified'
 
+/**
+ * Režim vynucené úpravy zaúčtovaného dokladu v uzavřeném období: `reconcile` = storno
+ * a nový zápis v běžném období, `notes_only` = jen neúčetní pole (poznámky, jazyk).
+ */
+export type PurchaseForceMode = 'reconcile' | 'notes_only'
+
 /** Tělo opravy DPH zařazení — posílají se jen změněné klíče. */
 export interface PurchaseVatTreatmentPayload {
   vat_deduction?: VatDeduction
@@ -925,10 +931,15 @@ export const purchaseInvoicesApi = {
     ).then(r => r.data)
   },
 
-  update: (id: number, payload: PurchaseInvoicePayload, force = false) =>
+  /**
+   * `forceMode` je povinný u vynucené úpravy zaúčtovaného dokladu v uzavřeném období
+   * (server jinak vrací 422 force_mode_required).
+   */
+  update: (id: number, payload: PurchaseInvoicePayload, force = false, forceMode?: PurchaseForceMode) =>
     api.put<PurchaseInvoice>(
-      `/purchase-invoices/${id}${force ? '?force=1' : ''}`,
+      `/purchase-invoices/${id}`,
       payload,
+      { params: { ...(force ? { force: 1 } : {}), ...(force && forceMode ? { force_mode: forceMode } : {}) } },
     ).then(r => r.data),
   delete: (id: number, force = false) =>
     api.delete<{ ok: boolean; pdf_deleted?: boolean }>(

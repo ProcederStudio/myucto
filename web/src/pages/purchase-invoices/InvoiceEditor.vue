@@ -19,6 +19,7 @@ import {
   type VatDeduction,
   type PurchaseVatAllocation,
   type AiPostingSuggestion,
+  type PurchaseForceMode,
 } from '@/api/purchaseInvoices'
 import {
   portalPurchaseInvoiceSubmissionsApi,
@@ -57,6 +58,7 @@ import VendorPicker from '@/components/purchase/VendorPicker.vue'
 import ClientFormModal from '@/components/modals/ClientFormModal.vue'
 import { clientsApi, type Client } from '@/api/clients'
 import PdfDropzone from '@/components/purchase/PdfDropzone.vue'
+import PurchaseForceModeDialog from '@/components/purchase/PurchaseForceModeDialog.vue'
 import DocumentSidePreview from '@/components/documents/DocumentSidePreview.vue'
 import PaymentCurrencyBlock from '@/components/purchase/PaymentCurrencyBlock.vue'
 import ExchangeRateInput from '@/components/purchase/ExchangeRateInput.vue'
@@ -1434,6 +1436,18 @@ async function onReplacePdf() {
 // Vědomě potvrzená shoda čísla dokladu u dodavatele (např. platby platebního kalendáře).
 let allowDuplicateNumber = false
 
+// Režim vynucené úpravy v uzavřeném období — z detailu přes `?force_mode=`, nebo zvolený
+// v dialogu, když ho server vyžádá (422 force_mode_required).
+const forceMode = ref<PurchaseForceMode | null>(
+  ['reconcile', 'notes_only'].includes(String(route.query.force_mode ?? '')) ? route.query.force_mode as PurchaseForceMode : null,
+)
+const forceModeDialogOpen = ref(false)
+async function onForceModeChosen(mode: PurchaseForceMode) {
+  forceMode.value = mode
+  forceModeDialogOpen.value = false
+  await submit()
+}
+
 async function submit() {
   if (blockDemoMutation()) return
   if (submitting.value) return
@@ -1537,7 +1551,7 @@ async function submit() {
     if (isEdit.value && invoiceId.value) {
       // Force flag z URL query (?force=1) — pro admin edit received/booked faktur
       const force = String(route.query.force ?? '') === '1'
-      inv = await purchaseInvoicesApi.update(invoiceId.value, payload, force)
+      inv = await purchaseInvoicesApi.update(invoiceId.value, payload, force, forceMode.value ?? undefined)
     } else {
       inv = await purchaseInvoicesApi.create(payload)
     }
@@ -1580,6 +1594,11 @@ async function submit() {
     router.push(`/purchase-invoices/${inv.id}`)
   } catch (e: any) {
     const data = e?.response?.data?.error
+    // Zaúčtovaný doklad v uzavřeném období: server chce zvolený režim úpravy (B11).
+    if (data?.code === 'force_mode_required' && String(route.query.force ?? '') === '1') {
+      forceModeDialogOpen.value = true
+      return
+    }
     if (data?.code === 'vendor_invoice_duplicate' && data?.can_confirm && !allowDuplicateNumber
       && window.confirm(t('purchase_invoice.duplicate_number_confirm', { message: apiErrorMessage(e) }))) {
       allowDuplicateNumber = true
@@ -1631,6 +1650,10 @@ useWindowTitle(
     <div v-if="error" data-error-banner class="p-3 bg-danger-50 border border-danger-500/40 text-danger-600 rounded-md text-sm">
       {{ error }}
     </div>
+    <div v-if="forceMode" class="p-3 bg-warning-50 border border-warning-500/40 text-warning-700 rounded-md text-sm" data-test="force-mode-banner">
+      {{ t(`purchase_invoice.force_mode.banner_${forceMode}`) }}
+    </div>
+    <PurchaseForceModeDialog v-if="forceModeDialogOpen" @close="forceModeDialogOpen = false" @choose="onForceModeChosen" />
 
     <!-- AI extraction warning — žluté upozornění, pokud backend zaznamenal podezřelou neshodu
          mezi sumou řádků a AI-vráceným totalem (typicky: subtotal čten jako item). -->

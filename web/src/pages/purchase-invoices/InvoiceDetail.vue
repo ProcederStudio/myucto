@@ -12,7 +12,7 @@ import CreditNoteOffsetNotice from '@/components/invoices/CreditNoteOffsetNotice
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { purchaseInvoicesApi, type PurchaseInvoice, type PurchaseInvoiceStatus, type PurchaseInvoiceBrief, type PaymentQrResponse, type VatDeduction } from '@/api/purchaseInvoices'
+import { purchaseInvoicesApi, type PurchaseInvoice, type PurchaseInvoiceStatus, type PurchaseInvoiceBrief, type PaymentQrResponse, type VatDeduction, type PurchaseForceMode } from '@/api/purchaseInvoices'
 import { formatMoney, formatHourlyRate, formatDate } from '@/composables/useFormat'
 import { formatDuration, isTimeItem, itemQuantity } from '@/utils/timeBilling'
 import { useToast } from '@/composables/useToast'
@@ -44,6 +44,7 @@ import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 const ExtractionReviewModal = defineAsyncComponent(() => import('@/components/purchase/ExtractionReviewModal.vue'))
 const PaymentCalendarModal = defineAsyncComponent(() => import('@/components/purchase/PaymentCalendarModal.vue'))
 const PurchaseVatTreatmentModal = defineAsyncComponent(() => import('@/components/purchase/PurchaseVatTreatmentModal.vue'))
+const PurchaseForceModeDialog = defineAsyncComponent(() => import('@/components/purchase/PurchaseForceModeDialog.vue'))
 const PaymentMethodModal = defineAsyncComponent(() => import('@/components/invoices/PaymentMethodModal.vue'))
 const ExpenseRuleTemplateModal = defineAsyncComponent(() => import('@/components/accounting/ExpenseRuleTemplateModal.vue'))
 const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))
@@ -611,11 +612,24 @@ function onVatTreatmentSaved() {
   postingPanelRef.value?.reload()
 }
 
+// Zaúčtovaný doklad v uzavřeném období: server chce zvolený režim (reconcile / notes_only),
+// jinak by uložení skončilo 422 force_mode_required.
+const forceModeOpen = ref(false)
 function confirmForceEdit() {
   if (!invoice.value) return
+  const reasons = invoice.value.locked?.reasons ?? []
+  if (reasons.includes('posted') && reasons.includes('period_closed')) {
+    forceModeOpen.value = true
+    return
+  }
   const status = t('purchase_invoice.status.' + invoice.value.status)
   if (!confirm(t('purchase_invoice.force_edit_confirm', { status }))) return
   router.push(`/purchase-invoices/${invoice.value.id}/edit?force=1`)
+}
+function onForceModeChosen(mode: PurchaseForceMode) {
+  forceModeOpen.value = false
+  if (!invoice.value) return
+  router.push(`/purchase-invoices/${invoice.value.id}/edit?force=1&force_mode=${mode}`)
 }
 const canDelete = computed(() => invoice.value?.status === 'draft')
 
@@ -1229,6 +1243,7 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
         :amount="Number(invoice.total_with_vat)" :currency="invoice.currency" @close="paymentCalendarOpen = false" />
       <PurchaseVatTreatmentModal v-if="vatTreatmentOpen" :invoice="invoice" :vat-classifications="vatClassifications"
         :is-admin="auth.isCompanyAdminRole" @close="vatTreatmentOpen = false" @saved="onVatTreatmentSaved" />
+      <PurchaseForceModeDialog v-if="forceModeOpen" @close="forceModeOpen = false" @choose="onForceModeChosen" />
 
       <!-- ═══ Úhrady dokladu → provenience (banka + pokladna + zaúčtování úhrady) ═══ -->
       <div v-if="(invoice.bank_payments && invoice.bank_payments.length) || (invoice.cash_payments && invoice.cash_payments.length) || (invoice.settlement_payments && invoice.settlement_payments.length)"
