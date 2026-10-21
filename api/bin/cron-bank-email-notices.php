@@ -61,6 +61,15 @@ foreach ($supplierIds as $sid) {
         if (!empty($result['error'])) {
             $summary['details'][] = ['supplier_id' => $sid, 'error' => $result['error']];
         }
+        foreach ($result['accounts'] ?? [] as $account) {
+            if (!empty($account['error'])) {
+                $summary['details'][] = [
+                    'supplier_id' => $sid,
+                    'imap_account_id' => $account['imap_account_id'],
+                    'error' => $account['error'],
+                ];
+            }
+        }
     } catch (\Throwable $e) {
         $summary['errors']++;
         $summary['details'][] = ['supplier_id' => $sid, 'error' => $e->getMessage()];
