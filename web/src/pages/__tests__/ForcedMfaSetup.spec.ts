@@ -358,4 +358,28 @@ describe('ForcedMfaSetup — portal return after saving recovery codes', () => {
     expect(m.replace).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+
+  it('po odvolaném klíči ukáže záložní kódy a po potvrzení nabídne nový pokus', async () => {
+    m.store.allowedMfaMethods = ['passkey']
+    m.store.mustSetupMfa = true
+    m.passkeyRegisterOptions.mockResolvedValue({ flow_token: 'reg-flow', public_key: {} })
+    m.passkeyRegisterVerify.mockResolvedValue({ credential: { id: 9 }, recovery_codes: ['AAAA-BBBB'] })
+    m.passkeyTestOptions.mockResolvedValue({ flow_token: 'test-flow', public_key: {} })
+    m.getCredential.mockResolvedValue({ id: 'assertion' })
+    m.passkeyTestVerify.mockRejectedValue({ response: { data: { error: { code: 'passkey_test_failed', revoked: true } } } })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.get('input[type="password"]').setValue('Synthetic-password-42')
+    await wrapper.findAll('button').find(b => b.text() === 'mfa_setup.create_passkey')!.trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-recovery-once-confirm]').trigger('click')
+    await flushPromises()
+
+    expect(m.replace).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-recovery-once-confirm]').exists()).toBe(false)
+    expect(wrapper.findAll('button').some(b => b.text() === 'mfa_setup.create_passkey')).toBe(true)
+    expect(wrapper.text()).toContain('passkeys.test_revoked')
+    wrapper.unmount()
+  })
 })
