@@ -334,6 +334,8 @@ Token platí pro všechny vaše účty u MONETY. Aplikace si podle IBANu nastave
 3. U účtu otevřete **Napojení banky**, vložte token a zvolte **Ověřit a uložit**. Aplikace při ukládání ověří, že bankovní účet odpovídá připojení.
 4. Klikněte na **Načíst pohyby**. Prázdné datum **Od data** automaticky navazuje na předchozí načítání; pole **Do data** je v tomto režimu vypnuté a nepoužívá se. Pro ruční načtení vyplňte obě data, nejvýše 31 dní včetně krajních dnů. Starší historii může být potřeba dočasně odemknout u tokenu v internetovém bankovnictví.
 
+Pohyby se načítají ve formátu Fio XML. U zahraničních plateb tak má pohyb celý IBAN a název protiúčtu a v popisu je i zpráva pro příjemce, podle které se platba páruje na fakturu. Pohyb, který už v evidenci je (například z nahraného GPC), se znovu nezaloží ani nepřepíše.
+
 ### 30.11.6 Odeslání příkazu do banky: pravidla
 
 Akce **Připravit příkaz pro banku** uloží příkaz a nabídne jej v sekci **Odeslání platebního příkazu do banky** pod přehledem faktur. Tento způsob přípravy faktury neoznačí jako zaplacené ani při zaškrtnuté volbě pro ruční označení úhrady. Vybrat lze i dříve uložený příkaz z historie.
