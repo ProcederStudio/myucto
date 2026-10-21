@@ -328,7 +328,7 @@ final class PasskeyAction
                 $this->bruteForce->recordPasskeyFailure($candidateUserId);
             }
             return $this->loginVerificationFailed($response);
-        } catch (OneTimeTokenException|PasskeyVerificationException) {
+        } catch (OneTimeTokenException|PasskeyVerificationException $e) {
             if ($candidateUserId !== null) {
                 $this->bruteForce->recordPasskeyFailure($candidateUserId);
                 $this->logger->log(
@@ -336,7 +336,7 @@ final class PasskeyAction
                     $candidateUserId,
                     'user',
                     $candidateUserId,
-                    ['reason' => 'passkey_invalid'],
+                    ['reason' => 'passkey_invalid'] + self::verificationFailureDetail($e),
                     $this->clientIp($request),
                     $request->getHeaderLine('User-Agent'),
                 );
@@ -524,8 +524,17 @@ final class PasskeyAction
             );
             $this->bruteForce->recordPasskeyFailure($context['user_id']);
             return $this->stepUpVerificationFailed($response);
-        } catch (OneTimeTokenException|PasskeyVerificationException|StepUpOperationException) {
+        } catch (OneTimeTokenException|PasskeyVerificationException|StepUpOperationException $e) {
             $this->bruteForce->recordPasskeyFailure($context['user_id']);
+            $this->logger->log(
+                'auth.passkey_step_up_failed',
+                $context['user_id'],
+                'user',
+                $context['user_id'],
+                ['operation' => $operation] + self::verificationFailureDetail($e),
+                $this->clientIp($request),
+                $request->getHeaderLine('User-Agent'),
+            );
             return $this->stepUpVerificationFailed($response);
         }
 
@@ -537,6 +546,107 @@ final class PasskeyAction
             ['credential_id' => $stored->id, 'operation' => $operation],
         );
         return Json::ok($response, ['step_up_token' => $proofToken]);
+    }
+
+    /**
+     * Zkušební ověření čerstvě zaregistrované passkey. Nabízí se jen klíči, který
+     * ještě nikdo nepoužil, proto ho sem nejde poslat k opakovanému „ověřování".
+     *
+     * @param array<string,string> $args
+     */
+    public function testOptions(Request $request, Response $response, array $args): Response
+    {
+        $context = $this->sessionContext($request);
+        if ($context === null) {
+            return $this->sessionRequired($response);
+        }
+        if (!$this->passkeys->isAvailable()) {
+            return $this->passkeysUnavailable($response);
+        }
+        $credentialId = (int) ($args['id'] ?? 0);
+        $stored = $credentialId > 0
+            ? $this->credentials->findUnverifiedForUser(
+                $context['user_id'],
+                $credentialId,
+                PasskeySessionTransitionService::CREDENTIAL_TEST_WINDOW_SECONDS,
+            )
+            : null;
+        if ($stored === null) {
+            return Json::error($response, 'passkey_test_unavailable', 'Tuto passkey už nelze zkušebně ověřit.', 409);
+        }
+        $challenge = random_bytes(32);
+        $options = $this->passkeys->assertionOptions([$stored->record], $challenge);
+        $flowToken = $this->ceremonies->create(
+            WebAuthnCeremonyStore::PURPOSE_CREDENTIAL_TEST,
+            $context['user_id'],
+            $context['session_token'],
+            PasskeySessionTransitionService::credentialTestOperation($stored->id),
+            $challenge,
+            $options,
+            $this->clientIp($request),
+            $request->getHeaderLine('User-Agent'),
+        );
+
+        return Json::ok($response, [
+            'flow_token' => $flowToken,
+            'public_key' => $options,
+        ]);
+    }
+
+    /**
+     * @param array<string,string> $args
+     */
+    public function testVerify(Request $request, Response $response, array $args): Response
+    {
+        $context = $this->sessionContext($request);
+        if ($context === null) {
+            return $this->sessionRequired($response);
+        }
+        if (!$this->passkeys->isAvailable()) {
+            return $this->passkeysUnavailable($response);
+        }
+        if ($this->bruteForce->isPasskeyLocked($context['user_id'])) {
+            return $this->passkeyRateLimited($response);
+        }
+        $credentialId = (int) ($args['id'] ?? 0);
+        $body = (array) ($request->getParsedBody() ?? []);
+        $credentialPayload = $body['credential'] ?? null;
+        try {
+            $result = $this->sessionTransitions->completeCredentialTest(
+                trim((string) ($body['flow_token'] ?? '')),
+                is_array($credentialPayload) ? $credentialPayload : [],
+                $context['user_id'],
+                $context['session_token'],
+                $credentialId,
+            );
+        } catch (OneTimeTokenException|\DomainException|\InvalidArgumentException) {
+            return Json::error($response, 'passkey_test_unavailable', 'Tuto passkey už nelze zkušebně ověřit.', 409);
+        }
+
+        if ($result['verified']) {
+            $this->bruteForce->recordPasskeySuccess($context['user_id']);
+            $this->log($request, 'auth.passkey_test_passed', $context['user_id'], $credentialId, ['credential_id' => $credentialId]);
+            return Json::ok($response, ['verified' => true]);
+        }
+
+        // Nepočítá se do brute-force zámku: kdo právě zaregistroval klíč, který
+        // jeho správce neumí použít, nic nehádá, a zámek by mu zablokoval i
+        // následné přihlášení jiným klíčem.
+        $this->log(
+            $request,
+            'auth.passkey_test_failed',
+            $context['user_id'],
+            $credentialId,
+            ['credential_id' => $credentialId, 'revoked' => $result['revoked']]
+                + self::verificationFailureDetail($result['error']),
+        );
+        return Json::error(
+            $response,
+            'passkey_test_failed',
+            'Přístupový klíč se nepodařilo ověřit.',
+            422,
+            ['revoked' => $result['revoked']],
+        );
     }
 
     /**
@@ -655,6 +765,25 @@ final class PasskeyAction
     private function clientIp(Request $request): string
     {
         return $this->ipMatcher->clientIpFromRequest($request->getServerParams());
+    }
+
+    /**
+     * Proč ověření selhalo — jen do auditního logu, klientovi jde obecná chyba.
+     *
+     * @return array<string,string>
+     */
+    private static function verificationFailureDetail(\Throwable $e): array
+    {
+        if ($e instanceof PasskeyVerificationException) {
+            $payload = $e->logPayload();
+            return ['failure' => $payload['reason']]
+                + (isset($payload['detail']) ? ['detail' => $payload['detail']] : []);
+        }
+        return ['failure' => match (true) {
+            $e instanceof OneTimeTokenException => 'flow_token',
+            $e instanceof StepUpOperationException => 'operation',
+            default => PasskeyVerificationException::REASON_UNKNOWN,
+        }];
     }
 
     /**

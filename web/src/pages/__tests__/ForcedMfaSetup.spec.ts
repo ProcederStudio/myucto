@@ -18,6 +18,10 @@ const m = vi.hoisted(() => ({
   setSessionCsrfToken: vi.fn(),
   passkeyStepUpOptions: vi.fn(),
   passkeyStepUpVerify: vi.fn(),
+  passkeyRegisterOptions: vi.fn(),
+  passkeyRegisterVerify: vi.fn(),
+  passkeyTestOptions: vi.fn(),
+  passkeyTestVerify: vi.fn(),
   getCredential: vi.fn(),
   refresh: vi.fn(),
   logout: vi.fn(),
@@ -42,8 +46,10 @@ vi.mock('@/api/auth', () => ({
     totpSetup: m.totpSetup,
     totpEnable: m.totpEnable,
     totpStepUp: vi.fn(),
-    passkeyRegisterOptions: vi.fn(),
-    passkeyRegisterVerify: vi.fn(),
+    passkeyRegisterOptions: m.passkeyRegisterOptions,
+    passkeyRegisterVerify: m.passkeyRegisterVerify,
+    passkeyTestOptions: m.passkeyTestOptions,
+    passkeyTestVerify: m.passkeyTestVerify,
     passkeyStepUpOptions: m.passkeyStepUpOptions,
     passkeyStepUpVerify: m.passkeyStepUpVerify,
   },
@@ -328,6 +334,28 @@ describe('ForcedMfaSetup — portal return after saving recovery codes', () => {
     await flushPromises()
     expect(m.authorizeDomainLogin).toHaveBeenCalledTimes(2)
     expect(m.totpEnable).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('klíč, který po registraci neprojde ověřením, odvolá a do aplikace nepustí', async () => {
+    m.store.allowedMfaMethods = ['passkey']
+    m.store.mustSetupMfa = true
+    m.passkeyRegisterOptions.mockResolvedValue({ flow_token: 'reg-flow', public_key: {} })
+    m.passkeyRegisterVerify.mockResolvedValue({ credential: { id: 9 } })
+    m.passkeyTestOptions.mockResolvedValue({ flow_token: 'test-flow', public_key: {} })
+    m.getCredential.mockResolvedValue({ id: 'assertion' })
+    m.passkeyTestVerify.mockRejectedValue({ response: { data: { error: { code: 'passkey_test_failed', revoked: true } } } })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.get('input[type="password"]').setValue('Synthetic-password-42')
+    const create = wrapper.findAll('button').find(b => b.text() === 'mfa_setup.create_passkey')!
+    await create.trigger('click')
+    await flushPromises()
+
+    expect(m.passkeyTestVerify).toHaveBeenCalledWith(9, 'test-flow', { id: 'assertion' })
+    expect(wrapper.text()).toContain('passkeys.test_revoked')
+    expect(m.replace).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

@@ -16,6 +16,7 @@ import {
   hasPendingCanonicalDomainLogin,
 } from '@/security/domainLogin'
 import { takeTotpEnrollment } from '@/security/totpEnrollment'
+import { testRegisteredPasskey } from '@/security/passkeyTest'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -107,14 +108,20 @@ async function completePasskey() {
       if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, result.csrf_token)
       auth.setSessionCsrfToken(result.csrf_token)
     }
+    // Klíč, který správce uložil, ale neumí jím ověřit, by uživatele zamkl hned
+    // při dalším přihlášení. Ověří se teď; když neprojde, server ho odvolá.
+    const revoked = await testRegisteredPasskey(result.credential?.id) === 'revoked'
     await auth.refresh()
     await sessionSecurity.refresh({ force: true })
+    if (revoked) error.value = t('passkeys.test_revoked')
     // ⚠️ Stejně jako u TOTP: kódy PŘED dokončením setupu, jinak je odnaviguje
-    // pryč a uživatel skončí s klíčem, ale bez jediné cesty zpět.
+    // pryč a uživatel skončí s klíčem, ale bez jediné cesty zpět. Patří uživateli,
+    // ne klíči, takže se ukazují i po odvolání nefunkčního klíče.
     if (result.recovery_codes?.length) {
       recoveryCodes.value = result.recovery_codes
       return
     }
+    if (revoked) return
     await continueAfterSetup()
   } catch (e: any) {
     const ceremonyError = webAuthnErrorKey(e)

@@ -982,9 +982,10 @@ final class RoutePermissionMap
         if (in_array($path, self::SELF_PATHS, true)) {
             return new RoutePermission(self::SELF_SERVICE);
         }
-        // Správa vlastních přístupových klíčů (přejmenování, smazání) je self-service —
-        // vazba na přihlášeného uživatele se kontroluje až v akci podle ID klíče.
-        if (preg_match('#^/api/auth/webauthn/credentials/[0-9]+$#', $path) === 1) {
+        // Správa vlastních přístupových klíčů (přejmenování, smazání, zkušební ověření)
+        // je self-service — vazba na přihlášeného uživatele se kontroluje až v akci
+        // podle ID klíče.
+        if (preg_match('#^/api/auth/webauthn/credentials/[0-9]+(/test/(options|verify))?$#', $path) === 1) {
             return new RoutePermission(self::SELF_SERVICE);
         }
         if ($path === '/api/auth/setup-sample') {

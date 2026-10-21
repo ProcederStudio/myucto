@@ -484,6 +484,45 @@ final class PasskeyPersistenceTest extends TestCase
         $store->consume($token, $this->userId, 'session-a', 'api-token.create');
     }
 
+    /**
+     * Zkušební ověření po registraci smí odvolat jen čerstvý a nikdy nepoužitý
+     * klíč. Podmínka je v SQL: kdyby ji hlídal jen volající, šlo by touto cestou
+     * odvolat klíč, který už jednou fungoval (#225).
+     */
+    public function testOnlyFreshUnusedPasskeyCanBeRevokedAfterFailedTest(): void
+    {
+        $handle = $this->credentials->userHandle($this->userId);
+        $fresh = $this->credentials->save($this->userId, $this->credentialRecord($handle), 'Fresh');
+        $used = $this->credentials->save($this->userId, $this->credentialRecord($handle), 'Used');
+        $old = $this->credentials->save($this->userId, $this->credentialRecord($handle), 'Old');
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE webauthn_credentials SET last_used_at = UTC_TIMESTAMP(6) WHERE id = ?')->execute([$used]);
+        $pdo->prepare('UPDATE webauthn_credentials SET created_at = UTC_TIMESTAMP(6) - INTERVAL 1 HOUR WHERE id = ?')->execute([$old]);
+
+        self::assertSame($fresh, $this->credentials->findUnverifiedForUser($this->userId, $fresh, 900)?->id);
+        self::assertNull($this->credentials->findUnverifiedForUser($this->userId, $used, 900));
+        self::assertNull($this->credentials->findUnverifiedForUser($this->userId, $old, 900));
+        self::assertNull($this->credentials->findUnverifiedForUser($this->userId + 1, $fresh, 900));
+
+        // Skutečný čas, ne MutableClock: created_at zapisuje databáze přes UTC_TIMESTAMP.
+        $cutoff = \MyInvoice\Service\Auth\SecurityTime::fromDateTime(new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+        $pdo->beginTransaction();
+        try {
+            self::assertFalse($this->credentials->revokeUnverifiedInTransaction($pdo, $this->userId, $used, $cutoff, 900));
+            self::assertFalse($this->credentials->revokeUnverifiedInTransaction($pdo, $this->userId, $old, $cutoff, 900));
+            self::assertFalse($this->credentials->revokeUnverifiedInTransaction($pdo, $this->userId + 1, $fresh, $cutoff, 900));
+            self::assertTrue($this->credentials->revokeUnverifiedInTransaction($pdo, $this->userId, $fresh, $cutoff, 900));
+            $pdo->commit();
+        } finally {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+        }
+
+        self::assertSame(2, $this->credentials->countActiveForUser($this->userId));
+        self::assertNull($this->credentials->findActiveForUserById($this->userId, $fresh));
+    }
+
     private function credentialRecord(string $userHandle, int $counter = 0): CredentialRecord
     {
         return CredentialRecord::create(

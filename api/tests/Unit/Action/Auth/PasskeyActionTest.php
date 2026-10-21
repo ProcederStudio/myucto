@@ -467,6 +467,120 @@ final class PasskeyActionTest extends TestCase
         self::assertSame('passkey_verification_failed', $this->errorCode($response));
     }
 
+    /**
+     * Selhání step-up ověření musí v auditním logu zanechat důvod. Bez něj se
+     * u správce klíčů, který vrací neplatné ověření, nedalo zjistit nic víc než
+     * obecné „Step-up ověření selhalo".
+     */
+    public function testStepUpFailureLogsReasonForAuditButReturnsGenericError(): void
+    {
+        $this->bruteForce->method('isPasskeyLocked')->willReturn(false);
+        $this->sessionTransitions->expects(self::once())
+            ->method('completeStepUp')
+            ->willThrowException(new PasskeyVerificationException(
+                reason: PasskeyVerificationException::REASON_ASSERTION_INVALID,
+                detail: 'User authentication required.',
+            ));
+        $this->bruteForce->expects(self::once())->method('recordPasskeyFailure')->with(17);
+        $this->ipMatcher->method('clientIpFromRequest')->willReturn('127.0.0.1');
+        $this->logger->expects(self::once())
+            ->method('log')
+            ->with(
+                'auth.passkey_step_up_failed',
+                17,
+                'user',
+                17,
+                [
+                    'operation' => 'totp.enable',
+                    'failure' => 'assertion_invalid',
+                    'detail' => 'User authentication required.',
+                ],
+                '127.0.0.1',
+                'PHPUnit',
+            );
+
+        $request = $this->sessionRequest('POST', '/api/auth/webauthn/step-up/verify')
+            ->withHeader('User-Agent', 'PHPUnit')
+            ->withParsedBody([
+                'flow_token' => 'flow-token',
+                'operation' => 'totp.enable',
+                'credential' => ['rawId' => 'abc'],
+            ]);
+        $response = $this->action()->stepUpVerify($request, (new ResponseFactory())->createResponse());
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('step_up_verification_failed', $this->errorCode($response));
+        self::assertStringNotContainsString('User authentication required', (string) $response->getBody());
+    }
+
+    /**
+     * Klíč, kterým správce po registraci neumí ověřit, se odvolá a klient se to
+     * dozví. Neúspěch se nepočítá do brute-force zámku — uživatel nic nehádá.
+     */
+    public function testFailedCredentialTestReportsRevocationWithoutBruteForcePenalty(): void
+    {
+        $this->bruteForce->method('isPasskeyLocked')->willReturn(false);
+        $this->sessionTransitions->expects(self::once())
+            ->method('completeCredentialTest')
+            ->with('flow-token', ['rawId' => 'abc'], 17, str_repeat('a', 64), 5)
+            ->willReturn([
+                'verified' => false,
+                'revoked' => true,
+                'error' => new PasskeyVerificationException(
+                    reason: PasskeyVerificationException::REASON_ASSERTION_INVALID,
+                    detail: 'Invalid signature.',
+                ),
+            ]);
+        $this->bruteForce->expects(self::never())->method('recordPasskeyFailure');
+        $this->ipMatcher->method('clientIpFromRequest')->willReturn('127.0.0.1');
+        $this->logger->expects(self::once())
+            ->method('log')
+            ->with(
+                'auth.passkey_test_failed',
+                17,
+                'webauthn_credential',
+                5,
+                [
+                    'credential_id' => 5,
+                    'revoked' => true,
+                    'failure' => 'assertion_invalid',
+                    'detail' => 'Invalid signature.',
+                ],
+                '127.0.0.1',
+                'PHPUnit',
+            );
+
+        $request = $this->sessionRequest('POST', '/api/auth/webauthn/credentials/5/test/verify')
+            ->withHeader('User-Agent', 'PHPUnit')
+            ->withParsedBody(['flow_token' => 'flow-token', 'credential' => ['rawId' => 'abc']]);
+        $response = $this->action()->testVerify($request, (new ResponseFactory())->createResponse(), ['id' => '5']);
+
+        self::assertSame(422, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('passkey_test_failed', $body['error']['code']);
+        self::assertTrue($body['error']['revoked']);
+        self::assertStringNotContainsString('Invalid signature', (string) $response->getBody());
+    }
+
+    /** Klíč, který už jednou fungoval nebo není čerstvý, test nenabídne. */
+    public function testCredentialTestIsOfferedOnlyForFreshUnusedPasskey(): void
+    {
+        $this->credentials->expects(self::once())
+            ->method('findUnverifiedForUser')
+            ->with(17, 5, PasskeySessionTransitionService::CREDENTIAL_TEST_WINDOW_SECONDS)
+            ->willReturn(null);
+        $this->ceremonies->expects(self::never())->method('create');
+
+        $response = $this->action()->testOptions(
+            $this->sessionRequest('POST', '/api/auth/webauthn/credentials/5/test/options'),
+            (new ResponseFactory())->createResponse(),
+            ['id' => '5'],
+        );
+
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame('passkey_test_unavailable', $this->errorCode($response));
+    }
+
     public function testLoginVerifyReportsUnavailableConfigurationWithoutConsumingFlow(): void
     {
         $this->passkeys = $this->createMock(PasskeyService::class);
