@@ -13,6 +13,7 @@ use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\PurchaseInvoice\ExtractionReviewSync;
 use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
 use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatment;
+use MyInvoice\Service\PurchaseInvoice\VendorNumberDuplicates;
 use MyInvoice\Service\Validation\PurchaseInvoiceValidation;
 use MyInvoice\Support\ExchangeRateSources;
 use MyInvoice\Support\PaymentMethods;
@@ -3532,10 +3533,13 @@ final class PurchaseInvoiceRepository
     /**
      * Vrátí ID faktury s daným pdf_hash u tenanta, nebo null. Pro dedup při PDF uploadu / inbox scanu.
      */
-    public function findIdByPdfHash(int $supplierId, string $sha256): ?int
+    public function findIdByPdfHash(int $supplierId, string $sha256, bool $activeOnly = false): ?int
     {
+        // `$activeOnly`: stornovaný doklad dedup importu neblokuje — storno znamená „tenhle
+        // doklad neplatí", takže znovu nahraný originál má vzniknout jako nový doklad.
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id FROM purchase_invoices WHERE supplier_id = ? AND pdf_hash = ? LIMIT 1'
+            'SELECT id FROM purchase_invoices WHERE supplier_id = ? AND pdf_hash = ?'
+                . ($activeOnly ? " AND status <> 'cancelled'" : '') . ' LIMIT 1'
         );
         $stmt->execute([$supplierId, $sha256]);
         $id = $stmt->fetchColumn();
@@ -3550,10 +3554,11 @@ final class PurchaseInvoiceRepository
      * cesty by opakovaný sken téhož souboru pokaždé znovu prošel celým importem (nový
      * doklad sice neodmítl unikátní klíč, ale report ho počítal jako `created`).
      */
-    public function findIdBySourceHash(int $supplierId, string $sha256): ?int
+    public function findIdBySourceHash(int $supplierId, string $sha256, bool $activeOnly = false): ?int
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id FROM purchase_invoices WHERE supplier_id = ? AND source_hash = ? LIMIT 1'
+            'SELECT id FROM purchase_invoices WHERE supplier_id = ? AND source_hash = ?'
+                . ($activeOnly ? " AND status <> 'cancelled'" : '') . ' LIMIT 1'
         );
         $stmt->execute([$supplierId, $sha256]);
         $id = $stmt->fetchColumn();
@@ -3566,17 +3571,30 @@ final class PurchaseInvoiceRepository
      * tím detekuje "tahle faktura už je v systému" před voláním createDraft (které by
      * jinak hodilo SQLSTATE 23000 duplicate key).
      */
-    public function findIdByVendorInvoice(int $supplierId, int $vendorId, string $vendorInvoiceNumber, string $issueDate): ?int
+    public function findIdByVendorInvoice(int $supplierId, int $vendorId, string $vendorInvoiceNumber, string $issueDate, bool $activeOnly = false): ?int
     {
+        // `$activeOnly` viz findIdByPdfHash(); unikátní klíč stornovaný doklad dál drží,
+        // nový proto dostane další pořadí ({@see importDuplicateSeq()}).
         $stmt = $this->db->pdo()->prepare(
             'SELECT id FROM purchase_invoices
               WHERE supplier_id = ? AND vendor_id = ?
-                AND vendor_invoice_number = ? AND issue_date = ?
+                AND vendor_invoice_number = ? AND issue_date = ?'
+                . ($activeOnly ? " AND status <> 'cancelled'" : '') . '
               LIMIT 1'
         );
         $stmt->execute([$supplierId, $vendorId, $vendorInvoiceNumber, $issueDate]);
         $id = $stmt->fetchColumn();
         return $id === false ? null : (int) $id;
+    }
+
+    /**
+     * Pořadí `vendor_number_seq` pro importovaný doklad, jehož číslo a datum už nese jen
+     * stornovaný doklad téhož dodavatele (0 = shoda neexistuje). Import (AI, ISDOC, fronta)
+     * se ptá jen na nestornované duplikáty, unikátní klíč ale drží i storno.
+     */
+    public function importDuplicateSeq(int $supplierId, int $vendorId, string $vendorInvoiceNumber, string $issueDate): int
+    {
+        return VendorNumberDuplicates::nextSeq($this->db->pdo(), $supplierId, $vendorId, $vendorInvoiceNumber, $issueDate);
     }
 
     /**

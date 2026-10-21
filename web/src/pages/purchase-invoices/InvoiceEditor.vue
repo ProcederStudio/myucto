@@ -1442,6 +1442,7 @@ const forceMode = ref<PurchaseForceMode | null>(
   ['reconcile', 'notes_only'].includes(String(route.query.force_mode ?? '')) ? route.query.force_mode as PurchaseForceMode : null,
 )
 const forceModeDialogOpen = ref(false)
+const duplicateCancelledId = ref<number | null>(null)
 async function onForceModeChosen(mode: PurchaseForceMode) {
   forceMode.value = mode
   forceModeDialogOpen.value = false
@@ -1458,6 +1459,7 @@ async function submit() {
   }
   submitting.value = true
   error.value = ''
+  duplicateCancelledId.value = null
   fieldErrors.value = {}
   syncAllAllocationResiduals()
   if (allocationInvalid.value) {
@@ -1599,8 +1601,13 @@ async function submit() {
       forceModeDialogOpen.value = true
       return
     }
+    // Shoda jen se stornovaným dokladem: jiný text a v chybě odkaz na „Vrátit ze storna".
+    duplicateCancelledId.value = data?.code === 'vendor_invoice_duplicate' && data?.cancelled_duplicate_id
+      ? Number(data.cancelled_duplicate_id) : null
     if (data?.code === 'vendor_invoice_duplicate' && data?.can_confirm && !allowDuplicateNumber
-      && window.confirm(t('purchase_invoice.duplicate_number_confirm', { message: apiErrorMessage(e) }))) {
+      && window.confirm(t(duplicateCancelledId.value
+        ? 'purchase_invoice.duplicate_number_confirm_cancelled'
+        : 'purchase_invoice.duplicate_number_confirm', { message: apiErrorMessage(e) }))) {
       allowDuplicateNumber = true
       submitting.value = false
       try {
@@ -1649,6 +1656,10 @@ useWindowTitle(
 
     <div v-if="error" data-error-banner class="p-3 bg-danger-50 border border-danger-500/40 text-danger-600 rounded-md text-sm">
       {{ error }}
+      <RouterLink v-if="duplicateCancelledId" :to="`/purchase-invoices/${duplicateCancelledId}`"
+        class="block mt-1 font-medium underline" data-test="duplicate-cancelled-link">
+        {{ t('purchase_invoice.duplicate_cancelled_open') }}
+      </RouterLink>
     </div>
     <div v-if="forceMode" class="p-3 bg-warning-50 border border-warning-500/40 text-warning-700 rounded-md text-sm" data-test="force-mode-banner">
       {{ t(`purchase_invoice.force_mode.banner_${forceMode}`) }}

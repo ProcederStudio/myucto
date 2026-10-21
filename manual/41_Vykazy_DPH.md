@@ -405,6 +405,8 @@ Jakmile bylo přiznání za dané období aspoň jednou v archivu označeno jako
 
 Sekce se zobrazí jen tehdy, když za dané období už bylo přiznání v archivu označeno jako odeslané (řádné, opravné nebo dodatečné). U období, které ještě podané nebylo, fronta nedává smysl.
 
+Doklady v podaném období (přiznání k DPH nebo kontrolní hlášení označené jako podané) jsou chráněné i proti změně. U vydané faktury mění částky, data a položky jen správce firmy. U přijaté faktury platí totéž pro každou změnu, která se promítne do evidence DPH: vynucenou úpravu, členění DPH položek i **Změnit DPH zařazení**; rozhoduje období odpočtu dokladu. Správce musí změnu DPH zařazení v podaném období navíc výslovně potvrdit. Každou takovou změnu je potřeba vykázat opravným nebo dodatečným tvrzením (viz [§ 41.5](#415-krok-za-krokem-oprava-uz-podaneho-priznani-nebo-hlaseni)).
+
 > [!TIP]
 > Fronta je jen podklad pro rozhodnutí, nic sama nevynucuje. Pokud se v ní doklad objeví, zvažte, zda je rozdíl významný natolik, že je potřeba podat dodatečné přiznání (viz [§ 41.5](#415-krok-za-krokem-oprava-uz-podaneho-priznani-nebo-hlaseni)), nebo zda stačí ho promítnout až do dalšího řádného období.
 
@@ -600,7 +602,9 @@ Pokud na fakturu ani řádek kód nevyberete, doplní ho systém sám. Rozhoduje
 - u přijatých dokladů navíc plátcovství vaší firmy k datu dokladu a povaha plnění (poplatek orgánu veřejné moci, viz níže),
 - u nulové sazby do zahraničí měrná jednotka položky: časová (h, den, měsíc) znamená službu, fyzikální míra nebo balení (kg, l, m², paleta) zboží. Jednotka `ks` je neutrální a rozhodne statistický výchozí stav (služba).
 
-U přijatých dokladů přiřazuje kód jediné místo, a to ukládání řádků. Hlavička dokladu ho jen přebírá z dominantního řádku, sama nikdy nerozhoduje. Ručně zvolený kód na hlavičce zůstává. Výkazy čtou kód z řádku a teprve pak z hlavičky.
+U přijatých dokladů přiřazuje kód jediné místo, a to ukládání řádků. Hlavička dokladu ho jen přebírá z dominantního řádku, sama nikdy nerozhoduje. Ručně zvolený kód na hlavičce zůstává. Výkazy čtou kód z řádku a teprve pak z hlavičky. Výjimkou je kód bez nároku na odpočet v hlavičce (`42`, `mimo` a vlastní kódy bez řádku přiznání a oddílu KH): řádek bez vlastního kódu ho při uložení převezme, místo aby dostal `40` nebo `41` a uplatnil odpočet, který hlavička odepírá. Kód s nárokem se z hlavičky nepřebírá, protože by 12% řádek pod hlavičkou `40` skončil na ř. 40.
+
+Má-li přijatý doklad **rozpis DPH** (rozdělení odpočtu a zaúčtování, viz [Přijaté faktury](23_Prijate_faktury.md#ucetni-alokace-casti-dokladu)), bere přiznání i kontrolní hlášení nárok na odpočet a kód z částí rozpisu, hlavička ani položky o nich nerozhodují. Detail dokladu proto ukazuje nárok podle rozpisu a upozorní, když se hlavička od rozpisu liší.
 
 Hodnoty se berou z číselníku klasifikací platného k DUZP dokladu, takže po změně sazby dostanou starší doklady starou klasifikaci a nové novou.
 

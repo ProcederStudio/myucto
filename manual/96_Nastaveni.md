@@ -651,6 +651,11 @@ rolím ho přidělit nejde. Doklad v uzavřeném účetním období upraví i s 
 položek zaúčtované faktury (přeúčtuje deník) provede jen role, která má navíc **Zaúčtovat doklad**. Postup a omezení jsou
 v [§ 16.10.14](16_Faktura_PDF.md#161014-admin-akce-nad-vystavenou-fakturou).
 
+**Změnit DPH zařazení přijaté faktury** dovolí opravit nárok na odpočet a členění DPH přijaté faktury i po jejím přijetí
+a zaúčtování, bez storna (v detailu akce **Změnit DPH zařazení**). Mají ho správci a výchozí role účetní, klientským rolím
+ho přidělit nejde. Přeúčtování zaúčtovaného dokladu chce navíc **Zaúčtovat doklad**; uzavřené účetní období a podané
+období DPH dál přebije jen správce. Postup je v [§ 23.11.24](23_Prijate_faktury.md#231124-oprava-dph-zarazeni-bez-storna).
+
 Roli lze duplikovat jako základ nové role. Používanou roli nelze smazat; nejprve je nutné přeřadit uživatele a odstranit její
 přepisy u firem. Používanou roli lze deaktivovat, ale její uživatelé tím okamžitě ztratí firemní oprávnění. Při souběžné
 editaci aplikace odmítne starší změnu, aby si administrátoři navzájem nepřepsali nastavení.

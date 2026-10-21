@@ -7157,7 +7157,8 @@ paths:
       summary: Scan adresáře s PDF/ISDOC pro automatický import (admin/accountant only)
       description: |
         Rekurzivně projde adresář nastavený v `cfg.purchase_invoice.inbox_dir`,
-        deduplikuje přes SHA-256 (vůči `purchase_invoices.pdf_hash`). Z PDF s embedded
+        deduplikuje přes SHA-256 (vůči `purchase_invoices.pdf_hash`; stornovaný doklad se
+        za duplikát nepovažuje a soubor se naimportuje znovu jako nový doklad). Z PDF s embedded
         ISDOC rozpozná data a automaticky vytvoří draft přijaté faktury. Pure PDF bez
         ISDOC se přeskakují — pro AI extrakci použij endpoint
         `POST /api/integrations/anthropic/extract` (BYOK).
@@ -39579,7 +39580,10 @@ components:
           description: |
             Vědomé potvrzení, že doklad se stejným dodavatelem, číslem a datem vystavení už existuje
             (typicky další platba platebního kalendáře). Bez něj vrátí shoda 409
-            `vendor_invoice_duplicate` s `can_confirm: true`.
+            `vendor_invoice_duplicate` s `can_confirm: true` a `duplicate_ids`. Je-li jedinou
+            shodou stornovaný doklad, nese chyba i `cancelled_duplicate_id`
+            a `cancelled_duplicate_number` (doklad lze místo nového vrátit ze storna přechodem
+            `transition` na `received`).
         varsymbol: { type: [string, "null"], maxLength: 20 }
         document_kind: { type: string, enum: [invoice, receipt, credit_note, advance, tax_document], default: invoice }
         issue_date: { type: string, format: date }

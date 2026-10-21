@@ -429,7 +429,12 @@ final class UpdatePurchaseInvoiceAction
             }
             // Přesný duplikát PF: stejný dodavatel + číslo dokladu + datum (uq_pi_vendor_invoice) → 409.
             if ($dupMsg = self::vendorInvoiceDuplicateMessage($e, $body['vendor_invoice_number'] ?? null)) {
-                return Json::error($response, 'vendor_invoice_duplicate', $dupMsg, 409, ['can_confirm' => true]);
+                $dup = VendorNumberDuplicates::describe(VendorNumberDuplicates::existing(
+                    $this->db->pdo(), $supplierId, (int) $vendor['id'],
+                    (string) ($body['vendor_invoice_number'] ?? ''), (string) ($body['issue_date'] ?? ''), $id,
+                ), $body['vendor_invoice_number'] ?? null);
+                return Json::error($response, 'vendor_invoice_duplicate', $dup['message'] ?? $dupMsg, 409,
+                    ['can_confirm' => true] + $dup['details']);
             }
             throw $e;
         } catch (\Throwable $e) {

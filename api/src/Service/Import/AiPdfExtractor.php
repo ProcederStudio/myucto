@@ -153,7 +153,7 @@ final class AiPdfExtractor
 
         // Dedup check — pokud PDF se stejným SHA-256 už existuje u tenanta, vrať existing.
         $sha256 = hash('sha256', $pdfBytes);
-        $existingId = $this->repo->findIdByPdfHash($supplierId, $sha256);
+        $existingId = $this->repo->findIdByPdfHash($supplierId, $sha256, activeOnly: true);
         if ($existingId !== null) {
             return [
                 'ok'                  => true,
@@ -422,7 +422,7 @@ final class AiPdfExtractor
 
         // Dedup na vnitřním PDF (stejný klíč jako u běžného PDF importu).
         if ($innerPdf !== null) {
-            $existingId = $this->repo->findIdByPdfHash($supplierId, hash('sha256', $innerPdf));
+            $existingId = $this->repo->findIdByPdfHash($supplierId, hash('sha256', $innerPdf), activeOnly: true);
             if ($existingId !== null) {
                 return [
                     'ok'                  => true,
@@ -1021,15 +1021,20 @@ final class AiPdfExtractor
         ];
         // Dedup guard — jiné PDF stejné faktury (různý hash, stejné číslo+datum+vendor)
         // by hodilo SQL 23000 duplicate key. Skipnout a vrátit existující ID.
+        // Stornovaný doklad neblokuje: nový vznikne s dalším pořadím čísla dodavatele.
         $existingId = $this->repo->findIdByVendorInvoice(
             $supplierId, $vendorId,
             (string) $payload['vendor_invoice_number'],
             (string) $payload['issue_date'],
+            activeOnly: true,
         );
         if ($existingId !== null) {
             $existed = true;
             return $existingId;
         }
+        $payload['vendor_number_seq'] = $this->repo->importDuplicateSeq(
+            $supplierId, $vendorId, (string) $payload['vendor_invoice_number'], (string) $payload['issue_date'],
+        );
         $id = $this->repo->createDraft($payload, $userId, $supplierId);
         // Doklad bez jediného čitelného data → datum přijetí je NÁHRADA, ne údaj z dokladu.
         // Uživatel to musí vidět (žluté upozornění), ne se to dozvědět až v knize DPH.

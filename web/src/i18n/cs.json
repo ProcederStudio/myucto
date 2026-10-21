@@ -13141,7 +13141,7 @@
     "delete_success": "Doklad byl vyřazen z fronty a originál je v koši Dokumentů.",
     "submitted_by": "Předal/a: {name}",
     "processed_success": "Doklad byl zpracován do přijaté faktury.",
-    "already_exists": "Tento doklad už v systému je jako přijatá faktura {number}, nová faktura nevznikla.",
+    "already_exists": "Tento doklad už v systému je jako přijatá faktura {number}, nová faktura nevznikla. Stornovaný doklad zpracování neblokuje.",
     "bulk_duplicates": "Už v systému bylo dokladů: {n}. Nová faktura k nim nevznikla.",
     "upload_already_processed": "Soubor {file} už byl zpracován jako přijatá faktura {number}.",
     "linked_requests": "Navázané požadavky: {n}",
@@ -19117,6 +19117,8 @@
       "created": "Založeno {count} plateb platebního kalendáře."
     },
     "duplicate_number_confirm": "{message}\n\nPokud jde o další platbu téhož dokladu (například platebního kalendáře), můžete doklad uložit i se stejným číslem. Uložit přesto?",
+    "duplicate_number_confirm_cancelled": "{message}\n\nOK uloží nový doklad se stejným číslem. Chcete-li místo toho obnovit původní doklad, zvolte Zrušit a otevřete ho přes odkaz v chybové hlášce (akce „Vrátit ze storna“).",
+    "duplicate_cancelled_open": "Otevřít stornovaný doklad (lze ho vrátit ze storna)",
     "list_status": "Stav",
     "subtitle": "Doklady od dodavatelů - náklady firmy.",
     "currency_payment_section": "Měna a úhrada",
