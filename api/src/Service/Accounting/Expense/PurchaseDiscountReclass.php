@@ -6,7 +6,6 @@ namespace MyInvoice\Service\Accounting\Expense;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
-use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\DocumentRepostService;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
@@ -71,7 +70,7 @@ final class PurchaseDiscountReclass
         $out = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $report = $this->run((int) $row['supplier_id'], (int) $row['id'], false);
-            if ($report['discount_lines'] > 0 && (in_array($report['state'], ['taken_over', 'posting_group'], true) || $report['posting_changes']
+            if ($report['discount_lines'] > 0 && ($report['state'] === 'taken_over' || $report['posting_changes']
                 || $report['classification_changes'] > 0 || $report['trace_fixes'] > 0)) {
                 $out[] = $report;
             }
@@ -121,15 +120,6 @@ final class PurchaseDiscountReclass
                 } else {
                     $reversed = true;
                 }
-            }
-            $group = (new DocumentPostingGroup($this->db))->active($supplierId, 'purchase_invoice', $purchaseInvoiceId, $apply);
-            if (DocumentPostingGroup::hasOwnedEntries($group)
-                && !DocumentPostingGroup::isSingleDirectEntry($group, 'purchase_invoice', $purchaseInvoiceId)) {
-                // Rozpad slevy přepisuje jediný přímý zápis; skupinu by rozdělil.
-                $report['state'] = 'posting_group';
-                $report['entry_id'] = (int) $group[0]['id'];
-                $report['message'] = 'Doklad má skupinu účetních zápisů, přeúčtuje se ručně celá skupina.';
-                return $report;
             }
             if ($live === null) {
                 $report['state'] = 'not_posted';
