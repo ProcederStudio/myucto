@@ -311,7 +311,10 @@ final class CreateSupplierInitializationTest extends TestCase
         $this->db->pdo()->prepare(
             'INSERT INTO ares_cache (ic, payload) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE payload = VALUES(payload), fetched_at = NOW()'
-        )->execute([self::IC, json_encode(['found' => true, 'data' => $data], JSON_UNESCAPED_UNICODE)]);
+        )->execute([self::IC, json_encode([
+            'normalization_version' => AresClient::NORMALIZATION_VERSION,
+            'found' => true, 'data' => $data,
+        ], JSON_UNESCAPED_UNICODE)]);
     }
 
     /** @return list<array{0:string,1:string}> */

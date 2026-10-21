@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\Ares;
 
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Ares\AresClient;
 use MyInvoice\Service\Ares\SupplierRegistryEnricher;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -70,6 +71,7 @@ final class SupplierRegistryLegalFormEnrichmentTest extends TestCase
     private function seedAresLegalForm(string $legalForm): void
     {
         $payload = json_encode([
+            'normalization_version' => AresClient::NORMALIZATION_VERSION,
             'found' => true,
             'data' => ['legal_form' => $legalForm],
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
