@@ -2505,6 +2505,14 @@ final class PurchaseInvoiceRepository
      */
     public function setStatus(int $id, string $newStatus, int $supplierId, ?string $paidDate = null, ?int $bookedBy = null, bool $requireUnbooked = false): bool
     {
+        if ($newStatus === 'received' && !$this->db->pdo()->inTransaction()) {
+            // Odemykání musí sdílet transakci s current-read kontrolou předpisu.
+            return \MyInvoice\Infrastructure\Database\TransactionFailure::retrying($this->db->pdo(), fn (): bool =>
+                (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(
+                    fn (): bool => $this->setStatus($id, $newStatus, $supplierId, $paidDate, $bookedBy, $requireUnbooked),
+                ),
+            );
+        }
         if (!in_array($newStatus, ['draft', 'received', 'booked', 'paid', 'cancelled'], true)) {
             throw new \InvalidArgumentException("Invalid status: $newStatus");
         }
@@ -2554,14 +2562,8 @@ final class PurchaseInvoiceRepository
     /** Aktivní posted zápis k PF (posted_at NOT NULL, reversed_by NULL) — drží zámek. */
     private function hasActivePostedEntry(int $id, int $supplierId): bool
     {
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT 1 FROM journal_entries
-              WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-                AND posted_at IS NOT NULL AND reversed_by IS NULL
-              LIMIT 1"
-        );
-        $stmt->execute([$supplierId, $id]);
-        return $stmt->fetchColumn() !== false;
+        return (new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))
+            ->active($supplierId, 'purchase_invoice', $id, $this->db->pdo()->inTransaction()) !== [];
     }
 
     /**

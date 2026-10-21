@@ -7,7 +7,7 @@ namespace MyInvoice\Service\Migration\Myucto;
 /** Explicit first import profile: business records, no instance credentials or runtime jobs. */
 final class MyuctoImportProfile
 {
-    public const VERSION = 'classifications-v1';
+    public const VERSION = 'posting-groups-v1';
     public const TABLES = [
         'currencies', 'revenue_categories', 'expense_categories', 'cost_centers',
         'chart_of_accounts', 'vat_classifications', 'accounting_periods', 'clients', 'client_bank_accounts',
@@ -18,7 +18,7 @@ final class MyuctoImportProfile
         'bank_statements', 'bank_transactions', 'invoice_payments', 'payment_matches',
         'cash_documents', 'cash_document_vat_lines', 'invoice_settlements', 'credit_note_offsets',
         'offset_agreements', 'offset_agreement_items', 'assets', 'asset_improvements',
-        'depreciation_entries', 'small_assets', 'journal_entries', 'journal_entry_lines',
+        'depreciation_entries', 'small_assets', 'journal_entries', 'journal_entry_lines', 'journal_document_postings',
         'posting_rules', 'de_movement_classification', 'de_movement_classification_history',
         'tax_evidence_bank_rules', 'supplier_email_templates',
     ];

@@ -284,7 +284,6 @@ final class PostingService
             $this->assertPayrollPostingContext($supplierId, $sourceId);
         }
 
-        $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate);
 
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
         // závěrkové zápisy k ends_on se účtují do období ve stavu 'closing' (nikdy closed/approved).
@@ -310,6 +309,22 @@ final class PostingService
         }
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            if ($sourceId !== null && in_array($sourceType, ['invoice', 'purchase_invoice'], true)) {
+                $group = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $sourceId, true);
+                $owned = DocumentPostingGroup::hasOwnedEntries($group);
+                // Zaúčtovat již převzatý doklad je idempotentní. Přepis patří do
+                // výslovného přeúčtování, které nejprve vyřeší CELOU skupinu.
+                if ($owned && empty($meta['explicit_repost'])) {
+                    $this->dimensionWarnings = [];
+                    if ($ownTx) $pdo->commit();
+                    return (int) $group[0]['id'];
+                }
+                if ($owned) {
+                    throw new PostingException('posting_group_requires_repost',
+                        'Doklad má převzaté zaúčtování. Přeúčtujte celou skupinu z detailu dokladu.', 409);
+                }
+            }
+            $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
@@ -366,9 +381,10 @@ final class PostingService
             // Přeúčtování ručními řádky přebírá aktuální stopu i ze stornovaného zdroje.
             // Čtení patří až za zámky období a nastavení, stejně jako ostatní čtení deníku.
             if (!empty($meta['inherit_line_trace_from'])) {
+                $traceIds = array_map('intval', (array) $meta['inherit_line_trace_from']);
                 $resolved = $this->inheritLineTrace(
                     $supplierId,
-                    $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId, true),
+                    (new DocumentPostingGroup($this->db))->lines($supplierId, $traceIds, true),
                     $resolved,
                 );
             }
@@ -679,6 +695,26 @@ final class PostingService
         return TransactionFailure::retrying(
             $this->db->pdo(),
             fn (): int => $this->reverseOnce($supplierId, $entryId, $meta),
+        );
+    }
+
+    /**
+     * Storno celého předpisu dokladu. Bez entry_date se každý člen ruší ke svému
+     * původnímu datu; úhrady ani informativní vazby se do skupiny nenačítají.
+     * @return array<int,int> id původního zápisu => id protizápisu
+     */
+    public function reverseDocument(int $supplierId, string $docType, int $docId, array $meta = []): array
+    {
+        return TransactionFailure::retrying($this->db->pdo(), fn (): array =>
+            (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $meta): array {
+                (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+                $entries = (new DocumentPostingGroup($this->db))->active($supplierId, $docType, $docId, true);
+                $result = [];
+                foreach ($entries as $entry) {
+                    $result[(int) $entry['id']] = $this->reverseOnce($supplierId, (int) $entry['id'], $meta);
+                }
+                return $result;
+            }),
         );
     }
 
@@ -1050,8 +1086,9 @@ final class PostingService
      * Nejdřív řádky beze změny (týž účet, strana i částka) převezmou stopu doslova. Pak
      * saldokontní řádek (31x/32x), jehož částka se změnila: když na tomtéž účtu a straně
      * zůstal právě jeden původní řádek se stopou, cizí částka se přepočte poměrem nové
-     * a původní korunové částky (kurz zůstává). Víc kandidátů = nejednoznačné, řádek
-     * zůstane bez stopy a přecenění ho uvidí jako korunový — stejně jako dosud.
+     * a původní korunové částky (kurz zůstává). Rozdělené saldokonto lze sloučit,
+     * pokud všechny části nesou tutéž měnu a kurz a jejich součet přesně odpovídá
+     * jedinému novému řádku. Jinak víc kandidátů zůstává nejednoznačných.
      *
      * @param list<array<string,mixed>> $existingLines
      * @param list<array<string,mixed>> $resolved
@@ -1060,8 +1097,6 @@ final class PostingService
     private function inheritLineTrace(int $supplierId, array $existingLines, array $resolved): array
     {
         [$resolved, $pool, $matched] = self::carryOverExactTrace($existingLines, $resolved);
-        $pool = array_values(array_filter($pool, static fn (array $l): bool => ($l['currency_code'] ?? null) !== null
-            && ($l['amount_foreign'] ?? null) !== null && self::cents($l['amount']) !== 0));
         if ($pool === []) {
             return $resolved;
         }
@@ -1080,10 +1115,31 @@ final class PostingService
                     && (string) $old['side'] === (string) $line['side']
                     && (bool) ($old['is_red_storno'] ?? false) === (bool) ($line['is_red_storno'] ?? false),
             );
-            if (count($candidates) !== 1) {
+            if ($candidates === [] || count(array_filter($candidates, static fn (array $old): bool =>
+                ($old['currency_code'] ?? null) === null || ($old['amount_foreign'] ?? null) === null
+                    || self::cents($old['amount']) === 0)) > 0) {
                 continue;
             }
             $old = array_values($candidates)[0];
+            if (count($candidates) > 1) {
+                // Import může mít závazek zvlášť pro základ a DPH. Stopu lze převzít
+                // pouze za celou stejnorodou částku, nikdy odhadovat mezi více řádky.
+                $targets = array_filter($resolved, static fn (array $target): bool =>
+                    (int) $target['account_id'] === (int) $line['account_id']
+                    && (string) $target['side'] === (string) $line['side']
+                    && (bool) ($target['is_red_storno'] ?? false) === (bool) ($line['is_red_storno'] ?? false));
+                $compatible = array_filter($candidates, static fn (array $candidate): bool =>
+                    $candidate['currency_code'] === $old['currency_code']
+                    && ($candidate['fx_rate'] === null) === ($old['fx_rate'] === null)
+                    && (float) $candidate['fx_rate'] === (float) $old['fx_rate']);
+                $amountCents = array_sum(array_map(static fn (array $candidate): int => self::cents($candidate['amount']), $candidates));
+                if (count($targets) !== 1 || count($compatible) !== count($candidates)
+                    || $amountCents !== self::cents($line['amount'])) {
+                    continue;
+                }
+                $old['amount'] = $amountCents / 100;
+                $old['amount_foreign'] = array_sum(array_column($candidates, 'amount_foreign'));
+            }
             $resolved[$i]['currency_code'] = $old['currency_code'];
             $resolved[$i]['fx_rate'] = $old['fx_rate'] ?? null;
             $resolved[$i]['amount_foreign'] = round(

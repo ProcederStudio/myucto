@@ -175,9 +175,9 @@ async function load(): Promise<void> {
     plan.value = p
     accounts.value = acc
     description.value = p.description ?? ''
-    // Předvyplní se PŮVODNÍ kontace, ne nový návrh ze systému: opravuje se to,
-    // co v deníku opravdu je, a účetní musí vidět, co mění.
-    lines.value = p.lines.map(l => ({
+    // U skupiny server nabídne celý předpis z dokladu; aktuální skupina může
+    // obsahovat i duplicitu po starším přeúčtování. Jinak se upravuje původní kontace.
+    lines.value = (p.suggested_lines ?? p.lines).map(l => ({
       account_code: l.account_code ?? '',
       side: l.side,
       amount: l.amount,
@@ -224,7 +224,8 @@ const postingChanged = computed(() => {
   if (description.value.trim() !== (plan.value.description ?? '').trim()) return true
   const key = (ls: Array<{ account_code: string | null; side: string; amount: number | string | null; is_red_storno?: boolean }>) =>
     ls.map(l => `${l.side}|${(l.account_code ?? '').trim()}|${Math.round(Number(l.amount ?? 0) * 100)}|${l.is_red_storno ? 1 : 0}`).sort().join(';')
-  return key(lines.value) !== key(plan.value.lines)
+  // U převzaté skupiny se upravuje návrh z dokladu, ne staré řádky všech členů.
+  return key(lines.value) !== key(plan.value.suggested_lines ?? plan.value.lines)
 })
 
 function scheduleLinesPlan(): void {
@@ -304,6 +305,7 @@ async function submit(): Promise<void> {
       })),
       description: description.value.trim() || null,
       confirm_date_shift: confirmShift.value,
+      ...(plan.value?.posting_entries ? { expected_posting_entries: plan.value.posting_entries.map(({ id, row_version }) => ({ id, row_version })) } : {}),
       ...(dimsShown.value && dimsDirty.value ? { dimensions: { header: compactDimensions(dimHeader.value) } } : {}),
     })
     emit('reposted')
@@ -333,6 +335,14 @@ async function submit(): Promise<void> {
       </div>
 
       <template v-if="plan && effectivePlan && !loading">
+        <div v-if="plan.reason_code === 'posting_group' || (plan.posting_entries?.length ?? 0) > 1"
+          class="px-3 py-2 rounded-md border border-warning-500/30 bg-warning-50 text-warning-700 text-sm"
+          data-test="repost-posting-group">
+          <p>{{ t('accounting.repost.posting_group', { count: plan.posting_entries?.length ?? 0 }) }}</p>
+          <ul class="mt-1 list-disc list-inside font-mono">
+            <li v-for="entry in plan.posting_entries" :key="entry.id">#{{ entry.id }} · {{ formatDate(entry.entry_date) }}</li>
+          </ul>
+        </div>
         <!-- Co se stane. Bez téhle věty by uživatel nepoznal rozdíl mezi „přepíše se"
              a „vznikne protizápis" — a přitom je to ten rozdíl, který zůstane v deníku.
              V zamčeném datu o tom rozhodují upravené řádky (server, linesPlan). -->

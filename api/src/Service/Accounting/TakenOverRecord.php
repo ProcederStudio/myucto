@@ -114,6 +114,12 @@ final class TakenOverRecord
         return self::existsSql(self::JOURNAL_ENTRY, $alias . '.supplier_id', $alias . '.id');
     }
 
+    /** Klíč vlastního zaúčtování pro smír s evidencí; nespoléhá na měkké vazby. */
+    public static function journalDocumentKeySql(string $alias): string
+    {
+        return DocumentPostingGroup::documentKeySql($alias);
+    }
+
     /**
      * Doklad (`invoices` resp. `purchase_invoices` pod aliasem `$alias`) je převzatý.
      *

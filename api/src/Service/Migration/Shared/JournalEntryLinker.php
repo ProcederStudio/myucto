@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Activation\OpeningBalanceDocuments;
 use MyInvoice\Service\Accounting\JournalDescriptionBuilder;
 use MyInvoice\Service\Accounting\JournalDescriptionRebuilder;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 
 /**
@@ -15,9 +16,9 @@ use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
  * programů (Money S3, POHODA, PREMIER a další konektory).
  *
  * Zaúčtování se při převodu nepřepočítává: zápis převzatého deníku dostane
- * `source_type`/`source_id` dokladu a vazbu v `journal_entry_document_links`. Na klíči
- * (typ, id dokladu) stojí v MyÚčtu všechno, co se ptá „je doklad zaúčtovaný" (úhrada na
- * detailu faktury, saldokonto, kontroly uzávěrky, Doúčtování dokladů).
+ * `source_type`/`source_id` dokladu a vazbu v `journal_entry_document_links`. Vlastní
+ * předpisy faktur navíc patří do `DocumentPostingGroup`; informativní vazba na úhradu
+ * nebo počáteční stav sama zaúčtování dokladu netvoří.
  *
  * Tahle třída drží jen zápis vazeb. Jak se doklad a zápis v deníku najdou (číslo dokladu,
  * sborník, řádek deníku), je strategie každého zdroje a zůstává v jeho DocumentLinkeru.
@@ -106,7 +107,21 @@ final class JournalEntryLinker
      */
     public function attach(int $supplierId, ?int $userId, string $sourceType, string $entrySourceType, string $docType, int $docId, array $entryIds): bool
     {
+        if ($entryIds === []) return false;
         $pdo = $this->db->pdo();
+        if ($sourceType === $docType && in_array($docType, ['invoice', 'purchase_invoice'], true)
+            && in_array($entrySourceType, ['manual', $docType], true)) {
+            // Část převodů touto cestou přidává i informativní vazbu na úhradu.
+            // Předpis tvoří jen zápisy zdrojové agendy, nikoli banka/pokladna.
+            // Skupinu zamkneme před přeznačením zdroje: období → doklad → zápis.
+            $in = implode(',', array_fill(0, count($entryIds), '?'));
+            $candidates = $pdo->prepare("SELECT id FROM journal_entries WHERE supplier_id = ? AND id IN ({$in})
+                AND ((source_type = ? AND source_id IS NULL) OR (source_type = ? AND source_id = ?))
+                ORDER BY id");
+            $candidates->execute([$supplierId, ...$entryIds, $entrySourceType, $docType, $docId]);
+            $postingIds = array_map('intval', $candidates->fetchAll(\PDO::FETCH_COLUMN));
+            if ($postingIds !== []) (new DocumentPostingGroup($this->db))->attach($supplierId, $docType, $docId, $postingIds);
+        }
         $owner = $pdo->prepare(
             'SELECT id FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL LIMIT 1'

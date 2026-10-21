@@ -16955,7 +16955,8 @@
       "advance_tax_document_oss": "The tax document for the payment received carries OSS VAT only and is not posted on its own (under OSS no tax document is issued for an advance). Cancel it and issue the final invoice without it, or settle the advance with a manual entry.",
       "ddkp_reverse_charge_unsupported": "A tax document for payment under the reverse-charge regime is not posted automatically — post the VAT with a manual entry.",
       "date_locked": "The entry date falls into the locked part of the books. An admin can move the lock in accounting settings.",
-      "repost_date_shift_confirmation_required": "The original date is closed or locked — confirm that both the reversal and the correction will land on a different date."
+      "repost_date_shift_confirmation_required": "The original date is closed or locked — confirm that both the reversal and the correction will land on a different date.",
+      "version_conflict": "The document posting has changed. Reload the reposting preview and review its entries."
     },
     "repost": {
       "action": "Re-post",
@@ -16974,6 +16975,8 @@
       "reason_period_not_open": "The original entry sits in a “{status}” period — closed periods must not be touched.",
       "reason_date_locked": "The books are locked up to {date} — nothing may be written into a locked date.",
       "reason_entry_reversed": "The original entry has already been reversed, so the correction goes in as a new entry.",
+      "reason_posting_group": "The entire posting group will be replaced so that no original VAT or part of the payable remains in the journal.",
+      "posting_group": "Reposting will reverse all original entries in this group ({count}) and create one new entry. The proposed posting is based on the current document. Payments and entries linked only for reference remain unchanged.",
       "blocked_date_locked": "The books are locked up to {date}, today included, so there is nowhere to write the correction. An admin can move the lock in accounting settings.",
       "blocked_period_not_open": "The original entry sits in a “{status}” period and there is no open accounting period for today — there is nowhere to write the correction. Open a period in Accounting → Closing.",
       "confirm_date_shift": "I understand that the reversal and the correction will be posted on {to} instead of the original {from}.",

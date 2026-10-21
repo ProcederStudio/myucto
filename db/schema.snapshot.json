@@ -1016,7 +1016,8 @@
         "2070_asset_imported_depreciation_plan.sql",
         "2071_logbook_odometer_sources.sql",
         "2072_oauth_sessions.sql",
-        "2073_payment_thanks_stale_guard.sql"
+        "2073_payment_thanks_stale_guard.sql",
+        "2074_journal_document_postings.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6518,6 +6519,28 @@
                 "chk_isds_gateway_sessions_token": "`app_token` regexp '^[0-9]{10,20}$'",
                 "chk_isds_gateway_sessions_version": "`row_version` > 0"
             }
+        },
+        "journal_document_postings": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "doc_id": "bigint(20) unsigned NOT NULL",
+                "doc_type": "enum('invoice','purchase_invoice') NOT NULL",
+                "entry_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "uq_jdp_doc_entry": "UNIQUE BTREE (supplier_id, doc_type, doc_id, entry_id)",
+                "uq_jdp_entry": "UNIQUE BTREE (supplier_id, entry_id)"
+            },
+            "foreign_keys": {
+                "fk_jdp_entry": "(supplier_id, entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_jdp_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
         },
         "journal_entries": {
             "type": "SYSTEM VERSIONED",

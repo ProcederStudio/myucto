@@ -16955,7 +16955,8 @@
       "advance_tax_document_oss": "Daňový doklad k přijaté platbě nese jen daň OSS a samostatně se neúčtuje (v režimu OSS se daňový doklad k záloze nevydává). Stornujte ho a vyúčtování vystavte bez něj, nebo zúčtuj zálohu ručním zápisem.",
       "ddkp_reverse_charge_unsupported": "Daňový doklad k platbě v režimu přenesené daňové povinnosti (reverse charge) se automaticky neúčtuje - zaúčtujte DPH ručním zápisem.",
       "date_locked": "Datum zápisu spadá do uzamčené části účetnictví. Zámek posuň v nastavení účetnictví (jen admin).",
-      "repost_date_shift_confirmation_required": "Původní datum je uzavřené nebo zamčené - potvrďte, že storno i oprava padnou na jiné datum."
+      "repost_date_shift_confirmation_required": "Původní datum je uzavřené nebo zamčené - potvrďte, že storno i oprava padnou na jiné datum.",
+      "version_conflict": "Zaúčtování dokladu se mezitím změnilo. Obnovte náhled přeúčtování a zkontrolujte jeho zápisy."
     },
     "repost": {
       "action": "Přeúčtovat",
@@ -16974,6 +16975,8 @@
       "reason_period_not_open": "Období původního zápisu je „{status}“ - do uzavřeného období se nesahá.",
       "reason_date_locked": "Účetnictví je zamčené k {date} - do zamčeného data se nesmí zapisovat.",
       "reason_entry_reversed": "Původní zápis už někdo stornoval, oprava jde novým zápisem.",
+      "reason_posting_group": "Nahradí se celá skupina zaúčtování dokladu, aby v deníku nezůstala původní DPH ani část závazku.",
+      "posting_group": "Přeúčtování zruší protizápisy všechny původní zápisy této skupiny ({count}) a zapíše jeden nový předpis. Návrh kontace vychází z aktuálního dokladu. Úhrady a pouze související zápisy se nemění.",
       "blocked_date_locked": "Účetnictví je zamčené k {date} včetně dneška, takže opravu není kam zapsat. Zámek posuň v nastavení účetnictví (jen admin).",
       "blocked_period_not_open": "Období původního zápisu je „{status}“ a pro dnešek není otevřené účetní období, opravu není kam zapsat. Otevřete účetní období v Účetnictví → Uzávěrka.",
       "confirm_date_shift": "Rozumím, že storno i oprava se zaúčtují k {to} místo k původnímu {from}.",

@@ -11169,7 +11169,7 @@ paths:
       description: >-
         Účetní/admin. Fyzicky odstraní ruční zápis, zápis vydané nebo přijaté
         faktury, bankovního pohybu, ostatní položky nebo posledního odpisu bez protizápisu. Fakturu
-        odemkne; bankovní pohyb vrátí do fronty nezaúčtovaných. U odpisu odstraní
+        odemkne, pokud nezůstane jiný aktivní člen jejího zaúčtování; bankovní pohyb vrátí do fronty nezaúčtovaných. U odpisu odstraní
         zápis i účetní a nepřerušený daňový řádek stejného roku; existující
         přerušení zachová. Odpisy lze mazat pouze odzadu a u nevyřazeného majetku.
         Ostatní pohledávku nebo závazek vrátí do konceptu a pozastaví související opakování;
@@ -11204,6 +11204,7 @@ paths:
     post:
       tags: [Accounting]
       summary: Zaúčtuje vydanou fakturu (idempotentní)
+      description: Převzaté zaúčtování s vlastnickou vazbou zachová celé beze změny a vrátí existující zápis. Změna kontace patří do výslovného přeúčtování celé skupiny.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -11221,6 +11222,7 @@ paths:
     post:
       tags: [Accounting]
       summary: Zaúčtuje přijatou fakturu (idempotentní)
+      description: Převzaté zaúčtování s vlastnickou vazbou zachová celé beze změny a vrátí existující zápis. Změna kontace patří do výslovného přeúčtování celé skupiny.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -11245,6 +11247,11 @@ paths:
         období nebo už stornovaný zápis), `blocked` znamená, že opravu není kam
         zapsat. `date_shifted` říká, že storno i oprava padnou na jiné datum než
         původní zápis — provedení to pak vyžaduje potvrdit.
+
+        U převzatého zaúčtování s vlastnickou vazbou vrací `posting_entries` celou skupinu,
+        `lines` všechny její aktuální řádky a `suggested_lines` návrh celého předpisu
+        z aktuálního dokladu. `reason_code: posting_group` znamená storno všech členů
+        a nový předpis, i když skupina obsahuje jediný zápis. Úhrady a informativní vazby se nemění.
 
 
         `bank-transactions` je bankovní pohyb; v deníku má zdroj `bank`.
@@ -11321,6 +11328,10 @@ paths:
         `confirm_date_shift: true`; bez něj se operace odmítne s 409
         `repost_date_shift_confirmation_required` a datum se nikdy neposune samo.
 
+        Skupina vlastních zápisů dokladu se nahrazuje atomicky celá. Volitelné
+        `expected_posting_entries` z náhledu chrání před přepsáním souběžné změny
+        člena nebo složení skupiny (`409 version_conflict`).
+
 
         U `bank-transactions` platí navíc bankovní invarianty ručního zaúčtování:
         pohyb na účtu 221 musí sedět na částku výpisu a bankovní noha se doplní na
@@ -11353,6 +11364,16 @@ paths:
                   type: boolean
                   default: false
                   description: Souhlas s tím, že storno i oprava padnou na jiné datum než původní zápis.
+                expected_posting_entries:
+                  type: array
+                  maxItems: 5000
+                  description: Id a verze všech členů skupiny z náhledu; změna vrací 409 version_conflict.
+                  items:
+                    type: object
+                    required: [id, row_version]
+                    properties:
+                      id: { type: integer, minimum: 1 }
+                      row_version: { type: integer, minimum: 1 }
                 dimensions:
                   type: object
                   description: >-
@@ -11381,6 +11402,7 @@ paths:
           description: >-
             Není kam zapsat (`period_not_open` / `date_locked`) nebo chybí souhlas
             s posunem data (`repost_date_shift_confirmation_required`).
+            Změna člena nebo složení skupiny proti náhledu vrací `version_conflict`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -34536,6 +34558,7 @@ components:
         invoice_id: { type: integer }
         doc_number: { type: [string, "null"] }
         source: { type: string, enum: [sale, purchase, cash, manual] }
+        doc_type: { type: string, enum: [invoice, purchase_invoice, cash, journal_entry], description: 'Typ cílového dokladu pro proklik; vyplněn v rozpisu kontroly účtu 343.' }
         declared: { type: number, format: float }
         counter: { type: number, format: float }
         difference: { type: number, format: float }
@@ -38850,13 +38873,27 @@ components:
         date_shifted: { type: boolean, description: target_date se liší od entry_date — provedení vyžaduje potvrzení }
         reason_code:
           type: [string, "null"]
-          enum: [period_not_open, date_locked, entry_reversed, tax_neutral_rewrite, null]
+          enum: [period_not_open, date_locked, entry_reversed, tax_neutral_rewrite, posting_group, null]
           description: >-
             Proč nejde přepsat na místě (resp. proč je operace blokovaná);
             `tax_neutral_rewrite` = přepis na místě v zamčeném datu
         tax_neutral_available:
           type: boolean
           description: Datum je zamčené podaným DPH, ale přesun mezi účty bez daňového dopadu se přepíše na místě
+        posting_entries:
+          type: array
+          description: Aktivní zápisy tvořící předpis dokladu; úhrady a informativní vazby jsou vyloučené.
+          items:
+            type: object
+            required: [id, entry_date, row_version]
+            properties:
+              id: { type: integer }
+              entry_date: { type: string, format: date }
+              row_version: { type: integer }
+        suggested_lines:
+          type: array
+          description: U rozděleného zaúčtování návrh celého předpisu z aktuálního dokladu.
+          items: { $ref: '#/components/schemas/JournalRepostPlan/properties/lines/items' }
         tax_neutral_violation:
           type: [string, "null"]
           enum: [unknown_account, special_account, tax_account_changed, amounts_changed, account_class_changed, tax_deductibility_changed, null]
@@ -38879,6 +38916,10 @@ components:
         strategy: { type: string, enum: [replace, reverse] }
         entry_id: { type: integer, description: Zápis nesoucí opravenou kontaci }
         reversal_entry_id: { type: [integer, "null"], description: Protizápis, když se původní zápis stornoval }
+        reversal_entry_ids:
+          type: array
+          items: { type: integer }
+          description: Všechny protizápisy původní skupiny; prázdné pole při přepisu na místě.
         entry_date: { type: string, format: date }
         date_shifted: { type: boolean }
 

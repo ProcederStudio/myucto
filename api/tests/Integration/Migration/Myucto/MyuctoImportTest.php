@@ -77,6 +77,8 @@ final class MyuctoImportTest extends TestCase
         }
         $this->pdo->prepare("INSERT INTO journal_entries (supplier_id, period_id, entry_date, description, source_type, source_id) VALUES (?, ?, '2090-01-01', 'Syntetický zápis', 'invoice', ?)")->execute([$this->source, $period, $this->invoice]);
         $entry = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare("INSERT INTO journal_document_postings (supplier_id, doc_type, doc_id, entry_id) VALUES (?, 'invoice', ?, ?)")
+            ->execute([$this->source, $this->invoice, $entry]);
         foreach ([['debit', '121.00'], ['credit', '100.00'], ['credit', '21.00']] as $index => [$side, $amount]) {
             $this->pdo->prepare('INSERT INTO journal_entry_lines (supplier_id, entry_id, account_id, line_no, side, amount) VALUES (?, ?, ?, ?, ?, ?)')->execute([$this->source, $entry, $accounts[$index], $index + 1, $side, $amount]);
         }
@@ -133,6 +135,12 @@ final class MyuctoImportTest extends TestCase
         self::assertSame($this->target, json_decode($row['supplier_snapshot'], true)['id']);
         $journal = $this->pdo->query('SELECT source_id FROM journal_entries WHERE supplier_id = ' . $this->target)->fetchColumn();
         self::assertSame((int) $row['id'], (int) $journal);
+        $posting = $this->pdo->query('SELECT jdp.doc_id, e.source_id FROM journal_document_postings jdp
+            JOIN journal_entries e ON e.id=jdp.entry_id AND e.supplier_id=jdp.supplier_id
+            WHERE jdp.supplier_id=' . $this->target)->fetch(PDO::FETCH_ASSOC);
+        self::assertNotFalse($posting, 'Obnova musí zachovat vlastnictví zaúčtování, nikoli jen účetní řádky.');
+        self::assertSame((int) $row['id'], (int) $posting['doc_id']);
+        self::assertSame((int) $row['id'], (int) $posting['source_id']);
         $ledger = Bootstrap::buildContainer()->get(\MyInvoice\Service\Report\VatLedgerService::class);
         $january = $ledger->rows($this->target, '2090-01-01', '2090-01-31');
         $february = $ledger->rows($this->target, '2090-02-01', '2090-02-28');
@@ -153,6 +161,61 @@ final class MyuctoImportTest extends TestCase
         try { $this->importer->import($package, $this->target, $this->actor, 'synthetic-instance', false); self::fail('Cizí firma nesmí projít.'); }
         catch (\RuntimeException $e) { self::assertStringContainsString('jiné firmy', $e->getMessage()); }
         self::assertSame(0, $this->targetCount('invoices')); self::assertSame(0, $this->targetCount('clients'));
+    }
+
+    public function testRestoreRemapsEveryPostingAndBothDocumentTypes(): void
+    {
+        $package = (new MyuctoExportReader())->read($this->archive);
+        $originalEntry = reset($package['tables']['journal_entries']);
+        $originalPosting = reset($package['tables']['journal_document_postings']);
+        $nextEntry = max(array_keys($package['tables']['journal_entries']));
+        $nextPosting = max(array_keys($package['tables']['journal_document_postings']));
+        $nextLine = max(array_keys($package['tables']['journal_entry_lines']));
+        $originalLines = array_filter($package['tables']['journal_entry_lines'], static fn (array $line): bool => (int) $line['entry_id'] === (int) $originalEntry['id']);
+        foreach ([['manual', null, 'invoice', $this->invoice], ['purchase_invoice', $this->purchase, 'purchase_invoice', $this->purchase]] as [$sourceType, $sourceId, $docType, $docId]) {
+            $entry = array_replace($originalEntry, ['id' => ++$nextEntry, 'source_type' => $sourceType, 'source_id' => $sourceId]);
+            $package['tables']['journal_entries'][$nextEntry] = $entry;
+            ++$nextPosting;
+            $package['tables']['journal_document_postings'][$nextPosting] = array_replace($originalPosting, [
+                'id' => $nextPosting, 'entry_id' => $nextEntry, 'doc_type' => $docType, 'doc_id' => $docId,
+            ]);
+            foreach ($originalLines as $line) {
+                ++$nextLine;
+                $package['tables']['journal_entry_lines'][$nextLine] = array_replace($line, ['id' => $nextLine, 'entry_id' => $nextEntry]);
+            }
+        }
+
+        $report = $this->importer->import($package, $this->target, $this->actor, 'synthetic-groups', false);
+        self::assertSame(3, $report['created']['journal_document_postings']);
+        $invoice = (int) $this->pdo->query('SELECT id FROM invoices WHERE supplier_id=' . $this->target)->fetchColumn();
+        $purchase = (int) $this->pdo->query('SELECT id FROM purchase_invoices WHERE supplier_id=' . $this->target)->fetchColumn();
+        $rows = $this->pdo->query('SELECT jdp.doc_type, jdp.doc_id, e.source_type, e.source_id
+            FROM journal_document_postings jdp JOIN journal_entries e ON e.supplier_id=jdp.supplier_id AND e.id=jdp.entry_id
+            WHERE jdp.supplier_id=' . $this->target . ' ORDER BY jdp.id')->fetchAll(PDO::FETCH_ASSOC);
+        self::assertSame([
+            ['invoice', $invoice, 'invoice', $invoice],
+            ['invoice', $invoice, 'manual', null],
+            ['purchase_invoice', $purchase, 'purchase_invoice', $purchase],
+        ], array_map(static fn (array $row): array => [$row['doc_type'], (int) $row['doc_id'], $row['source_type'], $row['source_id'] === null ? null : (int) $row['source_id']], $rows));
+        $repeat = $this->importer->import($package, $this->target, $this->actor, 'synthetic-groups', false);
+        self::assertSame(3, $repeat['existing']['journal_document_postings']);
+        self::assertSame(3, $this->targetCount('journal_document_postings'));
+    }
+
+    public function testMissingPostingDocumentRollsBackEntireGraph(): void
+    {
+        $package = (new MyuctoExportReader())->read($this->archive);
+        $posting = array_key_first($package['tables']['journal_document_postings']);
+        $package['tables']['journal_document_postings'][$posting]['doc_id'] = 999999999;
+        try {
+            $this->importer->import($package, $this->target, $this->actor, 'synthetic-missing-group', false);
+            self::fail('Vlastnictví bez zdrojového dokladu nesmí projít.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('Chybí zdrojová vazba journal_document_postings.doc_id', $e->getMessage());
+        }
+        self::assertSame(0, $this->targetCount('journal_document_postings'));
+        self::assertSame(0, $this->targetCount('invoices'));
+        self::assertSame(0, $this->targetCount('external_entity_map'));
     }
 
     public function testMissingReferenceRollsBackEntireGraph(): void
@@ -199,6 +262,7 @@ final class MyuctoImportTest extends TestCase
             self::assertArrayHasKey('posting_rules', $package['tables']);
             self::assertArrayHasKey('de_movement_classification', $package['tables']);
             self::assertArrayHasKey('de_movement_classification_history', $package['tables']);
+            self::assertCount(1, $package['tables']['journal_document_postings']);
             self::assertCount(3, $package['tables']['posting_rules']);
             self::assertCount(14, $package['tables']['de_movement_classification']);
             self::assertCount(30, $package['tables']['de_movement_classification_history']);
