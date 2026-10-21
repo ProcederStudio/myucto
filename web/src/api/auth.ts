@@ -415,6 +415,12 @@ export const authApi = {
     api.patch<{ credential: PasskeyCredential }>(`/auth/webauthn/credentials/${id}`, { label }).then(r => r.data.credential),
   passkeyRevoke: (id: number, stepUpToken: string) =>
     api.delete(`/auth/webauthn/credentials/${id}`, { data: { step_up_token: stepUpToken } }),
+  passkeyTestOptions: (id: number) =>
+    api.post<WebAuthnFlow>(`/auth/webauthn/credentials/${id}/test/options`).then(r => r.data),
+  passkeyTestVerify: (id: number, flowToken: string, credential: Record<string, any>) =>
+    api.post<{ verified: true }>(`/auth/webauthn/credentials/${id}/test/verify`, {
+      flow_token: flowToken, credential,
+    }).then(r => r.data),
   passkeyStepUpOptions: (operation: string) =>
     api.post<WebAuthnFlow>('/auth/webauthn/step-up/options', { operation }).then(r => r.data),
   passkeyStepUpVerify: (flowToken: string, operation: string, credential: Record<string, any>) =>

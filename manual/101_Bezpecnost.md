@@ -398,6 +398,13 @@ Kam se klíč uloží, vybírá prohlížeč při registraci; aplikace to neří
 nezjistí zpětně. Máte-li jediný klíč a ten je vázaný na zařízení, mějte jako
 zálohu buď druhý klíč, nebo aktivní TOTP.
 
+Hned po registraci aplikace požádá o jedno zkušební ověření novým klíčem.
+Některé správce klíčů registraci projdou, ale ověření pak vracejí neplatné;
+takový klíč aplikace rovnou odebere a vyzve vás, abyste ho uložili jinam nebo
+si zapnuli TOTP. Zavřete-li systémový dialog, klíč zůstane uložený jako
+neověřený a do 15 minut od registrace ho můžete vyzkoušet tlačítkem
+**Vyzkoušet** v seznamu klíčů.
+
 ##### Záložní jednorázové kódy
 
 **Profil → Přístupové klíče → Záložní kódy.** Sada deseti kódů ve tvaru

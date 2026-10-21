@@ -476,6 +476,8 @@ final class Routes
             $g->post  ('/webauthn/step-up/verify',            [PasskeyAction::class, 'stepUpVerify']);
             $g->patch ('/webauthn/credentials/{id:[0-9]+}',   [PasskeyAction::class, 'rename']);
             $g->delete('/webauthn/credentials/{id:[0-9]+}',   [PasskeyAction::class, 'revoke']);
+            $g->post  ('/webauthn/credentials/{id:[0-9]+}/test/options', [PasskeyAction::class, 'testOptions']);
+            $g->post  ('/webauthn/credentials/{id:[0-9]+}/test/verify',  [PasskeyAction::class, 'testVerify']);
             $g->post  ('/mfa/step-up/totp',                   [MfaStepUpAction::class, 'totp']);
             $g->post  ('/mfa/step-up/recovery',               [MfaStepUpAction::class, 'recovery']);
             $g->get   ('/mfa/recovery-codes',                 [\MyInvoice\Action\Auth\MfaRecoveryCodeAction::class, 'status']);

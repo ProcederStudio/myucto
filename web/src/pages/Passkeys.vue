@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { advanceCanonicalDomainLoginSession, canonicalDomainLoginSessionCsrf } from '@/security/domainLogin'
 import { authApi, type PasskeyCredential } from '@/api/auth'
 import { createCredential, getCredential, isWebAuthnAvailable, webAuthnErrorKey } from '@/security/webauthn'
+import { isPasskeyTestable, testRegisteredPasskey, type PasskeyTestOutcome } from '@/security/passkeyTest'
 import { useAuthStore } from '@/stores/auth'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import RecoveryCodes from '@/components/security/RecoveryCodes.vue'
@@ -23,6 +24,7 @@ const useRecovery = ref(false)
 const recoveryRemaining = ref(0)
 const busy = ref(false)
 const error = ref('')
+const notice = ref('')
 const passkeySupported = isWebAuthnAvailable()
 
 // Politika MFA ze serveru: `allowed_mfa_methods` říká, ČÍM se smí ověřovat, a
@@ -72,6 +74,35 @@ async function load() {
     : 0
 }
 
+/** Výsledek zkušebního ověření převede na hlášku; `false` = klíč byl odvolán. */
+function applyTestOutcome(outcome: PasskeyTestOutcome): boolean {
+  if (outcome === 'revoked') {
+    error.value = t('passkeys.test_revoked')
+    return false
+  }
+  if (outcome === 'cancelled') notice.value = t('passkeys.test_cancelled')
+  else if (outcome === 'verified') notice.value = t('passkeys.test_verified')
+  return true
+}
+
+async function runTest(item: PasskeyCredential) {
+  busy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const outcome = await testRegisteredPasskey(item.id)
+    if (outcome === 'skipped') notice.value = t('passkeys.test_unavailable')
+    else applyTestOutcome(outcome)
+    if (outcome === 'revoked') {
+      await auth.refresh()
+      await sessionSecurity.refresh({ force: true })
+    }
+    await load()
+  } finally {
+    busy.value = false
+  }
+}
+
 async function stepUp(operation: string): Promise<string> {
   if (recoveryCodeFilled.value) {
     const proof = await authApi.recoveryStepUp(operation, recoveryCode.value.trim())
@@ -104,6 +135,7 @@ async function add() {
   }
   busy.value = true
   error.value = ''
+  notice.value = ''
   let registrationCompleted = false
   try {
     const authorization: { current_password?: string; step_up_token?: string } = {}
@@ -121,6 +153,11 @@ async function add() {
       auth.setSessionCsrfToken(registered.csrf_token)
     }
     registrationCompleted = true
+    // Klíč, který správce uložil, ale neumí jím ověřit, by uživatele později
+    // zamkl. Ověří se hned; když neprojde, server ho sám odvolá.
+    if (!applyTestOutcome(await testRegisteredPasskey(registered.credential?.id))) {
+      registrationCompleted = false
+    }
     await auth.refresh()
     await sessionSecurity.refresh({ force: true })
     label.value = ''
@@ -247,6 +284,8 @@ onMounted(() => {
     </div>
 
     <p v-if="error" class="mb-4 rounded-md bg-danger-50 border border-danger-500/40 px-3 py-2 text-sm text-danger-500">{{ error }}</p>
+    <p v-else-if="notice" data-test="passkey-notice"
+       class="mb-4 rounded-md bg-primary-50 border border-primary-500/40 px-3 py-2 text-sm text-primary-700">{{ notice }}</p>
     <div class="space-y-3">
       <div v-for="item in list" :key="item.id"
            class="bg-surface border border-neutral-200 rounded-lg p-4 flex items-center justify-between gap-4">
@@ -258,6 +297,11 @@ onMounted(() => {
           </div>
         </div>
         <div class="flex gap-3 text-sm shrink-0">
+          <button v-if="isPasskeyTestable(item)" @click="runTest(item)" :disabled="busy"
+                  data-test="passkey-test"
+                  class="text-primary-600 hover:underline disabled:text-neutral-400 disabled:no-underline">
+            {{ t('passkeys.test') }}
+          </button>
           <button @click="rename(item)" class="text-primary-600 hover:underline">{{ t('passkeys.rename') }}</button>
           <button @click="revoke(item)"
                   :disabled="busy || revokeBlocked || stepUpMethods.length === 0"
