@@ -2425,6 +2425,11 @@ paths:
     post:
       tags: [Clients]
       summary: Synchronizuje účty partnera z registru plátců DPH
+      description: |
+        U skupinového DIČ se zveřejněné účty nepřebírají automaticky, protože
+        registr nerozlišuje jejich příslušnost k jednotlivým členům skupiny.
+        Vrací `source: group_registration`, `found: false` a `synced: 0`;
+        účet konkrétního člena lze zadat ručně.
       responses:
         '200':
           description: Výsledek synchronizace a aktuální seznam účtů
@@ -2434,7 +2439,7 @@ paths:
                 type: object
                 properties:
                   found: { type: boolean }
-                  source: { type: string }
+                  source: { type: string, description: "group_registration označuje záměrně vynechaný import účtů skupiny." }
                   synced: { type: integer }
                   accounts:
                     type: array
@@ -4356,9 +4361,15 @@ paths:
       tags: [Lookup]
       summary: Načte firmu z ARES (CZ obchodní rejstřík)
       description: |
-        Vrátí strukturované údaje firmy podle IČO. Vhodné jako první krok
-        v „create client" flow — pošli IČO, dostaneš název, adresu, DIČ
-        a flag plátce DPH, ty pak pošleš do `POST /api/v1/clients`.
+        Vrátí `found`, zdroj odpovědi a při nalezení subjektu vnořená data firmy.
+        U aktivní skupinové registrace k DPH v ARES (`stavZdrojeSkDph=AKTIVNI`)
+        obsahuje `data.dic` skupinové DIČ `dicSkDph`; při chybějícím skupinovém
+        DIČ se neaktivní vlastní DIČ nepoužije jako náhrada a `data.dic` zůstane
+        prázdné. Aktivní individuální registrace umožňuje použít vlastní DIČ.
+        Mimo aktivní skupinovou registraci obsahuje `data.dic` vlastní DIČ
+        subjektu. `data.is_vat_payer` zahrnuje aktivní individuální i skupinovou
+        registraci. IČO zůstává identifikátorem konkrétního subjektu, skupinové
+        DIČ může sdílet více členů.
 
         Cache 24h — opakované volání pro stejné IČO nezatíží ARES.
       requestBody:
@@ -4375,7 +4386,7 @@ paths:
                   example: "27082440"
       responses:
         '200':
-          description: "OK (`found: false` pokud IČO neexistuje v ARES)"
+          description: "OK; při nenalezení je `found: false`, bez `data`."
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AresLookupResult' }
@@ -45243,24 +45254,43 @@ components:
     AresLookupResult:
       type: object
       description: |
-        Odpověď ARES lookup-u. Pokud IČO existuje, `found = true` (implicitní) a
-        ostatní pole jsou vyplněná. Pro neexistující IČO vrátíme `{ found: false }`.
+        Odpověď ARES lookupu. Při nalezení obsahuje normalizovaná data v `data`;
+        při nenalezení je `found` false a `data` chybí.
+      required: [found, source]
       properties:
         found: { type: boolean, example: true }
         source:
           type: string
           enum: [fresh, cache]
           description: Zda data přišla z ARES API nebo z 24h cache
-        company_name: { type: string, example: "Vzorová firma s.r.o." }
-        ic:  { type: string, example: "27082440" }
-        dic: { type: string, example: "CZ27082440" }
-        street: { type: string }
-        city: { type: string }
-        zip: { type: string, example: "301 00" }
-        country_iso2: { type: string, example: "CZ" }
-        is_vat_payer: { type: boolean }
-        date_active: { type: string, format: date, description: "Datum vzniku firmy" }
-        legal_form: { type: string, example: "112" }
+        data:
+          type: object
+          description: "Normalizovaná data nalezeného subjektu; při `found: false` chybí."
+          properties:
+            company_name: { type: string, example: "Vzorová firma s.r.o." }
+            ic: { type: string, description: IČO konkrétního subjektu. }
+            dic:
+              type: string
+              description: |
+                Při aktivní skupinové registraci (`stavZdrojeSkDph=AKTIVNI`)
+                obsahuje skupinové DIČ `dicSkDph`. Pokud v ARES chybí, vrací se
+                prázdný řetězec, pokud není aktivní individuální registrace,
+                která umožňuje použít vlastní DIČ. Mimo aktivní skupinu obsahuje
+                vlastní DIČ subjektu. Skupinové DIČ může sdílet více subjektů.
+            street: { type: string }
+            city: { type: string }
+            zip: { type: string, example: "301 00" }
+            country_iso2: { type: string, example: "CZ" }
+            is_vat_payer:
+              type: boolean
+              description: True při aktivní individuální nebo skupinové registraci k DPH v ARES.
+            date_active: { type: string, format: date, description: Datum vzniku firmy. }
+            legal_form: { type: string, example: "112" }
+            street_number_pop: { type: string }
+            street_number_orient: { type: string }
+            cz_nace_code: { type: string }
+            taxpayer_type: { type: string, enum: [fo, po, ""] }
+            commercial_register: { type: string }
 
     ViesLookupResult:
       type: object

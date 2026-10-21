@@ -5683,7 +5683,8 @@
       "sync_failed": "Načtení účtů z registru DPH selhalo.",
       "sync_registry": "Načíst z registru DPH",
       "synced": "Z registru DPH načteno účtů: {count}.",
-      "title": "Bankovní účty protistrany"
+      "title": "Bankovní účty protistrany",
+      "sync_group": "DIČ patří skupině pro DPH. Registr zveřejňuje společný seznam účtů členů skupiny, proto se účty automaticky nepřebírají. Účet tohoto dodavatele zadejte ručně."
     },
     "branding_profile": "Výchozí brandingový profil",
     "branding_profile_default": "Výchozí identita dodavatele",
@@ -35842,7 +35843,8 @@
     "taxpayer_auto": "Podle ARES (automaticky)",
     "taxpayer_hint": "Právnická osoba vzniká v podvojném účetnictví se směrnou osnovou, účetním obdobím a automatickým účtováním; fyzická osoba v daňové evidenci.",
     "title": "Firmy",
-    "zip": "PSČ"
+    "zip": "PSČ",
+    "bank_lookup_group": "DIČ patří skupině pro DPH. Zveřejněné účty mohou patřit jiným členům skupiny. Vyberte účet této firmy; žádný účet nebyl automaticky vyplněn."
   },
   "support": {
     "account": "Účet",

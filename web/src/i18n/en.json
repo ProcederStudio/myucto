@@ -5683,7 +5683,8 @@
       "sync_failed": "Loading accounts from the VAT register failed.",
       "sync_registry": "Load from VAT register",
       "synced": "Accounts loaded from the VAT register: {count}.",
-      "title": "Counterparty bank accounts"
+      "title": "Counterparty bank accounts",
+      "sync_group": "This VAT ID belongs to a VAT group. The register publishes a shared list of its members’ accounts, so accounts are not imported automatically. Enter this vendor’s account manually."
     },
     "branding_profile": "Default branding profile",
     "branding_profile_default": "Supplier default identity",
@@ -35842,7 +35843,8 @@
     "taxpayer_auto": "From ARES (automatic)",
     "taxpayer_hint": "A legal entity starts in double-entry bookkeeping with the chart of accounts, an accounting period and automatic posting; a natural person in tax records.",
     "title": "Companies",
-    "zip": "ZIP"
+    "zip": "ZIP",
+    "bank_lookup_group": "This VAT ID belongs to a VAT group. Published accounts may belong to other group members. Select this company’s account; no account was filled in automatically."
   },
   "support": {
     "account": "Account",

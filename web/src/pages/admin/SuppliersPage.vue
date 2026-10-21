@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isCzechVatGroup } from '@/utils/vatGroup'
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -143,6 +144,7 @@ const supplierBank = reactive({ currency: 'CZK', account_number: '', bank_code: 
 const supplierBankLoading = ref(false)
 const supplierBankMessage = ref<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null)
 const supplierBankAccounts = ref<import('@/api/clients').CrpDphAccount[]>([])
+const supplierBankAccountsRequireSelection = ref(false)
 
 function supplierApplyBank(acc: import('@/api/clients').CrpDphAccount) {
   if (acc.iban) {
@@ -164,21 +166,30 @@ async function supplierLookupBank() {
   supplierBankLoading.value = true
   supplierBankMessage.value = null
   supplierBankAccounts.value = []
+  supplierBankAccountsRequireSelection.value = false
   try {
     const r = await clientsApi.lookupBank(dic)
     supplierBankAccounts.value = r.accounts
+    supplierBankAccountsRequireSelection.value = isCzechVatGroup(dic)
     // O plátcovství rozhoduje registr plátců (stejně jako v prvotním setupu);
     // neúspěšné dohledání ho neshazuje.
     if (r.found === true) supplierDraft.is_vat_payer = true
     if (r.accounts.length === 0) {
       supplierBankMessage.value = { type: 'error', text: t('supplier.bank_lookup_none') }
+    } else if (supplierBankAccountsRequireSelection.value) {
+      supplierBankMessage.value = { type: 'warning', text: t('supplier.bank_lookup_group') }
     } else {
       supplierApplyBank(r.accounts[0])
       supplierBankMessage.value = r.accounts.length === 1
         ? { type: 'success', text: t('supplier.bank_lookup_one') }
         : { type: 'success', text: t('supplier.bank_lookup_many', { n: r.accounts.length }) }
     }
-    if (r.unreliable === true) supplierBankMessage.value = { type: 'warning', text: t('supplier.bank_lookup_unreliable') }
+    if (r.unreliable === true) {
+      supplierBankMessage.value = { type: 'warning', text: [
+        supplierBankAccountsRequireSelection.value && r.accounts.length > 0 ? t('supplier.bank_lookup_group') : '',
+        t('supplier.bank_lookup_unreliable'),
+      ].filter(Boolean).join(' ') }
+    }
   } catch (e: any) {
     supplierBankMessage.value = { type: 'error', text: e?.response?.data?.error?.message || t('supplier.bank_lookup_failed') }
   } finally {
@@ -196,6 +207,7 @@ function newSupplier() {
   Object.assign(supplierBank, { currency: 'CZK', account_number: '', bank_code: '', bank_name: '', iban: '', bic: '' })
   supplierBankMessage.value = null
   supplierBankAccounts.value = []
+  supplierBankAccountsRequireSelection.value = false
   supplierAresMessage.value = null
   supplierCreateOpen.value = true
 }
@@ -536,7 +548,7 @@ async function switchSupplier(id: number) {
                 }">
                 {{ supplierBankMessage.text }}
               </div>
-              <div v-if="supplierBankAccounts.length > 1" class="mb-2 flex flex-wrap gap-1.5">
+              <div v-if="supplierBankAccounts.length > 1 || (supplierBankAccountsRequireSelection && supplierBankAccounts.length > 0)" class="mb-2 flex flex-wrap gap-1.5">
                 <button v-for="(acc, i) in supplierBankAccounts" :key="i" type="button" @click="supplierApplyBank(acc)"
                   class="cursor-pointer px-2 py-1 text-xs font-mono border border-neutral-300 rounded hover:bg-primary-50 hover:border-primary-300">
                   {{ acc.display }}
