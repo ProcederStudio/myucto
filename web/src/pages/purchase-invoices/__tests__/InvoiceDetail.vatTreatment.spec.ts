@@ -258,3 +258,44 @@ describe('InvoiceDetail.vue — skutečný nárok na odpočet', () => {
     wrapper.unmount()
   })
 })
+
+describe('InvoiceDetail.vue — akce Změnit DPH zařazení', () => {
+  beforeEach(() => {
+    m.get.mockReset()
+    m.activity.mockReset()
+    m.activity.mockResolvedValue([])
+    m.receiptList.mockResolvedValue([])
+    m.receiptPropose.mockResolvedValue({ lines: [], cost_candidates: [], purchase_invoice_id: 258, not_receivable_kind: 'advance' })
+    m.perms = {}
+    m.isAdmin = false
+  })
+
+  async function actionKeys(): Promise<string[]> {
+    const wrapper = mount(InvoiceDetail, { global: { stubs } })
+    await flushPromises()
+    const actions = wrapper.findComponent({ name: 'ActionBar' }).props('actions') as { key: string; show?: boolean }[]
+    const keys = actions.filter(a => a.show !== false).map(a => a.key)
+    wrapper.unmount()
+    return keys
+  }
+
+  it('role s právem purchase_invoices.vat_treatment akci vidí i u zaúčtovaného dokladu', async () => {
+    m.perms['purchase_invoices.vat_treatment'] = true
+    m.get.mockResolvedValue(makeInvoice({ status: 'booked' }))
+    expect(await actionKeys()).toContain('vat-treatment')
+  })
+
+  it('bez práva ji nevidí (server by ji odmítl), správce ano', async () => {
+    m.perms['purchase_invoices.vat_treatment'] = false
+    m.get.mockResolvedValue(makeInvoice({ status: 'received' }))
+    expect(await actionKeys()).not.toContain('vat-treatment')
+    m.isAdmin = true
+    expect(await actionKeys()).toContain('vat-treatment')
+  })
+
+  it('stornovaný doklad akci nenabízí', async () => {
+    m.perms['purchase_invoices.vat_treatment'] = true
+    m.get.mockResolvedValue(makeInvoice({ status: 'cancelled' }))
+    expect(await actionKeys()).not.toContain('vat-treatment')
+  })
+})

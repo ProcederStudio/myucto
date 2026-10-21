@@ -19737,6 +19737,20 @@
       "by_allocations": "podle rozpisu DPH",
       "part_amounts": "základ {base}, DPH {vat}",
       "header_differs_editor": "Rozpis DPH má jiný nárok na odpočet než hlavička. Do přiznání jde nárok z rozpisu. Změnu v hlavičce systém do rozpisu promítne jen tehdy, když měl celý rozpis stejný nárok jako hlavička.",
+      "change": {
+        "action": "Změnit DPH zařazení",
+        "action_hint": "Opraví nárok na odpočet a členění DPH bez storna dokladu, i když je zaúčtovaný.",
+        "title": "Změnit DPH zařazení",
+        "help": "Mění se jen nárok na odpočet a členění DPH. Částky, data ani dodavatel zůstávají. Zaúčtovaný doklad se přeúčtuje a změna se zapíše do historie dokladu.",
+        "closed_period": "Doklad spadá do uzavřeného účetního období. DPH zařazení v něm může opravit jen správce firmy.",
+        "allocations_hint": "Do přiznání jde nárok z rozpisu DPH. Změnu nároku v hlavičce systém do rozpisu promítne jen tehdy, když měl celý rozpis stejný nárok jako hlavička.",
+        "items": "Členění DPH položek",
+        "reconcile": "Doklad je zaúčtovaný v uzavřeném období nebo k datu uzamčení účetnictví. Původní zápis se stornuje a opravený doklad se zaúčtuje do aktuálního otevřeného období.",
+        "reconcile_required": "Doklad je zaúčtovaný v uzavřeném období nebo k datu uzamčení účetnictví. Potvrďte storno a přeúčtování do běžného období.",
+        "filed_confirm": "Období odpočtu dokladu už bylo podáno ({period}). Potvrzuji změnu a vím, že ji bude potřeba vykázat opravným nebo dodatečným tvrzením.",
+        "save": "Uložit DPH zařazení",
+        "saved": "DPH zařazení je uložené."
+      },
       "warning": {
         "header_differs_from_allocations": "V hlavičce je nárok „{header}“, do přiznání a kontrolního hlášení ale jde nárok z rozpisu DPH.",
         "items_claim_code_without_header_claim": "Doklad je bez nároku na odpočet, některé položky ale mají kód s nárokem. Do DPH nejdou.",

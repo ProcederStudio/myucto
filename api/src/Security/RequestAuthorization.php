@@ -142,9 +142,35 @@ final class RequestAuthorization
     }
 
     /**
+     * Úzká oprava DPH zařazení přijaté faktury (nárok na odpočet, klasifikace hlavičky,
+     * položek a rozpisu) i u přijatého nebo zaúčtovaného dokladu, bez storna: správce firmy,
+     * nebo interní role s právem `purchase_invoices.vat_treatment` (výchozí účetní ho má).
+     * Klient ho nedostane ani poškozeným řádkem matice.
+     */
+    public static function canChangePurchaseVatTreatment(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (!self::isClientType($request) && self::allows($request, 'purchase_invoices.vat_treatment', AccessLevel::WRITE));
+    }
+
+    /**
+     * Oprava DPH zařazení zaúčtované přijaté faktury přepíše její zápis v deníku. Neadmin
+     * k ní kromě práva na opravu potřebuje i právo zaúčtovat, stejně jako u vystavené
+     * faktury ({@see canRepostIssuedInvoice()}).
+     */
+    public static function canRepostPurchaseVatTreatment(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (self::canChangePurchaseVatTreatment($request)
+                && self::allows($request, 'accounting.journal.post', AccessLevel::WRITE));
+    }
+
+    /**
      * Částky, data a položky vystavené faktury v období, za které je podané přiznání k DPH,
      * kontrolní hlášení nebo OSS přiznání, mění jen správce firmy. Delegovaná role s právem
      * upravit vystavenou fakturu ho nepřebije: podané se opravuje opravným tvrzením.
+     * Totéž platí pro změnu přijaté faktury, která se promítne do evidence DPH (vynucená
+     * úprava, členění DPH položek, oprava DPH zařazení).
      */
     public static function canChangeFiledVatPeriod(Request $request): bool
     {

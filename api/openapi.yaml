@@ -6770,6 +6770,8 @@ paths:
           description: |
             Doklad není editovatelný (`not_editable`) — nedraftový bez `force=1`,
             nebo stornovaný. Uzamčené období u účetní role hlásí `document_locked`.
+            Finanční změnu nekonceptu v podaném období DPH (období odpočtu nebo nové DUZP)
+            provede jen správce firmy, jinak `period_filed`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -26953,13 +26955,96 @@ paths:
         Volitelný `vat_classification_code` změní členění DPH položky (kód z číselníku přijatých
         plnění firmy, např. `24e` místo `23`). Smazat ho nejde; neznámý kód vrací 400. Druh nákladu
         ani částky se tím nemění. Platí stejná pravidla jako pro druh nákladu: zámek období,
-        u zaúčtovaného dokladu přeúčtování a zákaz pro API token.
+        u zaúčtovaného dokladu přeúčtování a zákaz pro API token. Spadá-li nekoncept do
+        podaného období DPH (přiznání nebo KH), změní členění DPH jen správce firmy, jinak
+        409 `period_filed`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/PurchaseExpenseKindsWrite'
+  /api/v1/purchase-invoices/{id}/vat-treatment:
+    post:
+      tags:
+      - Purchase invoices
+      summary: Oprava DPH zařazení přijaté faktury
+      operationId: publicPurchaseInvoicesIdVatTreatmentPost
+      description: |
+        Změní nárok na odpočet (`vat_deduction`, `vat_deduction_percent`), kód klasifikace
+        hlavičky, kódy položek a nárok či kód částí rozpisu DPH (`vat_allocations`, podle
+        `id`). Částky, data ani dodavatel se nemění. Mění se jen poslané klíče; prázdná
+        změna vrací doklad beze změny.
+
+        Vyžaduje oprávnění `purchase_invoices.vat_treatment` (správce, výchozí účetní).
+        Funguje i u přijatého, zaplaceného a zaúčtovaného dokladu, bez storna; stornovaný
+        doklad vrací 409 `not_editable`. Změna nároku v hlavičce u dokladu s rozpisem se do
+        rozpisu promítne jen tehdy, měl-li celý rozpis dosavadní nárok hlavičky, jinak 400
+        `validation_failed` (pole `vat_allocations`).
+
+        Zaúčtovaný doklad v otevřeném období se přeúčtuje na místě (`_repost`). Zaúčtovaný
+        doklad v uzavřeném období (správce s `force=1`) nebo k datu uzamčení účetnictví
+        vyžaduje `force_mode=reconcile`: původní zápis se stornuje a doklad se přeúčtuje do
+        běžného období (`_reconcile`). Přeúčtování je účetní úkon, přes API token vrací 403
+        `token_write_forbidden`, a role bez práva `accounting.journal.post` dostane 403
+        `journal_post_forbidden`.
+
+        Pohne-li změna evidencí DPH dokladu, jehož období odpočtu je už podané (přiznání
+        k DPH nebo kontrolní hlášení), provede ji jen správce firmy (jinak 409
+        `period_filed`) a jen s `confirm_filed_period: true` (jinak 409
+        `period_filed_confirm_required`). Každá provedená změna se zapíše do historie dokladu
+        se stavem před a po.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: force
+        in: query
+        description: Přebití uzavřeného účetního období správcem (jen z aplikace).
+        schema: { type: integer, enum: [1] }
+      - name: force_mode
+        in: query
+        description: Povinné `reconcile` u zaúčtovaného dokladu v uzavřeném období nebo k datu uzamčení účetnictví. Lze poslat i v těle.
+        schema: { type: string, enum: [reconcile] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseVatTreatmentWrite'
+      responses:
+        '200':
+          description: Úspěšná odpověď
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseInvoice'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Stornovaný doklad (`not_editable`), uzavřené účetní období (`period_closed`),
+            podané období DPH (`period_filed`, `period_filed_confirm_required` s `can_confirm`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Chybí `force_mode=reconcile` (`force_mode_required`), nebo selhalo přeúčtování deníku.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/purchase-invoices/{id}/attachment-check:
     get:
       tags:
@@ -47482,6 +47567,41 @@ components:
           - invoice
           - receipt
           - credit_note
+    PurchaseVatTreatmentWrite:
+      type: object
+      properties:
+        vat_deduction: { type: string, enum: [full, none, proportional, reduced] }
+        vat_deduction_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: "Jen u `proportional` (povinné, nemá-li doklad poměrný odpočet už uložený)."
+        vat_classification_code:
+          type: [string, "null"]
+          description: "Kód hlavičky z číselníku přijatých plnění firmy; `null` ho smaže."
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, vat_classification_code]
+            properties:
+              id: { type: integer, minimum: 1 }
+              vat_classification_code: { type: string, minLength: 1 }
+        vat_allocations:
+          type: array
+          items:
+            type: object
+            required: [id]
+            properties:
+              id: { type: integer, minimum: 1 }
+              vat_deduction: { type: string, enum: [full, none, proportional, reduced] }
+              vat_deduction_percent: { type: number, minimum: 0, maximum: 100 }
+              vat_classification_code: { type: [string, "null"] }
+        confirm_filed_period:
+          type: boolean
+          description: "Výslovné potvrzení změny v podaném období DPH (jen správce)."
+        force_mode: { type: string, enum: [reconcile] }
+
     PurchaseExpenseKindsWrite:
       type: object
       required:

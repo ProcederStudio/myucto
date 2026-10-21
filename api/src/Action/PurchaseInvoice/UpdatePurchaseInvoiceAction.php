@@ -31,6 +31,7 @@ use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatment;
 use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatmentConflict;
 use MyInvoice\Service\PurchaseInvoice\VendorNumberDuplicates;
+use MyInvoice\Service\Vat\PurchaseFiledVatPeriod;
 use MyInvoice\Service\Validation\PurchaseInvoiceValidation;
 use MyInvoice\Service\Ai\AiSuggestionService;
 use MyInvoice\Support\ExchangeRateDate;
@@ -65,6 +66,7 @@ final class UpdatePurchaseInvoiceAction
         private readonly PurchaseInvoiceRateReloader $rateReloader,
         private readonly CashSettlementService $cashSettlement,
         private readonly \MyInvoice\Service\Document\AttachmentCheck\AttachmentCheckService $attachmentChecks,
+        private readonly PurchaseFiledVatPeriod $filedPeriods,
     ) {}
 
     /**
@@ -195,6 +197,17 @@ final class UpdatePurchaseInvoiceAction
                 }
             }
         }
+        // Podané období DPH (symetrie s vystavenou fakturou, {@see \MyInvoice\Action\Invoice\UpdateInvoiceAction}):
+        // finanční změnu nedraftového dokladu, jehož období odpočtu nebo nové DUZP spadá do
+        // podaného přiznání či KH, provede jen správce. Opravu řeší opravné tvrzení.
+        if ($existing['status'] !== 'draft'
+            && $isForce
+            && !RequestAuthorization::canChangeFiledVatPeriod($request)
+            && self::financialFieldsChanged($body, $existing) !== []
+            && ($filed = $this->filedPeriods->describe($supplierId, $id, [DocumentLockService::purchaseRefDate($body)])) !== null) {
+            return Json::error($response, 'period_filed', PurchaseFiledVatPeriod::message($filed), 409);
+        }
+
         $errors = PurchaseInvoiceValidation::invoice($body, $this->repo->vatRateMap());
         if (!empty($errors)) {
             return Json::error($response, 'validation_failed', 'Validace selhala', 400, ['fields' => $errors]);

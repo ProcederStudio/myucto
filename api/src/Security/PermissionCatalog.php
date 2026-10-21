@@ -6,7 +6,7 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-operational-settings-edit-issued-v2';
+    public const VERSION = '2026-10-purchase-vat-treatment-v1';
 
     /** @var list<string> */
     private const GROUPS = [
@@ -55,6 +55,7 @@ final class PermissionCatalog
             ['purchase_invoices.payment_orders', 'purchase_invoices', 'Platební příkazy', $staffOnly],
             ['purchase_invoices.delete', 'purchase_invoices', 'Smazat přijatou fakturu', $both],
             ['purchase_invoices.approve', 'purchase_invoices', 'Schvalovat přijaté doklady', $staffOnly],
+            ['purchase_invoices.vat_treatment', 'purchase_invoices', 'Změnit DPH zařazení přijaté faktury', $staffOnly],
             ['price_list', 'price_list', 'Ceník', $both],
             ['recurring', 'recurring', 'Pravidelná fakturace', $both],
             ['recurring.create', 'recurring', 'Vytvořit šablonu', $both],

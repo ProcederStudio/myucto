@@ -19737,6 +19737,20 @@
       "by_allocations": "per the VAT split",
       "part_amounts": "base {base}, VAT {vat}",
       "header_differs_editor": "The VAT split has a different deduction than the header. The return uses the deduction from the split. A change in the header is carried over to the split only when the whole split had the same deduction as the header.",
+      "change": {
+        "action": "Change VAT treatment",
+        "action_hint": "Corrects the VAT deduction and VAT classification without cancelling the document, even when it is posted.",
+        "title": "Change VAT treatment",
+        "help": "Only the VAT deduction and VAT classification change. Amounts, dates and the vendor stay. A posted document is reposted and the change is recorded in the document history.",
+        "closed_period": "The document belongs to a closed accounting period. Only a company admin can correct its VAT treatment.",
+        "allocations_hint": "The return uses the deduction from the VAT split. A change in the header is carried over to the split only when the whole split had the same deduction as the header.",
+        "items": "Item VAT classification",
+        "reconcile": "The document is posted in a closed period or on a date the books are locked for. The original entry is reversed and the corrected document is posted to the current open period.",
+        "reconcile_required": "The document is posted in a closed period or on a date the books are locked for. Confirm the reversal and reposting to the current period.",
+        "filed_confirm": "The deduction period of the document has already been filed ({period}). I confirm the change and know it must be reported in a corrective or supplementary return.",
+        "save": "Save VAT treatment",
+        "saved": "VAT treatment saved."
+      },
       "warning": {
         "header_differs_from_allocations": "The header says “{header}”, but the VAT return and control statement use the deduction from the VAT split.",
         "items_claim_code_without_header_claim": "The document has no VAT deduction, but some items have a code with a deduction. They do not enter VAT.",

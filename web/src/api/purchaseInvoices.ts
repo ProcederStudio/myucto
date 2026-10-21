@@ -240,6 +240,16 @@ export type PurchaseVatTreatmentWarning =
 
 export type PurchaseVatItemState = 'allocations' | 'no_claim_header' | 'no_claim_code' | 'claim' | 'unclassified'
 
+/** Tělo opravy DPH zařazení — posílají se jen změněné klíče. */
+export interface PurchaseVatTreatmentPayload {
+  vat_deduction?: VatDeduction
+  vat_deduction_percent?: number
+  vat_classification_code?: string | null
+  items?: { id: number; vat_classification_code: string }[]
+  vat_allocations?: { id: number; vat_deduction: VatDeduction; vat_deduction_percent?: number; vat_classification_code?: string | null }[]
+  confirm_filed_period?: boolean
+}
+
 /** Skutečný nárok na odpočet dokladu (SSOT PurchaseVatTreatment na serveru). */
 export interface PurchaseVatTreatment {
   source: 'header' | 'allocations'
@@ -943,6 +953,18 @@ export const purchaseInvoicesApi = {
   dismissExtractionWarning: (id: number, section?: string) =>
     api.post<PurchaseInvoice>(`/purchase-invoices/${id}/dismiss-extraction-warning`, section ? { section } : undefined)
       .then(r => r.data),
+
+  /**
+   * Oprava DPH zařazení (nárok na odpočet, klasifikace hlavičky, položek a rozpisu) bez
+   * storna, i u zaúčtovaného dokladu. `force` přebije uzavřené období (správce),
+   * `forceMode: 'reconcile'` stornuje a přeúčtuje zápis do běžného období.
+   */
+  changeVatTreatment: (id: number, payload: PurchaseVatTreatmentPayload, opts: { force?: boolean; forceMode?: 'reconcile' } = {}) =>
+    api.post<PurchaseInvoice & { _repost?: { entry_id: number }; _reconcile?: { new_entry_id: number } }>(
+      `/purchase-invoices/${id}/vat-treatment`,
+      payload,
+      { params: { ...(opts.force ? { force: 1 } : {}), ...(opts.forceMode ? { force_mode: opts.forceMode } : {}) } },
+    ).then(r => r.data),
 
   /** Druh nákladu po položkách — kontrolní okno po AI importu, i u zaplaceného dokladu. */
   setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null; expense_account_code?: string | null; vat_classification_code?: string }[]) =>

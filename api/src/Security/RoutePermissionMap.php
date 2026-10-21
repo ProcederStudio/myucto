@@ -111,6 +111,7 @@ final class RoutePermissionMap
         ['GET', '#^/api/purchase-invoices/[0-9]+/stock-receipts?(/|$)#', 'stock', AccessLevel::READ],
         ['*', '#^/api/purchase-invoices/[0-9]+/stock-receipts?(/|$)#', 'stock', AccessLevel::WRITE],
         ['POST', '#^/api/purchase-invoices/[0-9]+/transition$#', 'purchase_invoices.transition', AccessLevel::WRITE],
+        ['POST', '#^/api/purchase-invoices/[0-9]+/vat-treatment$#', 'purchase_invoices.vat_treatment', AccessLevel::WRITE],
         ['POST', '#^/api/purchase-invoices/[0-9]+/credit-note-offset$#', 'purchase_invoices.transition', AccessLevel::WRITE],
         ['POST', '#^/api/purchase-invoices/[0-9]+/payment-calendar$#', 'purchase_invoices.create', AccessLevel::WRITE],
         ['DELETE', '#^/api/purchase-invoices/[0-9]+/credit-note-offset$#', 'purchase_invoices.transition', AccessLevel::WRITE],

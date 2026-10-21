@@ -782,6 +782,8 @@ final class Routes
         $app->post   ('/api/purchase-invoices/{id:[0-9]+}/project',         SetPurchaseInvoiceProjectAction::class);
         $app->post   ('/api/purchase-invoices/{id:[0-9]+}/dismiss-extraction-warning', DismissExtractionWarningAction::class);
         $app->put    ('/api/purchase-invoices/{id:[0-9]+}/expense-kinds',   SetPurchaseInvoiceExpenseKindsAction::class);
+        // Oprava DPH zařazení (nárok, klasifikace, rozpis) i u zaúčtovaného dokladu, bez storna.
+        $app->post   ('/api/purchase-invoices/{id:[0-9]+}/vat-treatment',   \MyInvoice\Action\PurchaseInvoice\ChangePurchaseInvoiceVatTreatmentAction::class);
         // Kontrola dokladu proti vytěžení přílohy (odznak v detailu) a potvrzení „v pořádku"
         $app->get    ('/api/purchase-invoices/{id:[0-9]+}/attachment-check',             [\MyInvoice\Action\Document\AttachmentCheckAction::class, 'showPurchaseInvoice']);
         $app->post   ('/api/purchase-invoices/{id:[0-9]+}/attachment-check/acknowledge', [\MyInvoice\Action\Document\AttachmentCheckAction::class, 'acknowledgePurchaseInvoice']);

@@ -43,6 +43,7 @@ import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 const ExtractionReviewModal = defineAsyncComponent(() => import('@/components/purchase/ExtractionReviewModal.vue'))
 const PaymentCalendarModal = defineAsyncComponent(() => import('@/components/purchase/PaymentCalendarModal.vue'))
+const PurchaseVatTreatmentModal = defineAsyncComponent(() => import('@/components/purchase/PurchaseVatTreatmentModal.vue'))
 const PaymentMethodModal = defineAsyncComponent(() => import('@/components/invoices/PaymentMethodModal.vue'))
 const ExpenseRuleTemplateModal = defineAsyncComponent(() => import('@/components/accounting/ExpenseRuleTemplateModal.vue'))
 const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))
@@ -598,6 +599,18 @@ const canForceEdit = computed(() =>
   ['received', 'booked', 'paid'].includes(invoice.value.status)
 )
 
+// Oprava DPH zařazení bez storna: správce nebo role s právem purchase_invoices.vat_treatment,
+// stejně jako RequestAuthorization::canChangePurchaseVatTreatment na serveru.
+const canChangeVatTreatment = computed(() => !!invoice.value && !auth.isClientRole
+  && invoice.value.status !== 'cancelled'
+  && (auth.isCompanyAdminRole || auth.canWrite('purchase_invoices.vat_treatment')))
+const vatTreatmentOpen = ref(false)
+function onVatTreatmentSaved() {
+  vatTreatmentOpen.value = false
+  void load()
+  postingPanelRef.value?.reload()
+}
+
 function confirmForceEdit() {
   if (!invoice.value) return
   const status = t('purchase_invoice.status.' + invoice.value.status)
@@ -881,6 +894,10 @@ const purchaseActions = computed<ActionItem[]>(() => {
 
   items.push({ key: 'qr', label: t('purchase_invoice.qr.button'), icon: 'qr', tier: 'secondary', variant: 'primary',
     show: canPayWithQr.value, run: openQr })
+
+  items.push({ key: 'vat-treatment', label: t('purchase_invoice.vat_treatment.change.action'), icon: 'tag', tier: 'secondary', variant: 'warning',
+    show: canChangeVatTreatment.value, title: t('purchase_invoice.vat_treatment.change.action_hint') as string,
+    disabled: acting.value, run: () => { vatTreatmentOpen.value = true } })
 
   items.push({ key: 'post', label: t('common.post_document'), icon: 'clipboardCheck', tier: 'secondary', variant: 'primary',
     show: canPostToJournal.value, disabled: acting.value, loading: acting.value, run: postToJournal })
@@ -1210,6 +1227,8 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
 
       <PaymentCalendarModal v-if="paymentCalendarOpen" :invoice-id="invoice.id" :due-date="invoice.due_date"
         :amount="Number(invoice.total_with_vat)" :currency="invoice.currency" @close="paymentCalendarOpen = false" />
+      <PurchaseVatTreatmentModal v-if="vatTreatmentOpen" :invoice="invoice" :vat-classifications="vatClassifications"
+        :is-admin="auth.isCompanyAdminRole" @close="vatTreatmentOpen = false" @saved="onVatTreatmentSaved" />
 
       <!-- ═══ Úhrady dokladu → provenience (banka + pokladna + zaúčtování úhrady) ═══ -->
       <div v-if="(invoice.bank_payments && invoice.bank_payments.length) || (invoice.cash_payments && invoice.cash_payments.length) || (invoice.settlement_payments && invoice.settlement_payments.length)"
