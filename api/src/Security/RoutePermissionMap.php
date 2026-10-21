@@ -1023,7 +1023,9 @@ final class RoutePermissionMap
             return new RoutePermission(self::PERMISSION, 'settings.company', AccessLevel::READ,
                 $path === '/api/codebooks/currencies' ? ['price_list', 'stock', 'projects'] : ['price_list', 'stock']);
         }
-        if ($method === 'POST' && $path === '/api/suppliers') {
+        // Náhled převzetí do nové firmy patří k zakládání firmy, proto stejná brána.
+        if (($method === 'POST' && $path === '/api/suppliers')
+            || ($method === 'GET' && $path === '/api/suppliers/carry-over')) {
             return new RoutePermission(self::ADMIN_PLUS);
         }
         if ($method !== 'GET' && preg_match('#^/api/suppliers(/[0-9]+)?$#', $path) === 1) {

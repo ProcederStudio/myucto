@@ -384,6 +384,54 @@ final class CertificateVaultSupplierSharing
         return $results;
     }
 
+    /**
+     * Povolí certifikát v jedné výslovně určené firmě, typicky právě založené.
+     *
+     * Cíl se nebere z {@see candidateSuppliers()}: superadmin s jiným členstvím
+     * řádek `user_suppliers` k nové firmě nedostane, a přesto do ní certifikát
+     * převzít má. Oprávnění `settings.signing` se ale ověří stejně jako u hromadné
+     * akce, rolí přepnutou do cílové firmy.
+     *
+     * @return self::STATUS_ENABLED|self::STATUS_ALREADY_ENABLED|self::STATUS_SKIPPED_NO_PERMISSION|null
+     *         null = certifikát v trezoru uživatele není
+     */
+    public function enableInSupplier(
+        Request $request,
+        int $credentialId,
+        int $ownerUserId,
+        int $supplierId,
+        ?string $ip = null,
+    ): ?string {
+        $credential = $this->credentials->findOwned($credentialId, $ownerUserId);
+        if ($credential === null) {
+            return null;
+        }
+        if ($this->permittedFor($request, $supplierId) !== true) {
+            return self::STATUS_SKIPPED_NO_PERMISSION;
+        }
+        if ($this->credentials->isEnabledForSupplier($credentialId, $supplierId)) {
+            return self::STATUS_ALREADY_ENABLED;
+        }
+        if (!$this->credentials->setSupplierEnabled($credentialId, $ownerUserId, $supplierId, true, $ownerUserId)) {
+            throw new \RuntimeException('Credential supplier mapping failed.');
+        }
+        $this->logger->log(
+            'certificate_vault_supplier_enabled',
+            $ownerUserId,
+            'certificate',
+            $credentialId,
+            [
+                'source' => 'supplier_carry_over',
+                'fingerprint' => (string) $credential['fingerprint_sha256'],
+            ],
+            $ip,
+            $request->getHeaderLine('User-Agent'),
+            $supplierId,
+        );
+
+        return self::STATUS_ENABLED;
+    }
+
     /** @return list<array{supplier_id:int,name:string}> */
     private function candidateSuppliers(Request $request, int $ownerUserId): array
     {
@@ -407,7 +455,7 @@ final class CertificateVaultSupplierSharing
      * true = smí, false = je členem, ale chybí mu oprávnění, null = firma
      * v tomhle kontextu vůbec není dosažitelná (a nemá se ani jmenovat).
      */
-    private function permittedFor(Request $request, int $supplierId): ?bool
+    public function permittedFor(Request $request, int $supplierId): ?bool
     {
         $scoped = $request
             ->withHeader(SupplierScopeMiddleware::HEADER_NAME, (string) $supplierId)

@@ -230,6 +230,8 @@ $sessionActions = [
     'MyInvoice\\Action\\PurchaseInvoice\\Approval\\PurchaseInvoiceApprovalAction::cancel',
     // Přehled firem ve správě firem - interní, akce odmítá bearer token.
     'MyInvoice\\Action\\Settings\\SettingsAction::supplierDirectory',
+    // Náhled převzetí AI a certifikátu do nové firmy - interní, akce odmítá bearer token.
+    'MyInvoice\\Action\\Settings\\SupplierCarryOverAction::__invoke',
     // Automatický stav tachometru — přihlášení u služby je osobní krok, akce odmítá bearer token.
     'MyInvoice\\Action\\Logbook\\OdometerSourceAction::catalog',
     'MyInvoice\\Action\\Logbook\\OdometerSourceAction::status',

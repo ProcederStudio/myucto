@@ -420,6 +420,7 @@ final class RoutePermissionMapTest extends TestCase
     {
         $map = new RoutePermissionMap();
         self::assertSame(RoutePermissionMap::ADMIN_PLUS, $map->match('POST', '/api/suppliers')?->kind);
+        self::assertSame(RoutePermissionMap::ADMIN_PLUS, $map->match('GET', '/api/suppliers/carry-over')?->kind);
         self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('PUT', '/api/suppliers/7')?->kind);
         self::assertSame(RoutePermissionMap::SUPERADMIN, $map->match('DELETE', '/api/suppliers/7')?->kind);
     }

@@ -28,6 +28,9 @@ use MyInvoice\Service\Mail\SafeLogoPath;
 use MyInvoice\Service\Payroll\PayrollEmployerLegacyIdentifierCarryOver;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
+use MyInvoice\Service\Epo\EpoStepUpService;
+use MyInvoice\Service\Epo\EpoSubmissionException;
+use MyInvoice\Service\Supplier\SupplierCarryOver;
 use MyInvoice\Service\Supplier\SupplierCreator;
 use MyInvoice\Service\Supplier\SupplierDirectory;
 use MyInvoice\Service\Supplier\SupplierDirectoryQuery;
@@ -138,6 +141,9 @@ final class SettingsAction
         private readonly SupplierCreator $supplierCreator,
         private readonly SupplierDirectory $supplierDirectory,
         private readonly \MyInvoice\Service\Accounting\FiscalYearStartChanger $fiscalYearStart,
+        // Převzetí AI klíče a certifikátu ze stávajících firem do nové firmy.
+        private readonly SupplierCarryOver $carryOver,
+        private readonly EpoStepUpService $stepUp,
     ) {}
 
     /**
@@ -383,6 +389,12 @@ final class SettingsAction
         $assignCreator = !RequestAuthorization::isSuperadmin($request);
 
         $b = (array) ($request->getParsedBody() ?? []);
+        try {
+            $carryOver = SupplierCarryOver::parse($b['carry_over'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
+        }
+        unset($b['carry_over']);
         if (array_key_exists('person_title', $b)) {
             try {
                 $b['person_title'] = SupplierPersonTitle::normalize($b['person_title']);
@@ -402,6 +414,23 @@ final class SettingsAction
         // (createSupplier píše do currencies tytéž sloupce jako updateCurrency).
         if (($claimed = $this->rejectForeignBankAccountOnCreate($request, $response, $b)) !== null) {
             return $claimed;
+        }
+
+        // Převzetí z ostatních firem jen z přihlášené relace, stejně jako hromadné
+        // akce, které kopíruje. Certifikát navíc chce tentýž step-up jako jeho
+        // sdílení v trezoru; ověří se PŘED založením, aby odmítnutí nenechalo
+        // firmu napůl hotovou.
+        if ($carryOver !== null) {
+            if (!RequestAuthorization::isSessionAuth($request) || $creatorUserId <= 0) {
+                return Json::sessionRequired($response, 'Převzetí ze stávajících firem lze potvrdit jen z webového rozhraní.');
+            }
+            if ($carryOver['certificate_ids'] !== []) {
+                try {
+                    $this->stepUp->verify($request, $creatorUserId, $carryOver['step_up'], 'credential_supplier_access');
+                } catch (EpoSubmissionException $e) {
+                    return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+                }
+            }
         }
 
         $isVatPayer = SupplierCreator::isVatPayer($b);
@@ -426,7 +455,21 @@ final class SettingsAction
         );
 
         $this->log($request, 'supplier.created', $newSupplierId, ['company_name' => $b['company_name'], 'ic' => $b['ic'] ?? null]);
-        return Json::ok($response, ['id' => $newSupplierId], 201);
+        if ($carryOver === null) {
+            return Json::ok($response, ['id' => $newSupplierId], 201);
+        }
+
+        // Firma už stojí; nepovedené převzetí se jen ohlásí v odpovědi.
+        return Json::ok($response, [
+            'id'                => $newSupplierId,
+            'carry_over_result' => $this->carryOver->apply(
+                $request,
+                $newSupplierId,
+                $carryOver,
+                $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
+                $request->getHeaderLine('User-Agent'),
+            ),
+        ], 201);
     }
 
     /** PUT /api/suppliers/{id} (admin; výjimka stock_enabled/stock_auto_issue níže). */
