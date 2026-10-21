@@ -197,7 +197,7 @@ jsou v [§ 25.9.18](#25918-lokalni-model-pres-ollamu-podrobnosti).
 | Faktura obsahuje řádek **KOREKCE** s nulovými množstvími | Model nerozparsoval složitou fakturu a součet se lišil o víc než 50 % | Doplňte množství a ceny k řádkům a korekční řádek smažte (viz [§ 25.9.4](#2594-katastrofalni-mismatch-placeholder)) |
 | Doklad z paliv nebo vyúčtování nemá položky | Doklad nemá spolehlivý rozpad řádkových částek odpovídající rekapitulaci | Zkontrolujte souhrnnou rekapitulaci a potřebné řádky doplňte ručně (viz [§ 25.9.7](#2597-doklad-bez-jednotkovych-cen-zalozeni-ze-souhrnne-rekapitulace)) |
 | U dokladu chybí splatnost | Doklad ji neuvádí a AI ji neodhaduje | Doplňte splatnost v editoru |
-| Doklad od člena skupinové registrace vyšel jako od neplátce | ARES vrací zaniklou registraci | Zkontrolujte, zda doklad nese dvě DIČ (viz [§ 25.9.9](#2599-dodavatel-se-skupinovou-registraci-k-dph-dve-dic-na-dokladu)) |
+| DIČ dodavatele ze skupinové registrace nesouhlasí s dokladem | ARES může vrátit vlastní DIČ člena nebo společné DIČ skupiny podle stavu registrace | Porovnejte údaje s dokladem a ověřte skupinové DIČ v registru (viz [§ 25.9.9](#2599-dodavatel-se-skupinovou-registraci-k-dph-dve-dic-na-dokladu)) |
 | Import Ollamou je extrémně pomalý, nebo skončí po zhruba 2 minutách | Model se nevejde do paměti grafické karty, nebo prohlížeč po 2 minutách přestane čekat | Zvolte menší model, nebo import nechte běžet přes scan inbox (viz [§ 25.9.18](#25918-lokalni-model-pres-ollamu-podrobnosti)) |
 | Test spojení hlásí `ollama_curl_missing` | Chybí PHP rozšíření `curl` | Doinstalujte rozšíření (v Docker image je) |
 
@@ -298,14 +298,13 @@ doplňte řádky ručně. Doklady s uvedenými jednotkovými cenami se přebíra
 
 ### 25.9.9 Dodavatel se skupinovou registrací k DPH (dvě DIČ na dokladu)
 
-Doklad odštěpného závodu nebo člena **skupinové registrace k DPH** má v hlavičce dvě různá čísla: **DIČ** samotného subjektu
-(typicky `CZ` + IČO) a **DIČ k DPH** skupiny (typicky ve tvaru `CZ699xxxxxx`). Extrakce je vytěží odděleně:
+Doklad odštěpného závodu nebo člena **skupinové registrace k DPH** může uvádět dvě různá čísla: **DIČ** samotného subjektu
+(typicky `CZ` + IČO) a **DIČ k DPH** skupiny. Extrakce je vytěží odděleně:
 
-- podle **DIČ subjektu** se dohledá karta dodavatele v adresáři (proto se karta napáruje pořád stejně a nevznikají duplicity),
-- podle **DIČ k DPH** se ověří **plátcovství** v registru plátců.
+- karta dodavatele se dohledá především podle **IČO**; jednotliví členové skupiny tak zůstávají oddělení,
+- pokud ARES nepotvrdí plátcovství a doklad uvádí odlišné **DIČ k DPH**, ověří se také v registru plátců.
 
-Bez toho by ARES podle IČO vrátil zaniklou registraci (vlastní registrace člena skupiny vstupem do skupiny zaniká) a doklad by
-se vytěžil jako od neplátce, tedy s nulovou daní a bez nároku na odpočet.
+Při novém načtení údajů dodavatele podle IČO ARES u aktivní skupinové registrace předvyplní skupinové DIČ a příznak plátce. Pokud ARES skupinové DIČ nevrátí, neaktivní vlastní DIČ se místo něj nedoplní. IČO přitom zůstává identifikátorem konkrétního člena, zatímco skupinové DIČ může sdílet více členů. Při vytěžení zkontrolujte čísla proti dokladu; skupinové DIČ lze samostatně ověřit v registru plátců. Automatické předvyplnění vychází z aktuálního stavu ARES a nepotvrzuje platnost registrace k historickému datu dokladu.
 
 ### 25.9.10 Reverse charge ze zahraničí: automatika
 

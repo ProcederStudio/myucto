@@ -9,6 +9,7 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Ares\AresClient;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
@@ -193,7 +194,10 @@ final class CreateSupplierInitializationTest extends TestCase
         $this->db->pdo()->prepare(
             'INSERT INTO ares_cache (ic, payload) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE payload = VALUES(payload), fetched_at = NOW()'
-        )->execute([self::IC, json_encode(['found' => true, 'data' => ['taxpayer_type' => 'po']], JSON_UNESCAPED_UNICODE)]);
+        )->execute([self::IC, json_encode([
+            'normalization_version' => AresClient::NORMALIZATION_VERSION,
+            'found' => true, 'data' => ['taxpayer_type' => 'po'],
+        ], JSON_UNESCAPED_UNICODE)]);
 
         // Typ poplatníka NEPŘIŠEL — rozhodne právní forma z ARESu.
         $id = $this->create([
@@ -216,7 +220,10 @@ final class CreateSupplierInitializationTest extends TestCase
         $this->db->pdo()->prepare(
             'INSERT INTO ares_cache (ic, payload) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE payload = VALUES(payload), fetched_at = NOW()'
-        )->execute([self::IC, json_encode(['found' => true, 'data' => ['taxpayer_type' => 'po']], JSON_UNESCAPED_UNICODE)]);
+        )->execute([self::IC, json_encode([
+            'normalization_version' => AresClient::NORMALIZATION_VERSION,
+            'found' => true, 'data' => ['taxpayer_type' => 'po'],
+        ], JSON_UNESCAPED_UNICODE)]);
 
         $id = $this->create([
             'company_name'  => '__TEST Založení explicitní FO',

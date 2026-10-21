@@ -145,7 +145,7 @@ final class StatementImporter
                 $parsed['header']['account_number'] = trim((string) $account['account_number']);
             }
             $touched = new StatementImportTransactions();
-            $result = $this->persist($parsed, $content, $fileName, $userId, $currencyId, $source, true, $touched, $reconciliationConfirmations, $supplierId, $ignoreDecision);
+            $result = $this->persist($parsed, $content, $fileName, $userId, $currencyId, $source, true, $touched, $reconciliationConfirmations, $supplierId, $ignoreDecision, $requireActive);
             $scope = $pdo->prepare("SELECT id FROM bank_statements WHERE id = ? AND supplier_id = ? AND source = ? AND currency = ? AND COALESCE(bank_code, '') = ?");
             $scope->execute([$result['statement_id'], $supplierId, $source, $account['code'], $account['bank_code'] ?? '']);
             if ($scope->fetchColumn() === false) {
@@ -252,7 +252,7 @@ final class StatementImporter
      * @param string $rawBytes Originální bajty souboru — hashují se pro dedup a ukládají
      *   se buď do file_content (source='gpc') nebo pdf_content (source='pdf').
      */
-    private function persist(array $parsed, string $rawBytes, string $fileName, ?int $userId, ?int $currencyId, string $source, bool $deferProcessing = false, ?StatementImportTransactions $touched = null, array $reconciliationConfirmations = [], ?int $supplierId = null, ?array $ignoreDecision = null): array
+    private function persist(array $parsed, string $rawBytes, string $fileName, ?int $userId, ?int $currencyId, string $source, bool $deferProcessing = false, ?StatementImportTransactions $touched = null, array $reconciliationConfirmations = [], ?int $supplierId = null, ?array $ignoreDecision = null, bool $connectedFeed = false): array
     {
         $touched ??= new StatementImportTransactions();
         $hash = hash('sha256', $rawBytes);
@@ -413,6 +413,14 @@ final class StatementImporter
             'INSERT INTO bank_transaction_imports (statement_id, bank_transaction_id, import_fingerprint, supplier_id, original_statement_id)
              SELECT ?, ?, ?, bs.supplier_id, bs.id FROM bank_transactions bt JOIN bank_statements bs ON bs.id = bt.statement_id WHERE bt.id = ?'
         ) : null;
+        // Jen tam, kde se stažení skládají do měsíčního výpisu: samostatně zobrazený výpis
+        // musí obsahovat všechny své pohyby, i ty z dřívějšího stažení.
+        $ownFingerprint = $connectedFeed && $linkImport !== null && $statementSupplierId !== null
+            && (new BankApiMonthlyStatements($pdo))->aggregatesMonthly(
+                $statementSupplierId, (string) $h['account_number'], (string) ($accountBankCode ?? ''), (string) ($account['code'] ?? ''),
+            )
+            ? $pdo->prepare('SELECT import_fingerprint FROM bank_transactions WHERE id = ?')
+            : null;
 
         $matched = 0;
         $inserted = 0;
@@ -434,7 +442,9 @@ final class StatementImporter
             }
             if ($duplicateId !== false) {
                 $touched->linked((int) $duplicateId);
-                $this->linkImport($linkImport, $aliasMap, $statementId, (int) $duplicateId, $fingerprint);
+                if (!$this->isRepeatedDownload($ownFingerprint, $aliasMap, (int) $duplicateId, $fingerprint)) {
+                    $this->linkImport($linkImport, $aliasMap, $statementId, (int) $duplicateId, $fingerprint);
+                }
                 $skipped++;
                 continue;
             }
@@ -446,8 +456,10 @@ final class StatementImporter
                     break;
                 }
             }
-            if ($alreadyStored) {
+            if ($alreadyStored && !$this->isRepeatedDownload($ownFingerprint, $aliasMap, (int) $duplicateId, $fingerprint)) {
                 $this->linkImport($linkImport, $aliasMap, $statementId, (int) $duplicateId, $fingerprint);
+            }
+            if ($alreadyStored) {
                 $skipped++;
                 continue;
             }
@@ -638,6 +650,29 @@ final class StatementImporter
             }
         }
         return $out;
+    }
+
+    /**
+     * Stáhla automatická synchronizace pohyb znovu? Stahuje okno s překryvem
+     * (`BankConnectionService::OVERLAP_DAYS`), takže skoro každý pohyb dostane několikrát.
+     * Když pohyb tenhle otisk už nese nebo ho má převedený, vazba nic nového nedokládá:
+     * stažení je skrytý podklad měsíčního výpisu a ten pohyb už obsahuje. Vazba by se
+     * jen opakovala u každého stažení (na jedné instanci 600 tis. řádků za týden).
+     * Pohyb poznaný jen přes jiného kandidáta otisku vazbu dostane, ta převede hlavní otisk.
+     *
+     * @param array<string,array<int,true>> $aliasMap
+     */
+    private function isRepeatedDownload(?\PDOStatement $ownFingerprint, array $aliasMap, int $transactionId, string $fingerprint): bool
+    {
+        if ($ownFingerprint === null) {
+            return false;
+        }
+        if (isset($aliasMap[$fingerprint][$transactionId])) {
+            return true;
+        }
+        $ownFingerprint->execute([$transactionId]);
+
+        return (string) $ownFingerprint->fetchColumn() === $fingerprint;
     }
 
     /** @param array<string,array<int,true>> $aliasMap MĚNÍ SE */

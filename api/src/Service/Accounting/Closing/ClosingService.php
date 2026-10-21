@@ -1586,11 +1586,13 @@ final class ClosingService
      * Řádky přijatých faktur označené k časovému rozlišení, jejichž náklad přesahuje konec
      * uzavíraného období (accrual_to > ends_on). Restrikce na doklady zaúčtované DO období
      * (effective_cost_date v období, status != draft/cancelled) — odkládá se jen náklad z VH.
+     * Doklad, který odklad nese už sám ({@see deferredOnDocumentSql}), se neodkládá podruhé.
      *
      * @return list<array<string,mixed>>
      */
     private function prepaidExpenseAccrualRows(int $supplierId, string $startsOn, string $endsOn): array
     {
+        $deferPrefix = $this->deferralAccountPrefix($supplierId, 'accrual.prepaid.expense');
         $stmt = $this->db->pdo()->prepare(
             'SELECT pii.id AS item_id, pii.purchase_invoice_id, pii.description,
                     pii.total_without_vat,
@@ -1605,9 +1607,10 @@ final class ClosingService
                 AND pii.accrual_to IS NOT NULL
                 AND pii.accrual_to > ?
                 AND pi.effective_cost_date BETWEEN ? AND ?
+                AND NOT ' . self::deferredOnDocumentSql('purchase_invoice', 'pi.supplier_id', 'pi.id') . '
               ORDER BY pi.id, pii.order_index, pii.id'
         );
-        $stmt->execute([$supplierId, $endsOn, $startsOn, $endsOn]);
+        $stmt->execute([$supplierId, $endsOn, $startsOn, $endsOn, $deferPrefix, $deferPrefix]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -1617,11 +1620,13 @@ final class ClosingService
      * (openNext) našel i víceletý odklad pořízený v N (a rozpustil jen tranši N+1, ne celý
      * zbytek). `originEndsOn` = konec období, ze kterého openNext otevírá (deferováno za ním);
      * `targetEnd` = konec cílového období (rozlišení se týká jen položek začínajících do něj).
+     * Bere jen položky, jejichž odklad zaúčtovala uzávěrka ({@see deferredByClosingSql}).
      *
      * @return list<array<string,mixed>>
      */
     private function prepaidExpenseReleaseRows(int $supplierId, string $originEndsOn, string $targetEnd): array
     {
+        $deferPrefix = $this->deferralAccountPrefix($supplierId, 'accrual.prepaid.expense');
         $stmt = $this->db->pdo()->prepare(
             'SELECT pii.id AS item_id, pii.total_without_vat,
                     pii.accrual_from, pii.accrual_to, pii.purchase_invoice_id,
@@ -1635,10 +1640,83 @@ final class ClosingService
                 AND pii.accrual_to IS NOT NULL
                 AND pii.accrual_to > ?
                 AND pii.accrual_from <= ?
+                AND ' . self::deferredByClosingSql('prepaid_expense_accrual', 'pi.supplier_id', 'pi.effective_cost_date') . '
+                AND NOT ' . self::deferredOnDocumentSql('purchase_invoice', 'pi.supplier_id', 'pi.id') . '
               ORDER BY pi.id, pii.order_index, pii.id'
         );
-        $stmt->execute([$supplierId, $originEndsOn, $targetEnd]);
+        $stmt->execute([$supplierId, $originEndsOn, $targetEnd, $originEndsOn, $deferPrefix, $deferPrefix]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Podmínka „odklad dokladu zaúčtovala uzávěrka": den dokladu (`$dateSql`) leží v účetním
+     * období končícím nejpozději k vázanému `?` (konec období, ze kterého openNext otevírá),
+     * jehož krok časového rozlišení zaúčtoval odkladový zápis (`$sourceType`, period_id).
+     *
+     * openNext rozpouští jen to, co odložila uzávěrka. Odklad vzniklý jinak (doklad rozúčtovaný
+     * rovnou na 381/384, ruční nebo převzatý zápis) rozpouští účetní stejnou cestou, jakou
+     * vznikl, takže by ho openNext rozpustil podruhé. Doklad z cílového období nebyl odložen
+     * vůbec: jeho náklad či výnos je v tom období celý. Stejně čte odklad
+     * {@see pendingDeferralRelease} v projekci pro náhled DPPO.
+     */
+    private static function deferredByClosingSql(string $sourceType, string $supplierSql, string $dateSql): string
+    {
+        return "EXISTS (SELECT 1
+                  FROM accounting_periods dap
+                  JOIN journal_entries dje
+                    ON dje.supplier_id = dap.supplier_id
+                   AND dje.source_type = '{$sourceType}'
+                   AND dje.source_id = dap.id
+                   AND dje.posted_at IS NOT NULL
+                   AND dje.reversed_by IS NULL
+                 WHERE dap.supplier_id = {$supplierSql}
+                   AND dap.ends_on <= ?
+                   AND {$dateSql} >= dap.starts_on
+                   AND {$dateSql} <= dap.ends_on)";
+    }
+
+    /**
+     * Podmínka „doklad nese odklad už sám": vlastní zápis dokladu (`$docType`, id dokladu)
+     * nebo zápis k dokladu připojený vazbou (ruční interní doklad, převzatý zápis) účtuje
+     * na účet časového rozlišení. Prefix účtu se váže dvakrát (`?`, `?`).
+     *
+     * Faktura rozúčtovaná rovnou na 381/384 má odklad v knihách od zaúčtování a rozpouští
+     * ho účetní stejnou cestou. Uzávěrka by ji odložila podruhé a openNext rozpustil
+     * dvakrát. Rozpad zápisu na položky deník nezná, proto se vyřazuje celý doklad.
+     */
+    private static function deferredOnDocumentSql(string $docType, string $supplierSql, string $docIdSql): string
+    {
+        return "(EXISTS (SELECT 1
+                   FROM journal_entries xje
+                   JOIN journal_entry_lines xl ON xl.entry_id = xje.id AND xl.supplier_id = xje.supplier_id
+                   JOIN chart_of_accounts xa   ON xa.id = xl.account_id
+                  WHERE xje.supplier_id = {$supplierSql}
+                    AND xje.source_type = '{$docType}'
+                    AND xje.source_id = {$docIdSql}
+                    AND xje.posted_at IS NOT NULL
+                    AND xje.reversed_by IS NULL
+                    AND xa.account_code LIKE ?)
+             OR EXISTS (SELECT 1
+                   FROM journal_entry_document_links xdl
+                   JOIN journal_entries xje    ON xje.supplier_id = xdl.supplier_id AND xje.id = xdl.entry_id
+                   JOIN journal_entry_lines xl ON xl.entry_id = xje.id AND xl.supplier_id = xje.supplier_id
+                   JOIN chart_of_accounts xa   ON xa.id = xl.account_id
+                  WHERE xdl.supplier_id = {$supplierSql}
+                    AND xdl.doc_type = '{$docType}'
+                    AND xdl.doc_id = {$docIdSql}
+                    AND xje.posted_at IS NOT NULL
+                    AND xje.reversed_by IS NULL
+                    AND xa.account_code LIKE ?))";
+    }
+
+    /** LIKE prefix účtu časového rozlišení z pravidla (381 resp. 384 včetně analytik). */
+    private function deferralAccountPrefix(int $supplierId, string $ruleKey): string
+    {
+        $rule = $this->rules->resolve($supplierId, $ruleKey);
+        $code = $ruleKey === 'accrual.deferred.revenue'
+            ? (string) ($rule['credit_account_code'] ?? '384')
+            : (string) ($rule['debit_account_code'] ?? '381');
+        return addcslashes($code, '%_\\') . '%';
     }
 
     /**
@@ -1955,12 +2033,17 @@ final class ClosingService
     /**
      * Řádky vydaných faktur s obdobím výnosu přesahujícím `afterDate`, jejichž zaúčtovaný
      * a nestornovaný zápis faktury leží v [postedFrom..postedTo]. Odklad: zápis v uzavíraném
-     * období; rozpuštění: zápis kdykoli do konce období, ze kterého se otevírá.
+     * období; rozpuštění: zápis kdykoli do konce období, ze kterého se otevírá, a jen v období,
+     * jehož odklad zaúčtovala uzávěrka (`$release`, {@see deferredByClosingSql}).
      *
      * @return list<array<string,mixed>>
      */
-    private function deferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy = null): array
+    private function deferredRevenueRows(int $supplierId, string $afterDate, ?string $postedFrom, string $postedTo, ?string $startsBy = null, bool $release = false): array
     {
+        $deferredByClosing = $release
+            ? 'AND ' . self::deferredByClosingSql('deferred_revenue_accrual', 'je.supplier_id', 'je.entry_date')
+            : '';
+        $deferPrefix = $this->deferralAccountPrefix($supplierId, 'accrual.deferred.revenue');
         $stmt = $this->db->pdo()->prepare(
             'SELECT ii.id AS item_id, ii.invoice_id, ii.description, ii.total_without_vat,
                     ii.accrual_from, ii.accrual_to, i.varsymbol, cur.code AS currency_code
@@ -1977,10 +2060,18 @@ final class ClosingService
                                AND je.source_type = \'invoice\' AND je.source_id = i.id
                                AND je.posted_at IS NOT NULL AND je.reversed_by IS NULL
                                AND je.entry_date <= ?
-                               AND (? IS NULL OR je.entry_date >= ?))
+                               AND (? IS NULL OR je.entry_date >= ?)
+                               ' . $deferredByClosing . ')
+                AND NOT ' . self::deferredOnDocumentSql('invoice', 'i.supplier_id', 'i.id') . '
               ORDER BY i.id, ii.order_index, ii.id'
         );
-        $stmt->execute([$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom]);
+        $params = [$supplierId, $afterDate, $startsBy, $startsBy, $postedTo, $postedFrom, $postedFrom];
+        if ($release) {
+            $params[] = $postedTo;
+        }
+        $params[] = $deferPrefix;
+        $params[] = $deferPrefix;
+        $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -2033,7 +2124,7 @@ final class ClosingService
         $byAccount = [];
         $total = 0.0;
         $contexts = [];
-        foreach ($this->deferredRevenueRows($supplierId, $originEndsOn, null, $originEndsOn, $targetEnd) as $row) {
+        foreach ($this->deferredRevenueRows($supplierId, $originEndsOn, null, $originEndsOn, $targetEnd, true) as $row) {
             $from = substr((string) $row['accrual_from'], 0, 10);
             $to = substr((string) $row['accrual_to'], 0, 10);
             [$netCzk, $accounts] = $this->deferredRevenueItem($supplierId, $row, $contexts);

@@ -59,13 +59,13 @@ Zvolená firma se uloží jako vaše **výchozí firma**. Otevře se i v jiném 
 
 ![Seznam dodavatelů](img/14_dodavatele_list.webp)
 
-3. Do pole **IČO - načtení z ARES** zadejte osmimístné IČO a klikněte na **Načíst z ARES**. Zbytek se předvyplní.
+3. Do pole **IČO - načtení z ARES** zadejte osmimístné IČO a klikněte na **Načíst z ARES**. Zbytek se předvyplní. U aktivní skupinové registrace ARES doplní skupinové DIČ a nastaví plátcovství; pokud skupinové DIČ v ARES chybí, neaktivní vlastní DIČ se místo něj nedoplní. IČO dál označuje konkrétní firmu a skupinové DIČ může sdílet více členů.
 
 ![Nový dodavatel - ARES](img/14_dodavatel_novy.webp)
 
 4. Zkontrolujte nebo doplňte údaje:
    - **Název firmy**,
-   - **DIČ** (volitelné, OSVČ neplátce nechte prázdné). S DIČ se po načtení z ARES rovnou dotáhne registr plátců DPH, potvrdí plátcovství a předvyplní zveřejněný účet (tlačítko **Načíst účet z registru DPH**),
+   - **DIČ** (volitelné, OSVČ neplátce nechte prázdné). U aktivní skupinové registrace zkontrolujte předvyplněné skupinové DIČ proti dokladům. Registr plátců DPH může vrátit účty sdílené skupinou. V tomto případě se účet nevybere automaticky ani při jediném výsledku; vyberte účet patřící této firmě. Účet načtete tlačítkem **Načíst účet z registru DPH**. Ručně zadaný účet zůstane zachovaný.
    - **Typ poplatníka**: *Podle ARES (automaticky)* (výchozí), fyzická osoba, nebo právnická osoba,
    - **Plátce DPH** a zdaňovací období. Nový plátce je ze zákona měsíční (§ 99 ZDPH); čtvrtletní zvolte, jen pokud splňujete § 99a,
    - **Ulice + č.p.**, **Město**, **PSČ** a **E-mail**,
