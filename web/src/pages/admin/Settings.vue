@@ -1967,6 +1967,10 @@ async function confirmTaxRepDelete() {
                     </option>
                   </select>
                   <p class="text-xs text-neutral-500 mt-1">{{ t('settings.fiscal_year_start.hint') }}</p>
+                  <p class="text-xs text-neutral-500 mt-1" data-test="first-period-start-hint">
+                    {{ t('settings.fiscal_year_start.first_period_hint') }}
+                    <RouterLink to="/accounting/periods" class="text-primary-600 hover:underline">{{ t('settings.fiscal_year_start.first_period_link') }}</RouterLink>
+                  </p>
                 </div>
                 <div v-if="supplier.taxpayer_type !== 'fo'">
                   <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.income_tax_profile.accounting_decree') }}</label>

@@ -2014,6 +2014,9 @@ export const accountingApi = {
     api.post<AccountingPeriod>('/accounting/periods', payload).then(r => r.data),
   setPeriodStatus: (id: number, status: PeriodStatus) =>
     api.post<AccountingPeriod>(`/accounting/periods/${id}/status`, { status }).then(r => r.data),
+  /** Začátek prvního účetního období (firma vzniklá v průběhu roku, § 3 ZoÚ). */
+  updatePeriodStart: (id: number, startsOn: string, rowVersion: number) =>
+    api.patch<AccountingPeriod>(`/accounting/periods/${id}`, { starts_on: startsOn, row_version: rowVersion }).then(r => r.data),
 
   // Deník
   listJournal: (filters?: JournalFilters) => {

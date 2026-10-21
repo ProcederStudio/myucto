@@ -10714,6 +10714,44 @@ paths:
         '409': { description: Období pro rok už existuje, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/v1/accounting/periods/{id}:
+    patch:
+      tags: [Accounting]
+      summary: Změní začátek prvního účetního období
+      description: |
+        Účetní/admin. Pro firmu vzniklou v průběhu roku (§ 3 ZoÚ: první účetní
+        období začíná dnem vzniku). Mění jen `starts_on` nejstaršího období firmy
+        ve stavu `open`; konec období ani `fiscal_year` se nemění a nový začátek
+        musí patřit do téhož účetního roku. Odmítne se `409 entries_before_start`,
+        pokud má období v deníku zápis s datem před novým začátkem,
+        `422 not_first_period` u navazujícího období, `422 period_not_open`
+        u neotevřeného období, `422 fiscal_calendar_changed`, kdyby se změnou
+        změnil začátek účetního roku firmy, a `409 activation_running` během
+        doúčtování aktivace účetnictví.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starts_on, row_version]
+              properties:
+                starts_on: { type: string, format: date, example: "2026-07-21" }
+                row_version: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountingPeriod' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: "version_conflict, entries_before_start nebo activation_running", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/v1/accounting/periods/{id}/status:
     post:
       tags: [Accounting]

@@ -11,6 +11,7 @@
 | Kdy | Co udělat | Kde v aplikaci |
 |---|---|---|
 | Zakládáte nový účetní rok nebo hospodářský rok | Založit účetní období | `Nástroje → Uzávěrka`, **Nové období** ([§ 72.3](#723-krok-za-krokem-zalozit-ucetni-obdobi)) |
+| Firma vznikla v průběhu roku a první období začíná 1. ledna | Posunout začátek prvního období na den vzniku | `Nástroje → Uzávěrka`, **Změnit začátek** ([§ 72.3](#723-krok-za-krokem-zalozit-ucetni-obdobi)) |
 | Rok skončil a chcete uzavřít účetnictví | Projít kroky uzávěrkového průvodce | `Nástroje → Uzávěrka`, odkaz **Uzávěrka** u období ([§ 72.4](#724-krok-za-krokem-uzaverka-roku-pruvodce)) |
 | Kroky jsou hotové | Uzavřít knihy a otevřít nový rok | Průvodce, kroky **Uzavření knih** a **Otevření nového roku** ([§ 72.5](#725-krok-za-krokem-uzavreni-knih-a-otevreni-noveho-roku)) |
 | Závěrku schvaluje statutár nebo valná hromada | Schválit závěrku | `Nástroje → Uzávěrka`, **Schválit závěrku** ([§ 72.6](#726-krok-za-krokem-schvaleni-zaverky-a-znovuotevreni-obdobi)) |
@@ -43,6 +44,14 @@
 **Jak poznáte, že je hotovo:** Období je v tabulce se stavem **Otevřené**.
 
 Aplikace kontroluje, že začátek je dřív než konec, že pro daný rok ještě jiné období není a že se období nepřekrývá s žádným existujícím obdobím firmy.
+
+**Začátek prvního období.** První účetní období začíná dnem vzniku firmy (§ 3 zákona o účetnictví).
+Když aplikace založila období od 1. ledna a firma vznikla později, klikněte u prvního období na
+**Změnit začátek**, zadejte den vzniku a uložte. Konec období a účetní rok zůstávají. Tlačítko je jen
+u nejstaršího období ve stavu **Otevřené** a nový začátek musí patřit do téhož účetního roku.
+Aplikace změnu odmítne, když je v období zápis v deníku s datem před novým začátkem. Takový zápis
+nejprve stornujte nebo přeúčtujte. Firma s hospodářským rokem musí mít v nastavení firmy vyplněné
+**Účetní rok začíná**, jinak by zkrácené první období změnilo, jak aplikace zakládá další roky.
 
 > [!TIP]
 > Chybějící období si aplikace většinou doplní sama (viz [§ 72.12.2](#72122-automaticky-doplnena-obdobi)).
