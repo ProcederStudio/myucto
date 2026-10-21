@@ -328,7 +328,7 @@ final class PasskeyAction
                 $this->bruteForce->recordPasskeyFailure($candidateUserId);
             }
             return $this->loginVerificationFailed($response);
-        } catch (OneTimeTokenException|PasskeyVerificationException) {
+        } catch (OneTimeTokenException|PasskeyVerificationException $e) {
             if ($candidateUserId !== null) {
                 $this->bruteForce->recordPasskeyFailure($candidateUserId);
                 $this->logger->log(
@@ -336,7 +336,7 @@ final class PasskeyAction
                     $candidateUserId,
                     'user',
                     $candidateUserId,
-                    ['reason' => 'passkey_invalid'],
+                    ['reason' => 'passkey_invalid'] + self::verificationFailureDetail($e),
                     $this->clientIp($request),
                     $request->getHeaderLine('User-Agent'),
                 );
@@ -524,8 +524,17 @@ final class PasskeyAction
             );
             $this->bruteForce->recordPasskeyFailure($context['user_id']);
             return $this->stepUpVerificationFailed($response);
-        } catch (OneTimeTokenException|PasskeyVerificationException|StepUpOperationException) {
+        } catch (OneTimeTokenException|PasskeyVerificationException|StepUpOperationException $e) {
             $this->bruteForce->recordPasskeyFailure($context['user_id']);
+            $this->logger->log(
+                'auth.passkey_step_up_failed',
+                $context['user_id'],
+                'user',
+                $context['user_id'],
+                ['operation' => $operation] + self::verificationFailureDetail($e),
+                $this->clientIp($request),
+                $request->getHeaderLine('User-Agent'),
+            );
             return $this->stepUpVerificationFailed($response);
         }
 
@@ -655,6 +664,25 @@ final class PasskeyAction
     private function clientIp(Request $request): string
     {
         return $this->ipMatcher->clientIpFromRequest($request->getServerParams());
+    }
+
+    /**
+     * Proč ověření selhalo — jen do auditního logu, klientovi jde obecná chyba.
+     *
+     * @return array<string,string>
+     */
+    private static function verificationFailureDetail(\Throwable $e): array
+    {
+        if ($e instanceof PasskeyVerificationException) {
+            $payload = $e->logPayload();
+            return ['failure' => $payload['reason']]
+                + (isset($payload['detail']) ? ['detail' => $payload['detail']] : []);
+        }
+        return ['failure' => match (true) {
+            $e instanceof OneTimeTokenException => 'flow_token',
+            $e instanceof StepUpOperationException => 'operation',
+            default => PasskeyVerificationException::REASON_UNKNOWN,
+        }];
     }
 
     /**

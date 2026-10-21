@@ -464,7 +464,7 @@ final class PasskeySessionTransitionService
         $rawCredentialId = $this->passkeys->credentialId($credentialPayload);
         $stored = $this->credentials->findActiveByCredentialIdForUpdate($pdo, $rawCredentialId);
         if ($stored === null || $stored->userId !== $userId) {
-            throw new PasskeyVerificationException('Ověření passkey selhalo.');
+            throw new PasskeyVerificationException(reason: PasskeyVerificationException::REASON_UNKNOWN_CREDENTIAL);
         }
         return $stored;
     }

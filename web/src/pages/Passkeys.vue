@@ -18,6 +18,9 @@ const list = ref<PasskeyCredential[]>([])
 const label = ref('')
 const currentPassword = ref('')
 const totpCode = ref('')
+const recoveryCode = ref('')
+const useRecovery = ref(false)
+const recoveryRemaining = ref(0)
 const busy = ref(false)
 const error = ref('')
 const passkeySupported = isWebAuthnAvailable()
@@ -48,19 +51,37 @@ const revokeBlocked = computed(() =>
   && !(totpAllowed.value && hasTotp.value)
 )
 
-/** Čím se dá potvrdit odebrání klíče. Prázdné = ničím, operace je zablokovaná. */
-const stepUpMethods = computed<Array<'passkey' | 'totp'>>(() => {
-  const methods: Array<'passkey' | 'totp'> = []
+/**
+ * Čím se dá potvrdit odebrání klíče. Prázdné = ničím, operace je zablokovaná.
+ * Záložní kód server pro odebrání i registraci klíče přijme bez ohledu na
+ * `allowed_mfa_methods` — je to cesta ven, když klíč nefunguje.
+ */
+const stepUpMethods = computed<Array<'passkey' | 'totp' | 'recovery'>>(() => {
+  const methods: Array<'passkey' | 'totp' | 'recovery'> = []
   if (passkeyAllowed.value && passkeySupported && list.value.length > 0) methods.push('passkey')
   if (totpUsable.value) methods.push('totp')
+  if (recoveryRemaining.value > 0) methods.push('recovery')
   return methods
 })
+const recoveryCodeFilled = computed(() => useRecovery.value && recoveryCode.value.trim() !== '')
 
 async function load() {
   list.value = await authApi.passkeys()
+  recoveryRemaining.value = list.value.length > 0 || auth.user?.totp_enabled
+    ? await authApi.recoveryCodeStatus().then(s => s.remaining).catch(() => 0)
+    : 0
 }
 
 async function stepUp(operation: string): Promise<string> {
+  if (recoveryCodeFilled.value) {
+    const proof = await authApi.recoveryStepUp(operation, recoveryCode.value.trim())
+    recoveryRemaining.value = proof.remaining
+    recoveryCode.value = ''
+    return proof.step_up_token
+  }
+  if (useRecovery.value) {
+    throw new Error('recovery_code_required')
+  }
   // TOTP má přednost, jen když je kód opravdu vyplněný — jinak by zapomenutý kód
   // z minulého pokusu tiše přepnul metodu ověření a operace by skončila hláškou
   // „Neplatný TOTP kód" tam, kde ji uživatel chtěl potvrdit klíčem.
@@ -77,7 +98,7 @@ async function stepUp(operation: string): Promise<string> {
 
 async function add() {
   if (!label.value.trim() || !passkeySupported) return
-  if (totpRequired.value && !totpCodeValid.value) {
+  if (totpRequired.value && !totpCodeValid.value && !recoveryCodeFilled.value) {
     error.value = t('passkeys.totp_required_error')
     return
   }
@@ -109,7 +130,9 @@ async function add() {
   } catch (e: any) {
     const code = e?.response?.data?.error?.code
     const ceremonyError = webAuthnErrorKey(e)
-    error.value = e?.message === 'totp_code_required' || code === 'passkey_unavailable'
+    error.value = e?.message === 'recovery_code_required'
+      ? t('auth.recovery_hint')
+      : e?.message === 'totp_code_required' || code === 'passkey_unavailable'
       ? t('passkeys.totp_required_error')
       : ceremonyError !== null
         ? t(ceremonyError)
@@ -148,7 +171,9 @@ async function revoke(item: PasskeyCredential) {
     // uživatel typicky klíč nemá po ruce a potřebuje vědět, že ho lze odebrat
     // i TOTP kódem. Bez tohohle mapování končila celá cesta u generické hlášky.
     const ceremonyError = webAuthnErrorKey(e)
-    if (e?.message === 'totp_code_required') {
+    if (e?.message === 'recovery_code_required') {
+      error.value = t('auth.recovery_hint')
+    } else if (e?.message === 'totp_code_required') {
       error.value = t('passkeys.revoke_needs_totp')
     } else if (ceremonyError !== null) {
       error.value = totpUsable.value
@@ -214,7 +239,7 @@ onMounted(() => {
         </p>
       </div>
       <button type="button" @click="add"
-              :disabled="busy || !label.trim() || !passkeySupported || (totpRequired && !totpCodeValid)"
+              :disabled="busy || !label.trim() || !passkeySupported || (totpRequired && !totpCodeValid && !recoveryCodeFilled)"
               class="h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white rounded-md font-medium">
         {{ t('passkeys.add') }}
       </button>
@@ -252,6 +277,23 @@ onMounted(() => {
         <template v-else-if="stepUpMethods.includes('totp')">{{ t('passkeys.revoke_hint_totp') }}</template>
         <template v-else>{{ t('passkeys.revoke_hint_passkey') }}</template>
       </p>
+      <!-- Správce klíčů, který vrací neplatné ověření, jinak uživatele zamkne:
+           klíč nejde odebrat ani přidat nový, protože obojí chce funkční klíč. -->
+      <button v-if="stepUpMethods.includes('recovery')" type="button"
+              data-test="passkey-toggle-recovery"
+              class="text-sm text-primary-600 hover:underline"
+              @click="useRecovery = !useRecovery; recoveryCode = ''; error = ''">
+        {{ useRecovery ? t('passkeys.use_passkey_instead') : t('passkeys.use_recovery_instead') }}
+      </button>
+      <div v-if="useRecovery" class="bg-surface border border-neutral-200 rounded-lg p-4">
+        <label :for="`${pageId}-passkey-recovery`" class="block text-sm font-medium text-neutral-700 mb-1">
+          {{ t('auth.recovery_code') }}
+        </label>
+        <input :id="`${pageId}-passkey-recovery`" v-model="recoveryCode" type="text"
+               autocomplete="one-time-code" data-test="passkey-recovery-code"
+               class="w-full h-10 px-3 border border-neutral-300 rounded-md font-mono" />
+        <p class="text-xs text-neutral-500 mt-1">{{ t('passkeys.recovery_step_up_hint') }}</p>
+      </div>
 
       <EmptyState v-if="list.length === 0" icon="lock" :title="t('passkeys.empty')"/>
     </div>

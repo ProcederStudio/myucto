@@ -402,8 +402,15 @@ zálohu buď druhý klíč, nebo aktivní TOTP.
 
 **Profil → Přístupové klíče → Záložní kódy.** Sada deseti kódů ve tvaru
 `ABCDE-FGHJK`; každý funguje **právě jednou**. Zadávají se na přihlašovací
-stránce místo passkey i TOTP (odkaz „Nemám klíč ani autentikátor“) a potvrdí se
-jimi i odebrání ztraceného klíče.
+stránce místo passkey i TOTP (odkaz „Nemám klíč ani autentikátor“). Po přihlášení
+jimi potvrdíte i obnovu faktoru: na stránce **Přístupové klíče** odkaz „Klíč
+nefunguje? Použít záložní kód“ zpřístupní odebrání klíče i přidání nového a na
+stránce **2FA / TOTP** stejný odkaz zapnutí TOTP. To se hodí, když správce klíčů
+vrací neplatné ověření a nový klíč by skončil v témže správci. Kód se spotřebuje,
+i když operaci nedokončíte.
+
+Odebrat **poslední** silný faktor nejde ani záložním kódem, pokud je MFA povinné.
+Nejdřív zapněte TOTP nebo přidejte nový klíč, teprve potom starý klíč odeberte.
 
 Server ukládá jen SHA-256 kódu, takže **sadu jde zobrazit jedinkrát** - při
 vygenerování. Uložte ji mimo počítač, ze kterého se přihlašujete: tisk, trezor,
@@ -417,7 +424,11 @@ Co kód schválně **ne**umí, aby zůstal záchranou a nestal se trvalým fakto
   by vás jinak zamkla ven (`allowed_mfa_methods = ['passkey']` + ztracený klíč).
 
 Použití kódu se zapisuje do activity logu (`auth.recovery_code_login`,
-`auth.recovery_code_used`) i s IP a počtem zbývajících kódů.
+`auth.recovery_code_used`) i s IP a počtem zbývajících kódů. Neúspěšné ověření
+přístupovým klíčem zapisuje `auth.passkey_step_up_failed` (při přihlášení
+`auth.login_failed`) s kategorií důvodu, např. `assertion_invalid` s hláškou
+validátoru nebo `unknown_credential`, podle které se dá dohledat, proč klíč
+neprošel.
 
 ##### Rescue na serveru
 
