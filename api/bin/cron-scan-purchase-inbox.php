@@ -53,8 +53,9 @@ if ($inboxDir === '' || !is_dir($inboxDir)) {
 }
 
 $pdo = $conn->pdo();
+$scope = new PurchaseInboxSupplierScope();
 try {
-    $supplierId = (new PurchaseInboxSupplierScope())->resolve($pdo, $config);
+    $supplierId = $scope->resolve($pdo, $config);
 } catch (\Throwable $e) {
     fwrite(STDERR, "[scan-purchase-inbox] " . $e->getMessage() . "\n");
     $run->finish('error', ['error' => $e->getMessage()]);
@@ -67,6 +68,10 @@ if ($supplierId === null) {
     exit(0);
 }
 $supplierIds = [$supplierId];
+if ($scope->warning !== null) {
+    fwrite(STDERR, "[scan-purchase-inbox] WARN: {$scope->warning}
+");
+}
 
 // Cron user — actions ho použijí pro created_by audit (FK users.id).
 // 1) explicit config app.cron_user_id pokud nastaven a existuje
@@ -99,6 +104,9 @@ $scanner   = $container->get(PurchaseInvoiceInboxScanner::class);
 
 $started      = microtime(true);
 $totalSummary = ['suppliers' => 0, 'created' => 0, 'skipped' => 0, 'failed' => 0, 'details' => []];
+// Selhání celého skenu (výjimka) je chyba úlohy. Jednotlivý vadný soubor ne: zůstane
+// v přehledu non_imported, jinak by jedna rozbitá PDF shazovala každý běh cronu.
+$scanErrors = 0;
 
 // Live progress callback — píše per-file na STDOUT s explicit fflush,
 // protože PHP stdout je full-buffered když je pipnutý (Tee-Object).
@@ -136,6 +144,7 @@ foreach ($supplierIds as $sid) {
     } catch (\Throwable $e) {
         fwrite(STDERR, "[scan-purchase-inbox] supplier {$sid}: " . $e->getMessage() . "\n");
         $totalSummary['failed']++;
+        $scanErrors++;
         $totalSummary['details'][] = ['supplier_id' => $sid, 'status' => 'failed', 'reason' => $e->getMessage()];
         continue;
     }
@@ -193,7 +202,7 @@ $detailsForReport = array_slice(array_map(static function (array $d) use ($inbox
     ];
 }, $totalSummary['details']), 0, 50);
 
-$run->finish($totalSummary['failed'] > 0 ? 'error' : 'ok', [
+$run->finish($scanErrors > 0 ? 'error' : 'ok', [
     'suppliers'           => $totalSummary['suppliers'],
     'created'             => $totalSummary['created'],
     'skipped'             => $totalSummary['skipped'],
@@ -202,5 +211,5 @@ $run->finish($totalSummary['failed'] > 0 ? 'error' : 'ok', [
     'non_imported_count'  => count($totalSummary['details']),
     'non_imported'        => $detailsForReport,
     'non_imported_truncated' => count($totalSummary['details']) > count($detailsForReport),
-]);
-exit($totalSummary['failed'] > 0 ? 1 : 0);
+] + ($scope->warning !== null ? ['warning' => $scope->warning] : []));
+exit($scanErrors > 0 ? 1 : 0);

@@ -59,17 +59,30 @@ final class PurchaseInboxSupplierScopeTest extends TestCase
 
     public static function ambiguousConfigurations(): iterable
     {
-        yield 'bez vlastníka' => [[]];
-        yield 'scan all' => [['app' => ['scan_all_suppliers' => true]]];
-        yield 'scan all nesmí použít starého vlastníka' => [['app' => ['scan_all_suppliers' => true, 'default_supplier_id' => 2]]];
+        yield 'bez vlastníka' => [[1, 2, 3], [], 1];
+        yield 'scan all' => [[1, 2, 3], ['app' => ['scan_all_suppliers' => true]], 1];
+        yield 'scan all nesmí použít starého vlastníka' => [[1, 2, 3], ['app' => ['scan_all_suppliers' => true, 'default_supplier_id' => 2]], 1];
+        yield 'bez firmy 1 nejnižší ID' => [[4, 7], [], 4];
     }
 
+    /**
+     * Instalace s více firmami bez vlastníka dosud importovala do firmy 1. Aktualizace
+     * jí import nesmí zastavit; volba se jen ohlásí jako varování.
+     */
     #[DataProvider('ambiguousConfigurations')]
-    public function testAmbiguousInboxRequiresOwner(array $config): void
+    public function testAmbiguousInboxKeepsLegacyOwnerWithWarning(array $ids, array $config, int $expected): void
     {
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('purchase_invoice.cron_supplier_id');
-        (new PurchaseInboxSupplierScope())->resolve($this->database([1, 2, 3]), new Config($config));
+        $scope = new PurchaseInboxSupplierScope();
+        self::assertSame($expected, $scope->resolve($this->database($ids), new Config($config)));
+        self::assertNotNull($scope->warning);
+        self::assertStringContainsString('purchase_invoice.cron_supplier_id', $scope->warning);
+    }
+
+    public function testConfiguredOwnerHasNoWarning(): void
+    {
+        $scope = new PurchaseInboxSupplierScope();
+        $scope->resolve($this->database([1, 2]), new Config(['purchase_invoice' => ['cron_supplier_id' => 2]]));
+        self::assertNull($scope->warning);
     }
 
     public static function invalidOwners(): iterable

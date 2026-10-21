@@ -11,6 +11,9 @@ use RuntimeException;
 /** Globální inbox má pro automatický sken právě jednu vlastní firmu. */
 final class PurchaseInboxSupplierScope
 {
+    /** Firma odhadnutá bez konfigurace; cron ji ohlásí jako varování. */
+    public ?string $warning = null;
+
     public function resolve(PDO $pdo, Config $config): ?int
     {
         $owner = $config->get('purchase_invoice.cron_supplier_id');
@@ -25,12 +28,16 @@ final class PurchaseInboxSupplierScope
             return $this->configuredSupplier($pdo, $legacyOwner, 'app.default_supplier_id');
         }
 
+        $this->warning = null;
         $ids = $pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 2')->fetchAll(PDO::FETCH_COLUMN);
         if (count($ids) > 1) {
-            throw new RuntimeException(
-                'Inbox má společný adresář pro více firem. Nastavte purchase_invoice.cron_supplier_id '
-                . 'na ID firmy, které patří inbox_dir; app.scan_all_suppliers zde nelze použít pro sken všech firem.'
-            );
+            // Instalace s více firmami bez vlastníka dosud importovala do firmy 1 (výchozí
+            // app.default_supplier_id). Zastavit import po aktualizaci by bylo horší než
+            // dosavadní volba, takže se zachová a jen se ohlásí, že ji má správce potvrdit.
+            $owner = (int) ($pdo->query('SELECT id FROM supplier WHERE id = 1')->fetchColumn() ?: $ids[0]);
+            $this->warning = "Inbox je společný pro více firem a vlastník není nastavený; importuje se do firmy {$owner}. "
+                . 'Nastavte purchase_invoice.cron_supplier_id na ID firmy, které patří inbox_dir.';
+            return $owner;
         }
 
         return $ids === [] ? null : (int) $ids[0];

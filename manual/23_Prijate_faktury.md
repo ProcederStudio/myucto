@@ -1088,10 +1088,12 @@ firmy. Toto nastavení platí pouze pro automatický sken; ruční **Nascanovat 
 
 Pokud `cron_supplier_id` chybí nebo je `null`, použije cron výslovně nastavené `app.default_supplier_id`,
 ale jen pokud je `app.scan_all_suppliers` vypnuté. Jinak automaticky vybere jedinou firmu v databázi
-(bez ohledu na její ID). Bez firem sken přeskočí; u více firem bez jednoznačného vlastníka skončí chybou konfigurace.
+(bez ohledu na její ID). Bez firem sken přeskočí. U více firem bez nastaveného vlastníka importuje dál do firmy 1
+(případně do firmy s nejnižším ID) a v přehledu cron úlohy ukáže varování, že vlastníka je potřeba nastavit.
 `app.scan_all_suppliers` nezpůsobí sken společného inboxu za všechny firmy: s `cron_supplier_id` se skenuje
 jen určená firma. Neplatné nebo neexistující explicitní ID se hlásí jako chyba a nepřepne sken na jinou firmu.
-Chyby importu se v přehledu cron úlohy zaznamenají jako neúspěšný běh.
+Selhání celého skenu se v přehledu cron úlohy zaznamenává jako neúspěšný běh. Soubor, který se nepodařilo
+naimportovat, se ukáže v seznamu nenaimportovaných položek, ale běh kvůli němu chybou nekončí.
 
 Pokud se u spárované dvojice nepodaří v textu PDF najít variabilní symbol z ISDOC **a** zároveň nesedí ani celková částka,
 doklad i příloha přesto vzniknou, ale report u nich ukáže **varování**, že PDF možná patří k jiné faktuře. Skenovaný obraz
