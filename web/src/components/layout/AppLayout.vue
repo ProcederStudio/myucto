@@ -406,6 +406,9 @@ const navSections = computed<NavSection[]>(() => {
   const isDoubleEntry = accountingEnabled && supplierStore.currentSupplier?.accounting_mode === 'double_entry'
   // Daňová evidence (Epic DE) — zrcadlo isDoubleEntry; sekce jen pro režim daňové evidence.
   const isTaxEvidence = accountingEnabled && supplierStore.currentSupplier?.accounting_mode === 'tax_evidence'
+  // Pokladna patří do bezplatné části (§ 105 manuálu) a nezávisí na „Vést účetnictví"
+  // ani na licenci; za licencí je jen její zaúčtování. Zrcadlí route guard requiresCashMode.
+  const cashAvailable = ['double_entry', 'tax_evidence'].includes(supplierStore.currentSupplier?.accounting_mode ?? '')
   // Sklad (Epic SKLAD) — nezávislé na accounting_mode (funguje i pro tax_evidence).
   // Firma → Dimenze (migrace 1860) — opt-in; vypnuté nesmí v menu nic přidat.
   const dimensionsEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.dimensions_enabled === true
@@ -507,7 +510,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/bank',           label: t('nav.bank_accounts'),  icon: ICONS.bank },
         { to: '/payment-cards',  label: t('payment_cards.nav'),  icon: ICONS.coin, permission: 'settings.bank_accounts' as PermissionKey },
         { to: '/credit-cards',   label: t('nav.credit_cards'),   icon: ICONS.payment_orders, permission: 'bank' as PermissionKey },
-        ...((isDoubleEntry || isTaxEvidence) ? [{ to: '/accounting/cash', label: t('nav.accounting_cash'), icon: ICONS.cash, newTo: '/accounting/cash/new' }] : []),
+        ...(cashAvailable ? [{ to: '/accounting/cash', label: t('nav.accounting_cash'), icon: ICONS.cash, newTo: '/accounting/cash/new' }] : []),
         ...((isDoubleEntry || isTaxEvidence) && auth.hasCommercialFeatures ? [{ to: '/gopay', label: t('nav.gopay'), icon: ICONS.payment_orders, permission: 'bank' as PermissionKey }] : []),
       ],
     },
