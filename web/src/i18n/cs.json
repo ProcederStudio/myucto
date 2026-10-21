@@ -29855,7 +29855,7 @@
       "sharedCertificatePlaceholder": "Vyberte certifikát",
       "sharedCertificateOption": "{label} · platí do {validTo}",
       "sharedCertificateExpiredOption": "{label} · PROŠLÝ {validTo}",
-      "sharedCertificateEmpty": "V trezoru zatím není žádný certifikát povolený pro tuto firmu. Nahrajte ho v Systém → E-maily a certifikáty → Certifikáty a elektronické podpisy, nebo použijte nahrání souboru.",
+      "sharedCertificateEmpty": "V trezoru zatím není žádný certifikát povolený pro tuto firmu, proto výběr z trezoru nejde zvolit. V Systém → E-maily a certifikáty → Certifikáty a elektronické podpisy certifikát nahrajte nebo ho tlačítkem Povolit v dalších firmách zpřístupněte i této firmě. Jinak použijte nahrání souboru.",
       "sharedCertificateSubject": "Subjekt",
       "sharedCertificateFingerprint": "Otisk",
       "sharedCertificateExpired": "platnost vypršela",

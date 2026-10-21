@@ -95,7 +95,8 @@ nikdy nepatří do pole s heslem k certifikátu.
 U každého platného certifikátu v trezoru je navíc tlačítko **Povolit v dalších firmách**, které udělá totéž pro
 certifikát nahraný dříve. Obě akce vyžadují stejné ověření jako nahrání certifikátu. Po dokončení se zobrazí přehled
 po firmách: **Povoleno**, **Už bylo povoleno**, **Přeskočeno, má platný certifikát** a **Přeskočeno, chybí oprávnění**.
-Firmy, kde nejste členem, se akce nedotkne. Povolení certifikát ve firmě jen zpřístupní. Který certifikát se v dané
+Firmy, kde nejste členem, se akce nedotkne. Výjimkou je správce systému, který není členem žádné firmy a vidí proto
+všechny: u něj se akce týká všech firem. Povolení certifikát ve firmě jen zpřístupní. Který certifikát se v dané
 firmě skutečně použije pro podpisový profil, EPO nebo mzdová podání, se dál volí v příslušném nastavení té firmy.
 
 **Soubor se zastaralým šifrováním (RC2).** Starší exporty certifikátů, zejména z Windows a od některých autorit, jsou

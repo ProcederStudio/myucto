@@ -142,6 +142,47 @@ final class CertificateVaultSupplierSharingTest extends TestCase
         self::assertSame(0, $this->mappingCount($this->foreign));
     }
 
+    /**
+     * Superadmin bez jediného členství vidí v přepínači všechny firmy. Kdyby se
+     * cíle braly jen z `user_suppliers`, hromadné povolení by u něj nedělalo nic.
+     */
+    public function testSuperadminWithoutMembershipsReachesAllCompanies(): void
+    {
+        $credentialId = $this->uploadIntoSource();
+        $this->db->pdo()->prepare('DELETE FROM user_suppliers WHERE user_id = ?')->execute([$this->userId]);
+
+        $statuses = $this->statuses($this->sharing->shareWithOtherSuppliers(
+            $this->request(true),
+            $credentialId,
+            $this->userId,
+            $this->source,
+            false,
+        ));
+
+        self::assertArrayNotHasKey($this->source, $statuses);
+        self::assertSame(CertificateVaultSupplierSharing::STATUS_ENABLED, $statuses[$this->foreign]);
+        self::assertSame(CertificateVaultSupplierSharing::STATUS_ENABLED, $statuses[$this->permitted]);
+        self::assertTrue($this->vault->isEnabledForSupplier($credentialId, $this->foreign));
+    }
+
+    /** Běžný uživatel bez členství nedostane nic, ani přes hromadnou akci. */
+    public function testNonSuperadminWithoutMembershipsReachesNothing(): void
+    {
+        $credentialId = $this->uploadIntoSource();
+        $this->db->pdo()->prepare('DELETE FROM user_suppliers WHERE user_id = ?')->execute([$this->userId]);
+
+        $results = $this->sharing->shareWithOtherSuppliers(
+            $this->request(),
+            $credentialId,
+            $this->userId,
+            $this->source,
+            false,
+        );
+
+        self::assertSame([], $results);
+        self::assertSame(0, $this->mappingCount($this->foreign));
+    }
+
     public function testOnlyWithoutValidCertificateSkipsCompaniesThatAlreadyHaveOne(): void
     {
         $valid = $this->vaultRow('2020-01-01 00:00:00', '2099-01-01 00:00:00');

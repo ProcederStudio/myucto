@@ -660,6 +660,16 @@ async function loadAll() {
       certCredentialId.value = linked
       certSource.value = 'vault'
     }
+    // Firma bez uloženého přístupu: certifikát povolený z trezoru se rovnou
+    // předvybere, ať se u každé z desítek firem nemusí vybírat znovu.
+    const hasCredential = creds.some(c => c.environment === environment.value)
+    if (!hasCredential && certCredentialId.value === null) {
+      const preferred = shared.find(c => c.valid_now && !c.expired) ?? shared.find(c => !c.expired) ?? null
+      if (preferred) {
+        certCredentialId.value = preferred.id
+        certSource.value = 'vault'
+      }
+    }
     recipients.value = recips
     outbox.value = out.items
     outboxTotal.value = out.total
@@ -1906,6 +1916,13 @@ useWindowRefresh('*', refreshLists, () => !loading.value && !saving.value && !in
               <span>{{ t('databox.access.certificateFromFile') }}</span>
             </label>
           </div>
+          <p
+            v-if="sharedCertificates.length === 0"
+            class="mt-2 text-xs text-warning-700"
+            data-test="databox-shared-certificate-unavailable"
+          >
+            {{ t('databox.access.sharedCertificateEmpty') }}
+          </p>
         </fieldset>
 
         <div v-if="certSource === 'vault'" class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1922,11 +1939,8 @@ useWindowRefresh('*', refreshLists, () => !loading.value && !saving.value && !in
               </option>
             </select>
           </label>
-          <p v-if="sharedCertificates.length === 0" class="text-sm text-neutral-500 sm:col-span-2">
-            {{ t('databox.access.sharedCertificateEmpty') }}
-          </p>
           <div
-            v-else-if="selectedSharedCertificate"
+            v-if="selectedSharedCertificate"
             class="text-xs text-neutral-500 sm:col-span-2"
             data-test="databox-shared-certificate-detail"
           >

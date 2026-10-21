@@ -29855,7 +29855,7 @@
       "sharedCertificatePlaceholder": "— select a certificate —",
       "sharedCertificateOption": "{label} · valid until {validTo}",
       "sharedCertificateExpiredOption": "{label} · EXPIRED {validTo}",
-      "sharedCertificateEmpty": "No certificate in the vault is enabled for this company yet. Upload one in System → Emails & certificates → Certificates and electronic signatures, or upload a file here.",
+      "sharedCertificateEmpty": "No certificate in the vault is enabled for this company yet, so the vault option cannot be selected. Upload one in System → Emails & certificates → Certificates and electronic signatures, or use Enable in other companies to make an existing one available here. Otherwise upload a file.",
       "sharedCertificateSubject": "Subject",
       "sharedCertificateFingerprint": "Fingerprint",
       "sharedCertificateExpired": "expired",

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Signing;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\EpoSigningCredentialRepository;
 use MyInvoice\Repository\UserSupplierRepository;
@@ -28,7 +29,9 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * a pro každou firmu znovu vyhodnocená role (per-firemní override, aktivita, typ) se
  * stejným oprávněním, jaké hlídá stránka, tedy `settings.signing` pro zápis. Ani
  * superadmin se nerozšiřuje na firmy, kde není členem: hromadná akce nemá dosáhnout
- * dál než výběr firem, který uživatel sám vidí. Firma, do které se resoluce přístupu
+ * dál než výběr firem, který uživatel sám vidí. Výjimkou je superadmin bez jediného
+ * členství: v přepínači vidí všechny firmy, a kdyby se bral jen `user_suppliers`,
+ * tlačítko by u něj tiše nepovolilo nic. Firma, do které se resoluce přístupu
  * nedostane (vlastní doména zamčená na jinou firmu), se ve výsledku vůbec neukáže.
  */
 final class CertificateVaultSupplierSharing
@@ -72,7 +75,7 @@ final class CertificateVaultSupplierSharing
             $pdo->beginTransaction();
         }
         try {
-            foreach ($this->memberships->listForUser($ownerUserId) as $membership) {
+            foreach ($this->candidateSuppliers($request, $ownerUserId) as $membership) {
                 $supplierId = $membership['supplier_id'];
                 if ($supplierId === $sourceSupplierId) {
                     continue;
@@ -137,6 +140,25 @@ final class CertificateVaultSupplierSharing
         }
 
         return $results;
+    }
+
+    /** @return list<array{supplier_id:int,name:string}> */
+    private function candidateSuppliers(Request $request, int $ownerUserId): array
+    {
+        $memberships = $this->memberships->listForUser($ownerUserId);
+        $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
+        if ($memberships !== [] || ($user['is_superadmin'] ?? false) !== true) {
+            return $memberships;
+        }
+
+        $rows = $this->db->pdo()->query(
+            'SELECT id, COALESCE(NULLIF(display_name, \'\'), company_name) AS name FROM supplier ORDER BY id'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        return array_map(
+            static fn (array $row): array => ['supplier_id' => (int) $row['id'], 'name' => (string) $row['name']],
+            $rows,
+        );
     }
 
     /**
