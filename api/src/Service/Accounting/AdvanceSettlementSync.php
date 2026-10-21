@@ -182,15 +182,22 @@ final class AdvanceSettlementSync
     private function syncFinal(int $supplierId, string $side, int $finalId, int $advanceId, ?int $userId): array
     {
         $sourceType = $side === 'sale' ? 'invoice' : 'purchase_invoice';
-        $entry = $this->journal->findBySource($supplierId, $sourceType, $finalId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null || ($entry['posted_at'] ?? null) === null) {
+        $active = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $finalId, $this->db->pdo()->inTransaction());
+        if ($active === []) {
             // Nezaúčtovaná konečná faktura si zúčtování spočítá sama při zaúčtování.
             return ['action' => 'none', 'reason' => 'final_not_posted'];
         }
+        $entry = $active[0];
         $entryId = (int) $entry['id'];
         if ((new TakenOverRecord($this->db))->isDocumentOrItsEntry($supplierId, $sourceType, $finalId)) {
             // Převzatý zápis musí souhlasit s deníkem zdroje — automatika ho nepřepisuje.
             return ['action' => 'skipped', 'reason' => 'taken_over', 'entry_id' => $entryId];
+        }
+        // Zúčtování mění řádky jediného předpisu. Rozdělenou skupinu ani jejího
+        // osamoceného ručního člena nesmíme vydávat za nezaúčtovanou fakturu nebo
+        // do prvního člena připsat pár, který už může nést jiný člen skupiny.
+        if (!DocumentPostingGroup::isSingleDirectEntry($active, $sourceType, $finalId)) {
+            return $this->stale($supplierId, $sourceType, $finalId, $entryId, 'posting_group_requires_repost', $userId);
         }
 
         ['debit' => $debitCode, 'credit' => $creditCode] = $this->posting->advanceSettlementAccounts($supplierId, $side);

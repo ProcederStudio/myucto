@@ -144,8 +144,7 @@ final class DocumentBackfill
         $cancelled = false;
         $processed = 0;
         $existsStmt = $pdo->prepare(
-            'SELECT id FROM journal_entries
-              WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL LIMIT 1'
+            'SELECT ' . DocumentPostingGroup::activePostingExistsSql('?', '?', '?', false)
         );
         $ensuredYears = [];
 
@@ -173,8 +172,8 @@ final class DocumentBackfill
                     ? $this->posting->buildFromInvoice($supplierId, $id)
                     : $this->posting->buildFromPurchaseInvoice($supplierId, $id);
                 PostingService::assertBalanced($lines);
-                $existsStmt->execute([$supplierId, $sourceType, $id]);
-                $wasThere = $existsStmt->fetchColumn() !== false;
+                $existsStmt->execute([$supplierId, $sourceType, $id, $supplierId, $sourceType, $id]);
+                $wasThere = (bool) $existsStmt->fetchColumn();
 
                 if ($dryRun) {
                     $balance = PostingService::balanceCents($lines);
@@ -307,9 +306,7 @@ final class DocumentBackfill
     private function takenOverCount(array $invoiceBind, array $bind, string $dateWhere, array $invoiceTypePlaceholders, bool $onlyUnposted): array
     {
         $unposted = static fn (string $type, string $alias): string => $onlyUnposted
-            ? " AND NOT EXISTS (SELECT 1 FROM journal_entries je
-                                 WHERE je.supplier_id = {$alias}.supplier_id AND je.source_type = '{$type}'
-                                   AND je.source_id = {$alias}.id AND je.reversed_by IS NULL)"
+            ? ' AND NOT ' . DocumentPostingGroup::activePostingExistsSql("'{$type}'", "{$alias}.id", "{$alias}.supplier_id", false)
             : '';
         $pdo = $this->db->pdo();
         $invoices = $pdo->prepare(
