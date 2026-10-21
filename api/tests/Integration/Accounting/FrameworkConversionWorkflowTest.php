@@ -70,6 +70,8 @@ final class FrameworkConversionWorkflowTest extends TestCase
         $before=$this->dump();$preview=$w->preview($this->supplier,$command,$this->actor);self::assertSame($before,$this->dump());
         $result=$w->confirm($this->supplier,$command,$this->actor,$preview['state_hash'],$preview['preview_hash'],'conversion-synthetic-1');
         self::assertGreaterThan(0,$result['opening_entry_id']);self::assertSame($result,$w->confirm($this->supplier,$command,$this->actor,$preview['state_hash'],$preview['preview_hash'],'conversion-synthetic-1'));
+        $a=$this->db->pdo()->prepare("SELECT action,user_id FROM activity_log WHERE supplier_id=? AND entity_type='journal_entry' AND entity_id=?");$a->execute([$this->supplier,$result['opening_entry_id']]);
+        self::assertSame([['action'=>'accounting.posted','user_id'=>$this->actor]],array_map(fn($r)=>['action'=>$r['action'],'user_id'=>(int)$r['user_id']],$a->fetchAll(\PDO::FETCH_ASSOC)));
         $q=$this->db->pdo()->prepare('SELECT a.account_code,l.side,l.amount FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id=l.account_id WHERE l.supplier_id=? AND l.entry_id=? ORDER BY l.line_no');$q->execute([$this->supplier,$result['opening_entry_id']]);$lines=$q->fetchAll(\PDO::FETCH_ASSOC);
         self::assertSame('400.00',array_values(array_filter($lines,fn($l)=>$l['account_code']==='931'))[0]['amount']);self::assertSame('700.00',array_values(array_filter($lines,fn($l)=>$l['account_code']==='932'))[0]['amount']);
         self::assertContains('961',array_column($lines,'account_code'));self::assertNotContains('701',array_column($lines,'account_code'));

@@ -67,7 +67,10 @@ final class JournalEntryRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$conversion):int{
             $proof=\MyInvoice\Service\Accounting\Conversion\FrameworkConversionJournalProof::pending($this->db,$supplier,$conversion);
             (new SystemDimensionWritePolicy($this->db))->assertClosingCarry($proof);
-            return $this->persistJournal($proof->header,$proof->lines);
+            $entry=$this->persistJournal($proof->header,$proof->lines);
+            $this->activity->log('accounting.posted',(int)$proof->header['posted_by'],'journal_entry',$entry,
+                ['source_type'=>$proof->header['source_type'],'source_id'=>$proof->header['source_id'],'framework_conversion_id'=>$conversion],null,null,$supplier);
+            return $entry;
         });
     }
 
@@ -112,6 +115,7 @@ final class JournalEntryRepository
                     if($original===null||!$this->setReversedByLocked($original['entry']['id'],$proof->supplier,$entry))\MyInvoice\Service\Property\Opening\OpeningException::reject('reversal_conflict');
                     $result['reversal_entry_id']=$entry;
                 }else $result['journal_entry_id']=$entry;
+                $this->auditTypedPosting($journal['header'],$entry,$part==='reversal'?(int)$original['entry']['id']:null,['property_opening'=>$part]);
             }
             return $result;
     }
@@ -125,6 +129,7 @@ final class JournalEntryRepository
             $proof['header']['document_no'] = $documentNumber;
         }
         $entry = $this->persistJournal($proof['header'], $proof['lines']);
+        $this->auditTypedPosting($proof['header'], $entry, null, ['property_clearing' => true]);
         $intent->bindJournal($entry);
         return $entry;
     }
@@ -134,6 +139,7 @@ final class JournalEntryRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
             $proof = $intent->journal($this->db);
             $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $this->auditTypedPosting($proof['header'], $entry, null, ['property_source_revision' => true]);
             $intent->complete($this->db, $entry);
             return $entry;
         });
@@ -143,6 +149,7 @@ final class JournalEntryRepository
     {
         $proof = $intent->journal($this->db);
         $entry = $this->persistJournal($proof['header'], $proof['lines']);
+        $this->auditTypedPosting($proof['header'], $entry, null, ['property_settlement' => true]);
         $stmt = $this->db->pdo()->prepare("UPDATE unit_payment_operations SET journal_entry_id=? WHERE supplier_id=? AND id=? AND status='pending' AND journal_entry_id IS NULL");
         $stmt->execute([$entry, $intent->supplier, $intent->operationId]);
         if ($stmt->rowCount() !== 1) \MyInvoice\Service\Property\Payments\PaymentException::reject('settlement_intent');
@@ -156,6 +163,7 @@ final class JournalEntryRepository
             (new SystemDimensionWritePolicy($this->db))->assertNonprofitCapital($journal['header'],$journal['lines'],$proof);
             \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
             $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $this->auditTypedPosting($journal['header'],$entry,$journal['source_entry_id'],['typed_owner'=>$proof::class]);
             $proof->complete($this->db,$entry);return $entry;
         });
     }
@@ -167,6 +175,7 @@ final class JournalEntryRepository
             (new SystemDimensionWritePolicy($this->db))->assertPropertyFunding($journal['header'],$journal['lines'],$proof);
             \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
             $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $this->auditTypedPosting($journal['header'],$entry,$journal['source_entry_id'],['typed_owner'=>$proof::class]);
             $proof->complete($this->db,$entry);return $entry;
         });
     }
@@ -177,6 +186,7 @@ final class JournalEntryRepository
             (new SystemDimensionWritePolicy($this->db))->assertPropertyServiceLifecycle($journal['header'],$journal['lines'],$proof);
             \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
             $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $this->auditTypedPosting($journal['header'],$entry,$journal['source_entry_id'],['typed_owner'=>$proof::class]);
             $proof->complete($this->db,$entry);return $entry;
         });
     }
@@ -190,6 +200,7 @@ final class JournalEntryRepository
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->assertPropertyServiceSettlementJournal($proof['header'], $proof['lines'], $intent->carrier($this->db));
             \MyInvoice\Service\Accounting\PostingService::assertBalanced($proof['lines']);
             $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $this->auditTypedPosting($proof['header'], $entry, null, ['property_service_settlement' => true]);
             $intent->complete($this->db, $entry);
             return $entry;
         });
@@ -202,6 +213,7 @@ final class JournalEntryRepository
             $proof = $intent->journal($this->db);
             if ($proof['source_entry_id'] === null) throw new \LogicException('A reversal requires its current source.');
             $entry = $this->insertReversalLocked($proof['header'], $proof['lines'], $proof['source_entry_id']);
+            $this->auditTypedPosting($proof['header'], $entry, $proof['source_entry_id'], ['property_service_settlement' => true]);
             $intent->complete($this->db, $entry);
             return $entry;
         });
@@ -213,6 +225,7 @@ final class JournalEntryRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
             $proof = $intent->journal($this->db);
             $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $this->auditTypedPosting($proof['header'], $entry, null, ['property_setoff' => true]);
             $intent->complete($this->db, $entry);
             return $entry;
         });
@@ -247,6 +260,7 @@ final class JournalEntryRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $batchId): int {
             $proof = (new JointAllocationJournalProof($this->db))->apply($supplierId, $batchId);
             $entryId = $this->persistJournal($proof['header'], $proof['lines']);
+            $this->auditTypedPosting($proof['header'], $entryId, null, ['joint_allocation_batch_id' => $batchId]);
             $stmt = $this->db->pdo()->prepare('UPDATE joint_allocation_batches SET journal_entry_id = ? WHERE supplier_id = ? AND id = ? AND journal_entry_id IS NULL');
             $stmt->execute([$entryId, $supplierId, $batchId]);
             if ($stmt->rowCount() !== 1) {
@@ -266,6 +280,7 @@ final class JournalEntryRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $cancellationId): int {
             $proof = (new JointAllocationJournalProof($this->db))->cancellation($supplierId, $cancellationId);
             $entryId = $this->persistJournal($proof['header'], $proof['lines']);
+            $this->auditTypedPosting($proof['header'], $entryId, null, ['joint_allocation_cancellation_id' => $cancellationId]);
             $pdo = $this->db->pdo();
             $stmt = $pdo->prepare('UPDATE joint_allocation_cancellations SET reversal_entry_id = ? WHERE supplier_id = ? AND id = ? AND reversal_entry_id IS NULL');
             $stmt->execute([$entryId, $supplierId, $cancellationId]);
@@ -320,6 +335,10 @@ final class JournalEntryRepository
             if ($proof->lines !== []) {
                 (new SystemDimensionWritePolicy($this->db))->assertAssetReserveCorrection($proof);
                 $entryId = $this->persistJournal($proof->header, $proof->lines);
+                $meta = $proof->pending['meta'] ?? [];
+                $this->activity->log('accounting.posted', $meta['user_id'] ?? null, 'journal_entry', $entryId,
+                    ['source_type' => $proof->header['source_type'] ?? 'manual', 'source_id' => $proof->header['source_id'] ?? null, 'asset_reserve_correction' => true],
+                    $meta['ip'] ?? null, $meta['user_agent'] ?? null, $supplierId);
             }
             $stmt = $this->db->pdo()->prepare('SELECT id FROM journal_entries WHERE supplier_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE');
             $stmt->execute([$supplierId]);
@@ -394,6 +413,11 @@ final class JournalEntryRepository
                 $this->deleteLines($entryId, $supplierId);
                 $this->insertLines($this->db->pdo(), $entryId, $supplierId, $proof->lines);
                 $this->logReleasedPairings($supplierId, $entryId, (new JournalLinePairingRepository($this->db))->releaseStale($supplierId, $entryId), 'repost');
+            }
+            if ($entryId !== null) {
+                $postedBy = $record['posted_by'] ?? $proof->record['posted_by'] ?? null;
+                $this->activity->log($previous === null ? 'accounting.posted' : 'accounting.reposted', $postedBy === null ? null : (int) $postedBy, 'journal_entry', $entryId,
+                    ['source_type' => 'fx_revaluation', 'source_id' => $header['source_id'], 'fx504_slot' => $slot], null, null, $supplierId);
             }
             $payload = $proof->stepRow['decoded_payload'];
             $payload['fx504']['slots'][$slot] = array_replace($record, ['status' => 'written', 'entry_id' => $entryId]);
@@ -472,6 +496,17 @@ final class JournalEntryRepository
         $this->insertLines($this->db->pdo(), $entryId, $header['supplier_id'], $proof->lines);
         $this->logReleasedPairings($header['supplier_id'], $entryId,
             (new JournalLinePairingRepository($this->db))->releaseStale($header['supplier_id'], $entryId), 'repost');
+    }
+
+    /** § 33a: typovaný zapisovač nejde přes PostingService, auditní stopu zápisu proto zapisuje sám (invariant I28). */
+    private function auditTypedPosting(array $header, int $entryId, ?int $sourceEntryId, array $context): void
+    {
+        $actor = isset($header['posted_by']) ? (int) $header['posted_by'] : null;
+        $payload = $sourceEntryId === null
+            ? ['source_type' => $header['source_type'] ?? 'manual', 'source_id' => $header['source_id'] ?? null]
+            : ['original_entry_id' => $sourceEntryId, 'reversal_entry_id' => $entryId];
+        $this->activity->log($sourceEntryId === null ? 'accounting.posted' : 'accounting.reversed', $actor, 'journal_entry', $entryId,
+            $payload + $context, null, null, (int) $header['supplier_id']);
     }
 
     private function persistJournal(array $header, array $lines): int

@@ -76,6 +76,9 @@ final class AssetReserveCorrectionPropertyCarrierTest extends TestCase
         $before = $history->fetchAll(\PDO::FETCH_ASSOC);
         $corrected = $service->correctAssetReserveSource($this->supplier, $next, $request);
         self::assertGreaterThan(0, $corrected['entry_id']);
+        $audit = $pdo->prepare("SELECT action FROM activity_log WHERE supplier_id=? AND entity_type='journal_entry' AND entity_id=?");
+        $audit->execute([$this->supplier, $corrected['entry_id']]);
+        self::assertSame(['accounting.posted'], $audit->fetchAll(\PDO::FETCH_COLUMN));
         $history->execute([$this->supplier, $this->period]);
         self::assertSame($before, $history->fetchAll(\PDO::FETCH_ASSOC));
         $statement = $pdo->prepare('SELECT l.*,a.account_code FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE l.supplier_id=? AND l.entry_id=? ORDER BY l.line_no,l.id');

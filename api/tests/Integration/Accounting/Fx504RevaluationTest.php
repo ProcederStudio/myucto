@@ -144,6 +144,15 @@ final class Fx504RevaluationTest extends TestCase
         self::assertSame($preview['snapshot_hash'], $again['snapshot_hash']);
         $rerun = $this->service->run($this->supplier, $this->period, ['snapshot_hash' => $again['snapshot_hash'], 'case_decisions' => $again['case_decisions']], 2);
         self::assertSame($result['entry_ids']['saldo'], $rerun['entry_ids']['saldo']);
+        self::assertSame(['accounting.posted', 'accounting.reposted'], $this->entryAudit($result['entry_ids']['saldo']));
+    }
+
+    /** § 33a: auditní stopa patří i k samotnému zápisu, ne jen k období (invariant I28). */
+    private function entryAudit(int $entryId): array
+    {
+        $stmt = $this->db->pdo()->prepare("SELECT action FROM activity_log WHERE supplier_id=? AND entity_type='journal_entry' AND entity_id=? ORDER BY id");
+        $stmt->execute([$this->supplier, $entryId]);
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     public function testCancellationPairDoesNotCreatePhantomRevaluation(): void
@@ -175,6 +184,7 @@ final class Fx504RevaluationTest extends TestCase
         $done->execute([$this->supplier, $this->period]);
         self::assertSame('2098-12-31 18:30:00', $done->fetchColumn());
         self::assertGreaterThan(0, $reversal);
+        self::assertSame(['accounting.posted'], $this->entryAudit($reversal));
         $journal = $container->get(JournalEntryRepository::class);
         $original = \MyInvoice\Service\Accounting\Closing\Fx504JournalProof::sourceLines($this->db, $journal, $this->supplier, $result['entry_ids']['saldo']);
         $mirror = \MyInvoice\Service\Accounting\Closing\Fx504JournalProof::sourceLines($this->db, $journal, $this->supplier, $reversal);
