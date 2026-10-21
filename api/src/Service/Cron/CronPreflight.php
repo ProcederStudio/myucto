@@ -179,9 +179,8 @@ final class CronPreflight
      *
      * Permisivní protějšek výběru v
      * {@see \MyInvoice\Service\Bank\EmailNotice\BankEmailNoticeScanner::scanSupplier()}
-     * — bez omezení na konkrétního dodavatele, protože ten se v úloze teprve
-     * vybírá podle `app.scan_all_suppliers`. Sonda tedy říká jen „někde tu
-     * schránka je"; komu patří, rozhodne úloha sama.
+     * — bez omezení na konkrétního dodavatele. Úloha pak vybírá firmy se
+     * zapnutou schránkou přes {@see self::bankEmailNoticeSupplierIds()}.
      *
      * Bez ní stojí instalace, kde nikdo IMAP nezapnul, 48 stavěb DI kontejneru
      * denně jen proto, aby se dozvěděla, že není co skenovat.
@@ -193,6 +192,22 @@ final class CronPreflight
              WHERE enabled = 1
              LIMIT 1
         ');
+    }
+
+    /**
+     * Cron obsluhuje zapnuté schránky celé instalace. Výchozí firma z konfigurace
+     * není rozsahem této úlohy; opt-inem je `enabled` u samotné schránky.
+     * Výběr vrací jen ID, vlastní sken dál běží odděleně pro každou firmu.
+     *
+     * @return list<int>
+     */
+    public static function bankEmailNoticeSupplierIds(PDO $pdo): array
+    {
+        return array_map('intval', $pdo->query('
+            SELECT DISTINCT supplier_id FROM bank_email_imap_settings
+             WHERE enabled = 1
+             ORDER BY supplier_id
+        ')->fetchAll(PDO::FETCH_COLUMN));
     }
 
     public static function hasBankConnections(PDO $pdo): bool

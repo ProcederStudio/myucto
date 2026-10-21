@@ -121,6 +121,8 @@ Aby se avíza načítala, potřebujete IMAP účet, mapování na bankovní úč
 
 **Jak poznáte, že je hotovo:** Hláška „Scan bankovních avíz dokončen“ a v přehledu **Zpracované e-maily** je u zprávy stav a navázaná transakce. Avízo se zobrazí jako transakce stejně jako pohyb z výpisu.
 
+Automatická úloha `cron-bank-email-notices` prochází zapnuté IMAP schránky všech firem. V přehledu úloh její report uvádí počet firem (`suppliers`), skenovaných schránek (`accounts`) a načtených zpráv (`fetched`). Čas **Poslední scan** u schránky se aktualizuje i při skenu bez nových zpráv.
+
 > [!WARNING]
 > Nové mapování začíná volbou **Žádný IMAP účet**. Takový řádek se při scanu nepoužije, dokud nezvolíte konkrétní IMAP účet nebo vědomě nepovolíte **Všechny IMAP účty**.
 
