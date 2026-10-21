@@ -51,6 +51,24 @@ final class DocumentPostingGroup
                     AND dpg_jdp.doc_id = {$docIdSql} AND dpg_owned.reversed_by IS NULL{$posted('dpg_owned')}))";
     }
 
+    /**
+     * Aktivní vazby předpisů celé firmy pro kontrolu integrity. UNION odstraní
+     * dvojí výskyt přímého člena, který je zároveň vlastněný skupinou. Na rozdíl
+     * od hasActive() jde o dávkový přehled, nikdy o dotaz pro každý doklad zvlášť.
+     */
+    public static function activeReferencesSql(int $supplierId): string
+    {
+        return "SELECT e.id AS entry_id, e.source_type AS doc_type, e.source_id AS doc_id
+                  FROM journal_entries e FORCE INDEX (idx_je_supplier_source)
+                 WHERE e.supplier_id = {$supplierId} AND e.source_type IN ('invoice', 'purchase_invoice')
+                   AND e.source_id IS NOT NULL AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL
+                UNION
+                SELECT e.id, jdp.doc_type, jdp.doc_id
+                  FROM journal_document_postings jdp FORCE INDEX (uq_jdp_doc_entry)
+                  JOIN journal_entries e ON e.supplier_id = jdp.supplier_id AND e.id = jdp.entry_id
+                 WHERE jdp.supplier_id = {$supplierId} AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL";
+    }
+
     private static function directDocumentKeySql(string $alias): string
     {
         // Historické vlastnictví přežívá smazání dokladu. Smír pak musí nabídnout

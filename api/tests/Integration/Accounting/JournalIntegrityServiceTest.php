@@ -8,6 +8,7 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\JournalIntegrityService;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
@@ -160,6 +161,63 @@ final class JournalIntegrityServiceTest extends TestCase
     }
 
     // ── testy ───────────────────────────────────────────────────────────────────
+
+    public function testPostingFindingsFollowRemainingOwnedMembersOnBothDocumentSides(): void
+    {
+        $groups = new DocumentPostingGroup($this->db);
+        foreach (['invoice', 'purchase_invoice'] as $type) {
+            if ($type === 'invoice') {
+                $docId = $this->insertInvoice(self::YEAR . '-06-15 10:00:00', 1210);
+                $table = 'invoices';
+            } else {
+                $this->db->pdo()->prepare("INSERT INTO purchase_invoices
+                    (supplier_id, vendor_id, vendor_invoice_number, document_kind, issue_date, due_date,
+                     received_at, currency_id, vendor_snapshot, total_without_vat, total_vat, total_with_vat,
+                     status, booked_at, created_by)
+                    VALUES (?, ?, 'TEST-INTEGRITY-GROUP', 'invoice', ?, ?, ?, ?, '{}', 1000, 210, 1210,
+                            'booked', ?, ?)")
+                    ->execute([$this->supplierId, $this->clientId, self::YEAR . '-06-15', self::YEAR . '-06-30',
+                        self::YEAR . '-06-15', $this->currencyId, self::YEAR . '-06-15 10:00:00', $this->userId]);
+                $docId = (int) $this->db->pdo()->lastInsertId();
+                $table = 'purchase_invoices';
+            }
+            $direct = $this->insertBalancedEntry($type, $docId, 1000);
+            $owned = $this->insertBalancedEntry('manual', null, 210);
+            $groups->attach($this->supplierId, $type, $docId, [$direct, $owned]);
+            $reversal = $this->insertBalancedEntry('manual', null, 1000);
+            $this->db->pdo()->prepare('UPDATE journal_entries SET reversed_by = ? WHERE supplier_id = ? AND id = ?')
+                ->execute([$reversal, $this->supplierId, $direct]);
+
+            $findings = $this->service->check($this->supplierId);
+            $missing = array_filter($findings[JournalIntegrityService::TYPE_BOOKED_WITHOUT_ENTRY]['sample'],
+                static fn (array $row): bool => $row['source_type'] === $type && (int) $row['source_id'] === $docId);
+            self::assertSame([], array_values($missing), 'Zbývající člen skupiny je stále aktivní předpis.');
+
+            $this->db->pdo()->prepare("UPDATE {$table} SET booked_at = NULL WHERE supplier_id = ? AND id = ?")
+                ->execute([$this->supplierId, $docId]);
+            $findings = $this->service->check($this->supplierId);
+            self::assertContains($owned, array_map('intval', array_column(
+                $findings[JournalIntegrityService::TYPE_ENTRY_WITHOUT_BOOKED]['sample'], 'entry_id')),
+                'Opačná kontrola musí najít aktivní vlastněný zápis bez booked_at.');
+            $documentEntries = array_filter($findings[JournalIntegrityService::TYPE_ENTRY_WITHOUT_BOOKED]['sample'],
+                static fn (array $row): bool => $row['source_type'] === $type && (int) $row['source_id'] === $docId);
+            self::assertCount(1, $documentEntries, 'Stornovaný člen ani jeho protizápis nejsou aktivním předpisem.');
+
+            $this->db->pdo()->prepare("UPDATE {$table} SET status = 'cancelled' WHERE supplier_id = ? AND id = ?")
+                ->execute([$this->supplierId, $docId]);
+            $findings = $this->service->check($this->supplierId);
+            self::assertContains($owned, array_map('intval', array_column(
+                $findings[JournalIntegrityService::TYPE_CANCELLED_WITH_ENTRY]['sample'], 'entry_id')),
+                'Stornovaný doklad nesmí skrýt zbylý aktivní předpis skupiny.');
+
+            $ownedReversal = $this->insertBalancedEntry('manual', null, 210);
+            $this->db->pdo()->prepare('UPDATE journal_entries SET reversed_by = ? WHERE supplier_id = ? AND id = ?')
+                ->execute([$ownedReversal, $this->supplierId, $owned]);
+            $findings = $this->service->check($this->supplierId);
+            self::assertNotContains($owned, array_map('intval', array_column(
+                $findings[JournalIntegrityService::TYPE_CANCELLED_WITH_ENTRY]['sample'], 'entry_id')));
+        }
+    }
 
     public function testDetectsAllFiveInconsistencies(): void
     {

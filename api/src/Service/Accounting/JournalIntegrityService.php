@@ -361,15 +361,8 @@ final class JournalIntegrityService
                     AND p.status <> 'cancelled'
                     AND p.document_kind <> 'advance'
              ) d
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM journal_entries je
-                  WHERE je.supplier_id = :sid3
-                    AND je.source_type = d.source_type
-                    AND je.source_id   = d.source_id
-                    AND je.posted_at IS NOT NULL
-                    AND je.reversed_by IS NULL
-             )";
-        $params = ['sid' => $supplierId, 'sid2' => $supplierId, 'sid3' => $supplierId];
+             WHERE NOT " . DocumentPostingGroup::activePostingExistsSql('d.source_type', 'd.source_id', (string) $supplierId);
+        $params = ['sid' => $supplierId, 'sid2' => $supplierId];
         $select = "SELECT d.source_type, d.source_id, d.document_no, d.booked_at " . $sql
             . " ORDER BY d.source_type, d.source_id LIMIT " . self::DETAIL_LIMIT;
         return $this->countAndSample($supplierId, "SELECT COUNT(*) " . $sql, $select, $params);
@@ -381,19 +374,18 @@ final class JournalIntegrityService
     private function checkEntryWithoutBooked(int $supplierId): array
     {
         $sql =
-            "FROM journal_entries je
+            "FROM (" . DocumentPostingGroup::activeReferencesSql($supplierId) . ") active
+             JOIN journal_entries je ON je.supplier_id = :sid3 AND je.id = active.entry_id
              JOIN (
                  SELECT 'invoice' AS source_type, i.id AS source_id FROM invoices i
                   WHERE i.supplier_id = :sid AND i.booked_at IS NULL
                  UNION ALL
                  SELECT 'purchase_invoice', p.id FROM purchase_invoices p
                   WHERE p.supplier_id = :sid2 AND p.booked_at IS NULL
-             ) d ON d.source_type = je.source_type AND d.source_id = je.source_id
-             WHERE je.supplier_id = :sid3
-               AND je.posted_at IS NOT NULL
-               AND je.reversed_by IS NULL";
+             ) d ON d.source_type = active.doc_type AND d.source_id = active.doc_id
+             WHERE je.posted_at IS NOT NULL AND je.reversed_by IS NULL";
         $params = ['sid' => $supplierId, 'sid2' => $supplierId, 'sid3' => $supplierId];
-        $select = "SELECT je.id AS entry_id, je.source_type, je.source_id, je.document_no " . $sql
+        $select = "SELECT je.id AS entry_id, d.source_type, d.source_id, je.document_no " . $sql
             . " ORDER BY je.id LIMIT " . self::DETAIL_LIMIT;
         return $this->countAndSample($supplierId, "SELECT COUNT(*) " . $sql, $select, $params);
     }
@@ -411,7 +403,8 @@ final class JournalIntegrityService
     private function checkCancelledWithEntry(int $supplierId): array
     {
         $sql =
-            "FROM journal_entries je
+            "FROM (" . DocumentPostingGroup::activeReferencesSql($supplierId) . ") active
+             JOIN journal_entries je ON je.supplier_id = :sid3 AND je.id = active.entry_id
              JOIN (
                  SELECT 'invoice' AS source_type, i.id AS source_id, i.varsymbol AS document_no,
                         i.cancelled_at
@@ -421,12 +414,10 @@ final class JournalIntegrityService
                  SELECT 'purchase_invoice', p.id, p.varsymbol, p.cancelled_at
                    FROM purchase_invoices p
                   WHERE p.supplier_id = :sid2 AND p.status = 'cancelled'
-             ) d ON d.source_type = je.source_type AND d.source_id = je.source_id
-             WHERE je.supplier_id = :sid3
-               AND je.posted_at IS NOT NULL
-               AND je.reversed_by IS NULL";
+             ) d ON d.source_type = active.doc_type AND d.source_id = active.doc_id
+             WHERE je.posted_at IS NOT NULL AND je.reversed_by IS NULL";
         $params = ['sid' => $supplierId, 'sid2' => $supplierId, 'sid3' => $supplierId];
-        $select = "SELECT je.id AS entry_id, je.source_type, je.source_id, d.document_no,
+        $select = "SELECT je.id AS entry_id, d.source_type, d.source_id, d.document_no,
                           d.cancelled_at, je.entry_date " . $sql
             . " ORDER BY je.id LIMIT " . self::DETAIL_LIMIT;
         return $this->countAndSample($supplierId, "SELECT COUNT(*) " . $sql, $select, $params);
