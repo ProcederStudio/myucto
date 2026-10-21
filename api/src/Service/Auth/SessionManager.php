@@ -463,6 +463,40 @@ final class SessionManager
     }
 
     /**
+     * Vrátí session povýšenou dokončením MFA setupu zpět na `setup`, když se
+     * klíč, kterým se povýšila, při zkušebním ověření odvolal. Silné ověření
+     * by jinak tvrdil klíč, který nefunguje, a uživatel by při povinném MFA
+     * zůstal v aplikaci bez jediného faktoru (#225).
+     */
+    public function demoteToSetupInTransaction(
+        PDO $pdo,
+        string $token,
+        int $userId,
+        int $authCredentialId,
+    ): bool {
+        if (!$pdo->inTransaction()
+            || !self::isTokenShapeValid($token)
+            || $userId < 1
+            || $authCredentialId < 1
+        ) {
+            throw new \InvalidArgumentException('Neplatný požadavek na snížení úrovně session.');
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE sessions
+                SET auth_method = 'password', assurance_level = 'setup',
+                    mfa_verified_at = NULL, auth_credential_id = NULL
+              WHERE id = ? AND user_id = ?
+                AND assurance_level = 'strong'
+                AND auth_credential_id = ?
+                AND replaced_at IS NULL
+                AND revoked_at IS NULL"
+        );
+        $stmt->execute([$token, $userId, $authCredentialId]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
      * Atomicky nahradí zamčenou generaci novým ID a CSRF bez prodloužení
      * absolutní expirace nebo změny login assurance.
      *

@@ -35,6 +35,9 @@ const totpSetup = ref<TotpSetup | null>(null)
 // ⚠️ Sada přijde ze zapnutí TOTP a jde ukázat PRÁVĚ JEDNOU — server plaintext
 // neukládá. Dokud ji uživatel nepotvrdí, setup se nedokončí.
 const recoveryCodes = ref<string[] | null>(null)
+// Klíč neprošel zkušebním ověřením a server ho odvolal. Po potvrzení kódů se
+// pak nepokračuje do aplikace, uživatel zůstane tady a zvolí faktor znovu.
+const passkeyRevoked = ref(false)
 const totpCode = ref('')
 
 async function continueAfterSetup(): Promise<void> {
@@ -113,6 +116,7 @@ async function completePasskey() {
     const revoked = await testRegisteredPasskey(result.credential?.id) === 'revoked'
     await auth.refresh()
     await sessionSecurity.refresh({ force: true })
+    passkeyRevoked.value = revoked
     if (revoked) error.value = t('passkeys.test_revoked')
     // ⚠️ Stejně jako u TOTP: kódy PŘED dokončením setupu, jinak je odnaviguje
     // pryč a uživatel skončí s klíčem, ale bez jediné cesty zpět. Patří uživateli,
@@ -244,6 +248,11 @@ async function completeTotp() {
 
 async function confirmRecoveryCodes() {
   if (busy.value) return
+  if (passkeyRevoked.value) {
+    recoveryCodes.value = null
+    passkeyRevoked.value = false
+    return
+  }
   busy.value = true
   error.value = ''
   try {

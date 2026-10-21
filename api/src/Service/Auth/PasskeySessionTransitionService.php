@@ -446,6 +446,9 @@ final class PasskeySessionTransitionService
                     $cutoff,
                     self::CREDENTIAL_TEST_WINDOW_SECONDS,
                 );
+                if ($revoked) {
+                    $this->sessions->demoteToSetupInTransaction($pdo, $sessionToken, $userId, $credentialId);
+                }
                 $pdo->commit();
                 return ['verified' => false, 'revoked' => $revoked, 'error' => $e];
             }

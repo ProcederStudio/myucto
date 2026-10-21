@@ -401,7 +401,9 @@ zálohu buď druhý klíč, nebo aktivní TOTP.
 Hned po registraci aplikace požádá o jedno zkušební ověření novým klíčem.
 Některé správce klíčů registraci projdou, ale ověření pak vracejí neplatné;
 takový klíč aplikace rovnou odebere a vyzve vás, abyste ho uložili jinam nebo
-si zapnuli TOTP. Zavřete-li systémový dialog, klíč zůstane uložený jako
+si zapnuli TOTP. Platí to i při prvním nastavení účtu z uvítacího e-mailu: když
+klíč neprojde, zůstanete na obrazovce nastavení ověření a vyberete jiný klíč
+nebo TOTP. Zavřete-li systémový dialog, klíč zůstane uložený jako
 neověřený a do 15 minut od registrace ho můžete vyzkoušet tlačítkem
 **Vyzkoušet** v seznamu klíčů.
 

@@ -223,8 +223,13 @@ final class PasskeySessionTransitionServiceTest extends TestCase
         $passkeys->method('verifyAssertion')->willThrowException(new PasskeyVerificationException(
             reason: PasskeyVerificationException::REASON_ASSERTION_INVALID,
         ));
+        $sessions = $this->createMock(SessionManager::class);
+        $sessions->expects(self::once())
+            ->method('demoteToSetupInTransaction')
+            ->with($pdo, 'session', 17, 5)
+            ->willReturn(true);
 
-        $result = $this->service($pdo, $cutoff, $ceremonies, $passkeys, $credentials)
+        $result = $this->service($pdo, $cutoff, $ceremonies, $passkeys, $credentials, $sessions)
             ->completeCredentialTest($flowToken, ['rawId' => 'synthetic'], 17, 'session', 5);
 
         self::assertFalse($result['verified']);
@@ -253,6 +258,7 @@ final class PasskeySessionTransitionServiceTest extends TestCase
         WebAuthnCeremonyStore $ceremonies,
         ?PasskeyService $passkeys = null,
         ?PasskeyCredentialRepository $credentials = null,
+        ?SessionManager $sessions = null,
     ): PasskeySessionTransitionService {
         $db = $this->createMock(Connection::class);
         $db->method('pdo')->willReturn($pdo);
@@ -265,7 +271,7 @@ final class PasskeySessionTransitionServiceTest extends TestCase
             $passkeys ?? $this->createMock(PasskeyService::class),
             $credentials ?? $this->createMock(PasskeyCredentialRepository::class),
             $ceremonies,
-            $this->createMock(SessionManager::class),
+            $sessions ?? $this->createMock(SessionManager::class),
             $this->createMock(MfaStepUpService::class),
             $this->createMock(MfaStepUpProofStore::class),
         );
