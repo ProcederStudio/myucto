@@ -14988,6 +14988,7 @@
     "last_used": "Naposledy použito:",
     "method_not_allowed": "Přístupové klíče jsou v konfiguraci vypnuté (auth.allowed_mfa_methods), takže nový nelze zaregistrovat. Existující klíče níž zůstávají a jdou odebrat.",
     "operation_failed": "Operace s přístupovým klíčem se nepodařila.",
+    "recovery_step_up_hint": "Záložním kódem potvrdíte odebrání klíče i přidání nového. Každý kód platí jen jednou a spotřebuje se i tehdy, když operaci nedokončíte.",
     "rename": "Přejmenovat",
     "rename_prompt": "Nový název přístupového klíče",
     "revoke": "Odebrat",
@@ -15006,7 +15007,9 @@
     "totp_required_error": "Zadejte 6místný TOTP kód z authenticator aplikace. Bez něj nelze první přístupový klíč ověřit.",
     "totp_required_hint": "Máte aktivní 2FA, ale zatím žádný přístupový klíč - registraci proto lze ověřit jedině kódem z authenticator aplikace.",
     "totp_required_placeholder": "6místný TOTP kód",
-    "unsupported": "Tento prohlížeč přístupové klíče nepodporuje. Klíče zde nelze přidávat; jejich odebrání je možné pomocí TOTP, pokud je pro účet aktivní."
+    "unsupported": "Tento prohlížeč přístupové klíče nepodporuje. Klíče zde nelze přidávat; jejich odebrání je možné pomocí TOTP, pokud je pro účet aktivní.",
+    "use_passkey_instead": "Ověřit raději přístupovým klíčem",
+    "use_recovery_instead": "Klíč nefunguje? Použít záložní kód"
   },
   "payment_cards": {
     "archive": "Archivovat",

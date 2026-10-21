@@ -467,6 +467,52 @@ final class PasskeyActionTest extends TestCase
         self::assertSame('passkey_verification_failed', $this->errorCode($response));
     }
 
+    /**
+     * Selhání step-up ověření musí v auditním logu zanechat důvod. Bez něj se
+     * u správce klíčů, který vrací neplatné ověření, nedalo zjistit nic víc než
+     * obecné „Step-up ověření selhalo".
+     */
+    public function testStepUpFailureLogsReasonForAuditButReturnsGenericError(): void
+    {
+        $this->bruteForce->method('isPasskeyLocked')->willReturn(false);
+        $this->sessionTransitions->expects(self::once())
+            ->method('completeStepUp')
+            ->willThrowException(new PasskeyVerificationException(
+                reason: PasskeyVerificationException::REASON_ASSERTION_INVALID,
+                detail: 'User authentication required.',
+            ));
+        $this->bruteForce->expects(self::once())->method('recordPasskeyFailure')->with(17);
+        $this->ipMatcher->method('clientIpFromRequest')->willReturn('127.0.0.1');
+        $this->logger->expects(self::once())
+            ->method('log')
+            ->with(
+                'auth.passkey_step_up_failed',
+                17,
+                'user',
+                17,
+                [
+                    'operation' => 'totp.enable',
+                    'failure' => 'assertion_invalid',
+                    'detail' => 'User authentication required.',
+                ],
+                '127.0.0.1',
+                'PHPUnit',
+            );
+
+        $request = $this->sessionRequest('POST', '/api/auth/webauthn/step-up/verify')
+            ->withHeader('User-Agent', 'PHPUnit')
+            ->withParsedBody([
+                'flow_token' => 'flow-token',
+                'operation' => 'totp.enable',
+                'credential' => ['rawId' => 'abc'],
+            ]);
+        $response = $this->action()->stepUpVerify($request, (new ResponseFactory())->createResponse());
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('step_up_verification_failed', $this->errorCode($response));
+        self::assertStringNotContainsString('User authentication required', (string) $response->getBody());
+    }
+
     public function testLoginVerifyReportsUnavailableConfigurationWithoutConsumingFlow(): void
     {
         $this->passkeys = $this->createMock(PasskeyService::class);

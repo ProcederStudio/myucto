@@ -14988,6 +14988,7 @@
     "last_used": "Last used:",
     "method_not_allowed": "Passkeys are disabled in the configuration (auth.allowed_mfa_methods), so a new one cannot be registered. Existing keys below remain and can still be removed.",
     "operation_failed": "The passkey operation failed.",
+    "recovery_step_up_hint": "A recovery code confirms removing a key as well as adding a new one. Each code works only once and is used up even if you do not finish the operation.",
     "rename": "Rename",
     "rename_prompt": "New passkey name",
     "revoke": "Remove",
@@ -15006,7 +15007,9 @@
     "totp_required_error": "Enter the 6-digit TOTP code from your authenticator app. Without it the first passkey cannot be verified.",
     "totp_required_hint": "You have 2FA enabled but no passkey yet — the registration can only be verified with a code from your authenticator app.",
     "totp_required_placeholder": "6-digit TOTP code",
-    "unsupported": "This browser does not support passkeys. Keys cannot be added here; they can be removed with TOTP if it is enabled for the account."
+    "unsupported": "This browser does not support passkeys. Keys cannot be added here; they can be removed with TOTP if it is enabled for the account.",
+    "use_passkey_instead": "Verify with a passkey instead",
+    "use_recovery_instead": "Key not working? Use a recovery code"
   },
   "payment_cards": {
     "archive": "Archive",
