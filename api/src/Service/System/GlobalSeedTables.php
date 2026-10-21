@@ -359,7 +359,7 @@ final class GlobalSeedTables
         'invoice_pdfs', 'invoice_settlements',
         'invoices',
         'isds_gateway_sessions',
-        'journal_entries', 'journal_entry_attachments', 'journal_entry_document_links',
+        'journal_entries', 'journal_entry_attachments', 'journal_entry_document_links', 'journal_document_postings',
         'journal_entry_line_dimension_splits', 'journal_entry_line_dimensions', 'journal_entry_lines',
         'journal_entry_notes', 'journal_integrity_findings', 'journal_line_pairing_items',
         'journal_line_pairings',

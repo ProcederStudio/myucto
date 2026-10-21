@@ -90,7 +90,7 @@ final class MyuctoImporter
             $stmt->execute([$supplierId, $sourceKey]);
             $previous = $stmt->fetchColumn();
             if ($previous !== false && !str_starts_with($previous, MyuctoImportProfile::VERSION . ':')) {
-                throw new RuntimeException('Firma již byla obnovena starším importním profilem. Doplnění předkontací a klasifikací vyžaduje novou obnovu do prázdné firmy.');
+                throw new RuntimeException('Firma již byla obnovena starším importním profilem. Doplnění převáděných účetních dat vyžaduje novou obnovu do prázdné firmy.');
             }
             if ($previous !== false && $previous !== $digest) {
                 throw new RuntimeException('Tento zdroj již byl importován s jinými daty. Opakovaný import nesmí přepsat existující doklady.');
@@ -375,12 +375,19 @@ final class MyuctoImporter
         if ($table === 'de_movement_classification_history') {
             $refs['source_id'] = MyuctoAccountingGraph::movementTable($row['source_type'] ?? null);
         }
+        if ($table === 'journal_document_postings') {
+            $refs['doc_id'] = MyuctoImportProfile::DOCUMENT_TYPES[$row['doc_type'] ?? '']
+                ?? throw new RuntimeException('Nepodporovaný typ dokladu skupiny zaúčtování.');
+        }
         if (isset($schema['columns'][$table]['supplier_id'])) {
             $refs['supplier_id'] = 'supplier';
         }
         foreach ($schema['foreignKeyRows'] as $fk) {
             if ($fk['TABLE_NAME'] === $table) {
-                if ($fk['REFERENCED_COLUMN_NAME'] !== 'id' && $fk['COLUMN_NAME'] !== 'supplier_id') {
+                // U složeného FK (supplier_id, entry_id) je supplier_id stále
+                // vlastníkem firmy, nikoli ID rodičovského zápisu.
+                if ($fk['COLUMN_NAME'] === 'supplier_id') continue;
+                if ($fk['REFERENCED_COLUMN_NAME'] !== 'id') {
                     throw new RuntimeException('Nepodporovaná reference schématu.');
                 }
                 $refs[$fk['COLUMN_NAME']] = $fk['REFERENCED_TABLE_NAME'];

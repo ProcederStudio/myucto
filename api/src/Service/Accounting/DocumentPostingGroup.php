@@ -1,0 +1,154 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Service\Accounting;
+
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use PDO;
+
+/** Vlastní zaúčtování dokladu; informativní vazby a úhrady sem nepatří. */
+final class DocumentPostingGroup
+{
+    public function __construct(private readonly Connection $db) {}
+
+    /** Klíč zaúčtovaného dokladu včetně originálu protizápisu pro smír DPH. */
+    public static function documentKeySql(string $alias): string
+    {
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/D', $alias) !== 1) {
+            throw new \InvalidArgumentException('Neplatný alias účetního zápisu.');
+        }
+        $original = $alias . '_original';
+        $direct = self::directDocumentKeySql($alias);
+        $parent = self::directDocumentKeySql($original);
+        return "COALESCE({$direct},
+            (SELECT MIN(COALESCE({$parent}, CONCAT('manual:', {$original}.id)))
+               FROM journal_entries {$original} FORCE INDEX (idx_je_supplier_reversed_by)
+              WHERE {$original}.supplier_id = {$alias}.supplier_id AND {$original}.reversed_by = {$alias}.id
+             HAVING COUNT(*) = 1), CONCAT('manual:', {$alias}.id))";
+    }
+
+    private static function directDocumentKeySql(string $alias): string
+    {
+        return "COALESCE((SELECT CONCAT(jdp.doc_type, ':', jdp.doc_id) FROM journal_document_postings jdp
+                           WHERE jdp.supplier_id = {$alias}.supplier_id AND jdp.entry_id = {$alias}.id),
+                         CONCAT({$alias}.source_type, ':', {$alias}.source_id))";
+    }
+
+    /** @param list<array<string,mixed>> $entries */
+    public static function hasOwnedEntries(array $entries): bool
+    {
+        return array_any($entries, static fn (array $entry): bool => (bool) ($entry['grouped'] ?? false));
+    }
+
+    /** Vlastník zápisu i po stornu; měkké vazby nejsou vlastnictvím. */
+    public function owner(int $supplierId, int $entryId, bool $lock = false): ?array
+    {
+        if ($lock && !$this->db->pdo()->inTransaction()) throw new \LogicException('Zamčení vlastníka vyžaduje transakci.');
+        if ($lock) (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $stmt = $this->db->pdo()->prepare("SELECT doc_type, doc_id FROM journal_document_postings
+            WHERE supplier_id = ? AND entry_id = ?" . ($lock ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, $entryId]);
+        $owner = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($owner !== false) return ['doc_type' => (string) $owner['doc_type'], 'doc_id' => (int) $owner['doc_id']];
+        $stmt = $this->db->pdo()->prepare("SELECT source_type, source_id FROM journal_entries
+            WHERE supplier_id = ? AND id = ? AND source_type IN ('invoice', 'purchase_invoice') AND source_id IS NOT NULL"
+            . ($lock ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, $entryId]);
+        $entry = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $entry === false ? null : ['doc_type' => (string) $entry['source_type'], 'doc_id' => (int) $entry['source_id']];
+    }
+
+    /** @param list<int> $entryIds */
+    public function attach(int $supplierId, string $docType, int $docId, array $entryIds): void
+    {
+        $table = match ($docType) {
+            'invoice' => 'invoices',
+            'purchase_invoice' => 'purchase_invoices',
+            default => throw new \InvalidArgumentException('Nepodporovaný doklad skupiny zaúčtování.'),
+        };
+        $pdo = $this->db->pdo();
+        if (!$pdo->inTransaction()) throw new \LogicException('Skupina zaúčtování vyžaduje transakci.');
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $document = $pdo->prepare("SELECT id FROM {$table} WHERE supplier_id = ? AND id = ? FOR UPDATE");
+        $document->execute([$supplierId, $docId]);
+        if ($document->fetchColumn() === false) throw new PostingException('document_not_found', 'Doklad skupiny zaúčtování neexistuje.', 404);
+        $entryIds = array_values(array_unique(array_map('intval', $entryIds)));
+        if ($entryIds === []) return;
+        $entries = (new DimensionPeriodGuard($this->db))->lockEntries($supplierId, $entryIds);
+        if (count($entries) !== count($entryIds)) throw new PostingException('entry_not_found', 'Zápis skupiny zaúčtování neexistuje.', 404);
+        foreach ($entries as $entry) {
+            if (!((in_array($entry['source_type'], ['manual', $docType], true) && $entry['source_id'] === null)
+                || ($entry['source_type'] === $docType && (int) $entry['source_id'] === $docId))) {
+                throw new PostingException('posting_group_conflict', 'Zápis již účtuje jiný doklad.', 409);
+            }
+        }
+        $in = implode(',', array_fill(0, count($entryIds), '?'));
+        $owners = $pdo->prepare("SELECT doc_type, doc_id FROM journal_document_postings WHERE supplier_id = ? AND entry_id IN ({$in}) FOR UPDATE");
+        $owners->execute([$supplierId, ...$entryIds]);
+        foreach ($owners->fetchAll(PDO::FETCH_ASSOC) as $owner) {
+            if ($owner['doc_type'] !== $docType || (int) $owner['doc_id'] !== $docId) {
+                throw new PostingException('posting_group_conflict', 'Zápis již patří k zaúčtování jiného dokladu.', 409);
+            }
+        }
+        $values = implode(',', array_fill(0, count($entryIds), '(?, ?, ?, ?)'));
+        $params = [];
+        foreach ($entryIds as $entryId) array_push($params, $supplierId, $docType, $docId, $entryId);
+        $pdo->prepare("INSERT IGNORE INTO journal_document_postings (supplier_id, doc_type, doc_id, entry_id) VALUES {$values}")->execute($params);
+    }
+
+    /**
+     * Aktivní předpisy: nativní zdroj i další vlastněné zápisy. Jediný zdroj skupiny
+     * pro automatiku, přeúčtování a rušení dokladu; bez dohledávání podle čísla.
+     * @return list<array<string,mixed>>
+     */
+    public function active(int $supplierId, string $docType, int $docId, bool $lock = false): array
+    {
+        return $this->activeMany($supplierId, $docType, [$docId], $lock)[$docId] ?? [];
+    }
+
+    /** @param list<int> $docIds @return array<int,list<array<string,mixed>>> */
+    public function activeMany(int $supplierId, string $docType, array $docIds, bool $lock = false): array
+    {
+        if (!in_array($docType, ['invoice', 'purchase_invoice'], true) || $docIds === []) return [];
+        $docIds = array_values(array_unique(array_map('intval', $docIds)));
+        $in = implode(',', array_fill(0, count($docIds), '?'));
+        if ($lock && !$this->db->pdo()->inTransaction()) throw new \LogicException('Zamčení skupiny vyžaduje transakci.');
+        if ($lock) (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $suffix = $lock ? ' FOR UPDATE' : '';
+        $fields = 'e.*, p.status AS period_status, jdp.entry_id IS NOT NULL AS grouped, jdp.doc_id AS posting_doc_id';
+        $joins = ' JOIN accounting_periods p ON p.supplier_id = e.supplier_id AND p.id = e.period_id';
+        $direct = $this->db->pdo()->prepare("SELECT {$fields}
+            FROM journal_entries e FORCE INDEX (idx_je_supplier_source){$joins}
+            LEFT JOIN journal_document_postings jdp ON jdp.supplier_id = e.supplier_id AND jdp.entry_id = e.id
+            WHERE e.supplier_id = ? AND e.source_type = ? AND e.source_id IN ({$in})
+              AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL ORDER BY e.id{$suffix}");
+        $direct->execute([$supplierId, $docType, ...$docIds]);
+        $result = [];
+        foreach ($direct->fetchAll(PDO::FETCH_ASSOC) as $entry) $result[(int) $entry['source_id']][(int) $entry['id']] = $entry;
+        // Samostatný current read: materializovaná CTE by uvnitř starší transakce
+        // mohla použít snapshot před souběžným převodem. Obě cesty jdou po indexu.
+        $owned = $this->db->pdo()->prepare("SELECT {$fields}
+            FROM journal_document_postings jdp FORCE INDEX (uq_jdp_doc_entry)
+            JOIN journal_entries e ON e.supplier_id = jdp.supplier_id AND e.id = jdp.entry_id{$joins}
+            WHERE jdp.supplier_id = ? AND jdp.doc_type = ? AND jdp.doc_id IN ({$in})
+              AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL ORDER BY e.entry_date, e.id{$suffix}");
+        $owned->execute([$supplierId, $docType, ...$docIds]);
+        foreach ($owned->fetchAll(PDO::FETCH_ASSOC) as $entry) $result[(int) $entry['posting_doc_id']][(int) $entry['id']] = $entry;
+        return array_map(array_values(...), $result);
+    }
+
+    /** @param list<int> $entryIds @return list<array<string,mixed>> */
+    public function lines(int $supplierId, array $entryIds, bool $lock = false): array
+    {
+        if ($entryIds === []) return [];
+        if ($lock && !$this->db->pdo()->inTransaction()) throw new \LogicException('Zamčení řádků vyžaduje transakci.');
+        $in = implode(',', array_fill(0, count($entryIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT l.*, ca.account_code, ca.name AS account_name
+            FROM journal_entry_lines l JOIN chart_of_accounts ca ON ca.id = l.account_id AND ca.supplier_id = l.supplier_id
+            WHERE l.supplier_id = ? AND l.entry_id IN ({$in}) ORDER BY l.entry_id, l.line_no" . ($lock ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, ...$entryIds]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
