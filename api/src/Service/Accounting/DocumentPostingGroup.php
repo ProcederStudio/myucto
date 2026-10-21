@@ -29,6 +29,28 @@ final class DocumentPostingGroup
              HAVING COUNT(*) = 1), CONCAT('manual:', {$alias}.id))";
     }
 
+    /**
+     * SQL podmínka „doklad má aktivní předpis": přímý zápis se zdrojem dokladu, nebo
+     * zápis, který doklad vlastní ve skupině zaúčtování. Nativní doklad skupinu nemá,
+     * takže výsledek je u něj totožný s dotazem jen na přímý zdroj. Bez $postedOnly
+     * se jako dřív počítá i nezaúčtovaný koncept. Obě větve jdou po indexu
+     * idx_je_supplier_source a uq_jdp_doc_entry.
+     *
+     * Argumenty jsou SQL výrazy volajícího (sloupec vnějšího dotazu nebo literál),
+     * nikdy uživatelský vstup.
+     */
+    public static function activePostingExistsSql(string $docTypeSql, string $docIdSql, string $supplierIdSql, bool $postedOnly = true): string
+    {
+        $posted = static fn (string $alias): string => $postedOnly ? " AND {$alias}.posted_at IS NOT NULL" : '';
+        return "(EXISTS (SELECT 1 FROM journal_entries dpg_direct FORCE INDEX (idx_je_supplier_source)
+                  WHERE dpg_direct.supplier_id = {$supplierIdSql} AND dpg_direct.source_type = {$docTypeSql}
+                    AND dpg_direct.source_id = {$docIdSql} AND dpg_direct.reversed_by IS NULL{$posted('dpg_direct')})
+             OR EXISTS (SELECT 1 FROM journal_document_postings dpg_jdp FORCE INDEX (uq_jdp_doc_entry)
+                  JOIN journal_entries dpg_owned ON dpg_owned.supplier_id = dpg_jdp.supplier_id AND dpg_owned.id = dpg_jdp.entry_id
+                  WHERE dpg_jdp.supplier_id = {$supplierIdSql} AND dpg_jdp.doc_type = {$docTypeSql}
+                    AND dpg_jdp.doc_id = {$docIdSql} AND dpg_owned.reversed_by IS NULL{$posted('dpg_owned')}))";
+    }
+
     private static function directDocumentKeySql(string $alias): string
     {
         // Historické vlastnictví přežívá smazání dokladu. Smír pak musí nabídnout

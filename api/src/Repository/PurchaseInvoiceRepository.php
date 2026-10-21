@@ -2688,14 +2688,7 @@ final class PurchaseInvoiceRepository
      */
     public function unlinkAdvance(int $finalId, int $supplierId): void
     {
-        $posted = $this->db->pdo()->prepare(
-            "SELECT 1 FROM journal_entries
-              WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-                AND posted_at IS NOT NULL AND reversed_by IS NULL
-              LIMIT 1"
-        );
-        $posted->execute([$supplierId, $finalId]);
-        if ($posted->fetchColumn() !== false) {
+        if ($this->hasActivePostedEntry($finalId, $supplierId)) {
             throw new \RuntimeException(
                 'Zaúčtovanou fakturu nelze odpojit od zálohy — zúčtování zálohy je součástí '
                 . 'účetního zápisu. Nejdřív zápis stornuj, teprve pak vazbu zruš.'

@@ -9,6 +9,7 @@ use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\RefundDocument;
@@ -318,13 +319,8 @@ final class BankTransactionReleaseService
     private function restorePurchaseInvoices(PDO $pdo, int $supplierId, array $purchaseInvoiceIds, string $postedAt): void
     {
         foreach ($purchaseInvoiceIds as $purchaseInvoiceId) {
-            $hasPosting = $pdo->prepare(
-                "SELECT 1 FROM journal_entries
-                  WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-                    AND posted_at IS NOT NULL AND reversed_by IS NULL LIMIT 1"
-            );
-            $hasPosting->execute([$supplierId, $purchaseInvoiceId]);
-            $restoredStatus = $hasPosting->fetchColumn() === false ? 'received' : 'booked';
+            $restoredStatus = (new DocumentPostingGroup($this->db))->hasActive($supplierId, 'purchase_invoice', $purchaseInvoiceId)
+                ? 'booked' : 'received';
             $pdo->prepare(
                 "UPDATE purchase_invoices pi
                     SET pi.status = ?, pi.paid_at = NULL

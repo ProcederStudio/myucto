@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingSetupRepository;
 use MyInvoice\Repository\ImportJobRepository;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\PostingService;
@@ -106,6 +107,11 @@ final class AccountingHistoryReclassificationService
                 try {
                     if ($this->hasVatAllocations($supplierId, $invoiceId)) {
                         $this->setup->addReclassificationItem($jobId, (int) $bundle['id'], $supplierId, $invoiceId, 'skipped', null, null, null, 'vat_allocations_present', 'Doklad má autoritativní rozdělení DPH a běžná pravidla položek jej nemění.');
+                        $skipped++;
+                        continue;
+                    }
+                    if ($this->hasSplitPosting($supplierId, $invoiceId)) {
+                        $this->setup->addReclassificationItem($jobId, (int) $bundle['id'], $supplierId, $invoiceId, 'skipped', null, null, null, 'posting_group', 'Doklad má skupinu účetních zápisů; přeúčtuje se ručně celá skupina.');
                         $skipped++;
                         continue;
                     }
@@ -220,6 +226,9 @@ final class AccountingHistoryReclassificationService
         $pdo = $this->db->pdo();
         $ownTransaction = self::beginDocumentTransaction($pdo);
         try {
+            if ($this->hasSplitPosting($supplierId, $invoiceId)) {
+                throw new \RuntimeException('posting_group');
+            }
             $before = $this->snapshot($supplierId, $invoiceId);
             if ($before === null || $before['period_status'] !== 'open' || $before['date_locked']) {
                 throw new \RuntimeException('period_locked');
@@ -501,6 +510,17 @@ final class AccountingHistoryReclassificationService
             throw new \RuntimeException('invalid_scope_mode');
         }
         return $mode;
+    }
+
+    /**
+     * Snímek a přepis pracují s jediným přímým zápisem dokladu. Doklad se skupinou
+     * (další vlastněný zápis, nebo jen vlastněné zápisy) by přepis rozdělil.
+     */
+    private function hasSplitPosting(int $supplierId, int $invoiceId): bool
+    {
+        $group = (new DocumentPostingGroup($this->db))->active($supplierId, 'purchase_invoice', $invoiceId);
+        return DocumentPostingGroup::hasOwnedEntries($group)
+            && !DocumentPostingGroup::isSingleDirectEntry($group, 'purchase_invoice', $invoiceId);
     }
 
     private function snapshot(int $supplierId, int $invoiceId, bool $forUpdate = false): ?array

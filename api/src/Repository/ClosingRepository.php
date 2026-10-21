@@ -6,6 +6,7 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Closing\ClosingSourceId;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\JournalLineComparison;
@@ -1286,12 +1287,7 @@ final class ClosingRepository
                 AND i.status NOT IN ('draft','cancelled')
                 AND i.invoice_type NOT IN ('proforma','cancellation')
                 AND i.effective_tax_date BETWEEN ? AND ?
-                AND NOT EXISTS (
-                    SELECT 1 FROM journal_entries e
-                     WHERE e.supplier_id = i.supplier_id
-                       AND e.source_type = 'invoice' AND e.source_id = i.id
-                       AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL
-                )
+                AND NOT " . DocumentPostingGroup::activePostingExistsSql("'invoice'", 'i.id', 'i.supplier_id') . "
               ORDER BY i.id"
         );
         $stmt->execute([$supplierId, $startsOn, $endsOn]);
@@ -1325,12 +1321,7 @@ final class ClosingRepository
                 AND pi.status NOT IN ('draft','cancelled')
                 AND pi.document_kind <> 'advance'
                 AND pi.effective_cost_date BETWEEN ? AND ?
-                AND NOT EXISTS (
-                    SELECT 1 FROM journal_entries e
-                     WHERE e.supplier_id = pi.supplier_id
-                       AND e.source_type = 'purchase_invoice' AND e.source_id = pi.id
-                       AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL
-                )
+                AND NOT " . DocumentPostingGroup::activePostingExistsSql("'purchase_invoice'", 'pi.id', 'pi.supplier_id') . "
               ORDER BY pi.id"
         );
         $stmt->execute([$supplierId, $startsOn, $endsOn]);

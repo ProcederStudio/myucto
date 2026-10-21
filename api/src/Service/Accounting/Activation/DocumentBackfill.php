@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Accounting\Activation;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Accounting\TakenOverRecord;
@@ -94,11 +95,7 @@ final class DocumentBackfill
                         )"
                     : '')
                 . ($onlyUnposted
-                    ? " AND NOT EXISTS (
-                            SELECT 1 FROM journal_entries je
-                             WHERE je.supplier_id = i.supplier_id AND je.source_type = 'invoice'
-                               AND je.source_id = i.id AND je.reversed_by IS NULL
-                        )"
+                    ? ' AND NOT ' . DocumentPostingGroup::activePostingExistsSql("'invoice'", 'i.id', 'i.supplier_id', false)
                     : '') . "
            ORDER BY entry_date, i.id"
         );
@@ -123,11 +120,7 @@ final class DocumentBackfill
                         )"
                     : '')
                 . ($onlyUnposted
-                    ? " AND NOT EXISTS (
-                            SELECT 1 FROM journal_entries je
-                             WHERE je.supplier_id = pi.supplier_id AND je.source_type = 'purchase_invoice'
-                               AND je.source_id = pi.id AND je.reversed_by IS NULL
-                        )"
+                    ? ' AND NOT ' . DocumentPostingGroup::activePostingExistsSql("'purchase_invoice'", 'pi.id', 'pi.supplier_id', false)
                     : '') . "
            ORDER BY entry_date, pi.id"
         );

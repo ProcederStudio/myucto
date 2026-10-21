@@ -371,9 +371,9 @@ final class DeleteInvoiceAction
         $stmt = $this->db->pdo()->prepare(
             "SELECT EXISTS(SELECT 1 FROM invoices
                             WHERE supplier_id = ? AND id IN ($place) AND booked_at IS NOT NULL)
-                 OR EXISTS(SELECT 1 FROM journal_entries
-                            WHERE supplier_id = ? AND source_type = 'invoice' AND source_id IN ($place)
-                              AND posted_at IS NOT NULL AND reversed_by IS NULL)"
+                 OR EXISTS(SELECT 1 FROM invoices d
+                            WHERE d.supplier_id = ? AND d.id IN ($place)
+                              AND " . \MyInvoice\Service\Accounting\DocumentPostingGroup::activePostingExistsSql("'invoice'", 'd.id', 'd.supplier_id') . ')'
         );
         $stmt->execute(array_merge([$supplierId], $invoiceIds, [$supplierId], $invoiceIds));
 

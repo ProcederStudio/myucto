@@ -15,6 +15,7 @@ use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Repository\TaxAdvanceScheduleRepository;
 use MyInvoice\Service\Accounting\AdvanceSettlementSync;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\JournalLineAmount;
@@ -4451,14 +4452,7 @@ final class BankPostingService
             return false;
         }
 
-        $predpisStmt = $pdo->prepare(
-            "SELECT 1 FROM journal_entries
-              WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-                AND posted_at IS NOT NULL AND reversed_by IS NULL
-              LIMIT 1"
-        );
-        $predpisStmt->execute([$supplierId, (int) $row['purchase_invoice_id']]);
-        if ($predpisStmt->fetchColumn() === false) {
+        if (!(new DocumentPostingGroup($this->db))->hasActive($supplierId, 'purchase_invoice', (int) $row['purchase_invoice_id'])) {
             return false;
         }
 

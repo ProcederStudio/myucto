@@ -71,9 +71,7 @@ final class MigratedPurchasePaymentWriter
                         COALESCE((SELECT MAX(cd.issue_date) FROM cash_documents cd
                             WHERE cd.supplier_id=pi.supplier_id AND cd.purchase_invoice_id=pi.id AND cd.status='posted'), '1000-01-01')
                     ), '1000-01-01') AS paid_on,
-                    EXISTS(SELECT 1 FROM journal_entries je WHERE je.supplier_id=pi.supplier_id
-                        AND je.source_type='purchase_invoice' AND je.source_id=pi.id
-                        AND je.posted_at IS NOT NULL AND je.reversed_by IS NULL) AS has_posting
+                    " . \MyInvoice\Service\Accounting\DocumentPostingGroup::activePostingExistsSql("'purchase_invoice'", 'pi.id', 'pi.supplier_id') . " AS has_posting
                 FROM purchase_invoices pi
                 JOIN currencies c ON c.id=pi.currency_id AND c.supplier_id=pi.supplier_id
                 WHERE pi.supplier_id=? AND pi.id IN ({$in}) FOR UPDATE");

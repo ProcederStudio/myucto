@@ -11,6 +11,7 @@ use MyInvoice\Repository\CostCenterRepository;
 use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\DimensionDefaultRepository;
 use MyInvoice\Repository\DimensionRepository;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\DocumentRepostService;
 use MyInvoice\Service\Accounting\PostingService;
 use PDO;
@@ -757,6 +758,11 @@ final class DimensionService
         );
         $stmt->execute([$supplierId, $sourceType, $docId]);
         $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ((new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $docId) as $owned) {
+            if ((bool) $owned['grouped']) {
+                $entries[] = ['entry_date' => $owned['entry_date'], 'status' => $owned['period_status']];
+            }
+        }
         if ($entries === []) {
             return false;
         }

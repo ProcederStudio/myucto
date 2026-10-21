@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\PurchaseInvoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
 use MyInvoice\Service\Accounting\TakenOverRecord;
 use MyInvoice\Service\Bank\FxPaymentSettlement;
 use MyInvoice\Support\Sql\PurchaseSettledExpr;
@@ -320,12 +321,6 @@ final class AdvanceCoveredPaidStatus
 
     private function hasLivePosting(int $supplierId, int $id): bool
     {
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT 1 FROM journal_entries
-              WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-                AND posted_at IS NOT NULL AND reversed_by IS NULL LIMIT 1"
-        );
-        $stmt->execute([$supplierId, $id]);
-        return $stmt->fetchColumn() !== false;
+        return (new DocumentPostingGroup($this->db))->hasActive($supplierId, 'purchase_invoice', $id);
     }
 }

@@ -2659,11 +2659,8 @@ final class PostingService
         }
 
         $stmt = $this->db->pdo()->prepare(
-            "SELECT td.id, td.varsymbol, td.tax_date, td.issue_date,
-                    EXISTS (SELECT 1 FROM journal_entries je
-                             WHERE je.supplier_id = td.supplier_id AND je.source_type = 'invoice'
-                               AND je.source_id = td.id AND je.reversed_by IS NULL
-                               AND je.posted_at IS NOT NULL) AS posted
+            "SELECT td.id, td.varsymbol, td.tax_date, td.issue_date, "
+                    . DocumentPostingGroup::activePostingExistsSql("'invoice'", 'td.id', 'td.supplier_id') . " AS posted
                FROM invoices td
               WHERE td.supplier_id = ? AND td.invoice_type = 'tax_document'
                 AND td.status NOT IN ('draft', 'cancelled')
