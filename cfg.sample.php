@@ -590,6 +590,10 @@ return [
     // Plain PDF (bez embedded ISDOC) se ve fázi 1 přeskakují — AI extrakce v fázi 2c je doplní.
     'purchase_invoice' => [
         'inbox_dir'         => '',                   // absolutní cesta (např. 'C:/inetpub/wwwroot/myucto.cz/inbox' nebo '/var/lib/myucto/inbox'); prázdné = scan vypnutý
+        // Jen automatický cron: vlastník společného inbox_dir (kladné ID existující firmy).
+        // null = nenastaveno: explicitní app.default_supplier_id bez scan_all_suppliers,
+        // jinak jediná firma v DB; více firem vyžaduje vlastníka. Ruční sken volí firma v UI.
+        'cron_supplier_id'  => null,
         'inbox_recursive'   => true,                 // procházet i podadresáře
         'allowed_exts'      => ['pdf', 'isdoc', 'xml'],  // jen tyto přípony se zpracují (.xml = ISDOC payload bez wrapping PDF)
         'move_processed_to' => '',                   // volitelný podadresář (např. 'processed'); prázdné = soubory zůstanou na místě a budou skipnuté při dalším scanu díky pdf_hash dedup
