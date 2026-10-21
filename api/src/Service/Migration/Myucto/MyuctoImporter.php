@@ -89,6 +89,10 @@ final class MyuctoImporter
             $stmt = $pdo->prepare("SELECT external_id FROM external_entity_map WHERE supplier_id = ? AND source_key = ? AND entity_type = 'myucto_import'");
             $stmt->execute([$supplierId, $sourceKey]);
             $previous = $stmt->fetchColumn();
+            if ($previous !== false && MyuctoImportProfile::isEarlierRestoreOfSameData((string) $previous, $digest)) {
+                // Shodná data obnovená starším profilem se ověří jako opakovaný import.
+                $previous = $digest;
+            }
             if ($previous !== false && !str_starts_with($previous, MyuctoImportProfile::VERSION . ':')) {
                 throw new RuntimeException('Firma již byla obnovena starším importním profilem. Doplnění převáděných účetních dat vyžaduje novou obnovu do prázdné firmy.');
             }

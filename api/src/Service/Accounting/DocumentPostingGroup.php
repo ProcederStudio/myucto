@@ -52,6 +52,18 @@ final class DocumentPostingGroup
         return array_any($entries, static fn (array $entry): bool => (bool) ($entry['grouped'] ?? false));
     }
 
+    /**
+     * Skupina má jediný aktivní zápis a ten nese zdroj dokladu. Takový předpis lze
+     * přepsat na místě stejně jako nativní zápis, aniž by vedle něj zůstala jiná část.
+     * @param list<array<string,mixed>> $entries
+     */
+    public static function isSingleDirectEntry(array $entries, string $docType, int $docId): bool
+    {
+        return count($entries) === 1
+            && (string) $entries[0]['source_type'] === $docType
+            && $entries[0]['source_id'] !== null && (int) $entries[0]['source_id'] === $docId;
+    }
+
     /** Vlastník zápisu i po stornu; měkké vazby nejsou vlastnictvím. */
     public function owner(int $supplierId, int $entryId, bool $lock = false): ?array
     {
@@ -147,6 +159,28 @@ final class DocumentPostingGroup
         $owned->execute([$supplierId, $docType, ...$docIds]);
         foreach ($owned->fetchAll(PDO::FETCH_ASSOC) as $entry) $result[(int) $entry['posting_doc_id']][(int) $entry['id']] = $entry;
         return array_map(array_values(...), $result);
+    }
+
+    /**
+     * Má doklad aktivní předpis (přímý zdroj nebo vlastněný zápis)? Bez zámku období:
+     * příjem či změna stavu dokladu nesmí čekat na uzávěrku. V transakci čte aktuální
+     * stav se sdíleným zámkem jen na řádcích zápisů dokladu.
+     */
+    public function hasActive(int $supplierId, string $docType, int $docId): bool
+    {
+        if (!in_array($docType, ['invoice', 'purchase_invoice'], true)) return false;
+        $suffix = $this->db->pdo()->inTransaction() ? ' LOCK IN SHARE MODE' : '';
+        $direct = $this->db->pdo()->prepare("SELECT e.id FROM journal_entries e FORCE INDEX (idx_je_supplier_source)
+            WHERE e.supplier_id = ? AND e.source_type = ? AND e.source_id = ?
+              AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL LIMIT 1{$suffix}");
+        $direct->execute([$supplierId, $docType, $docId]);
+        if ($direct->fetchColumn() !== false) return true;
+        $owned = $this->db->pdo()->prepare("SELECT e.id FROM journal_document_postings jdp FORCE INDEX (uq_jdp_doc_entry)
+            JOIN journal_entries e ON e.supplier_id = jdp.supplier_id AND e.id = jdp.entry_id
+            WHERE jdp.supplier_id = ? AND jdp.doc_type = ? AND jdp.doc_id = ?
+              AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL LIMIT 1{$suffix}");
+        $owned->execute([$supplierId, $docType, $docId]);
+        return $owned->fetchColumn() !== false;
     }
 
     /** @param list<int> $entryIds @return list<array<string,mixed>> */

@@ -8,6 +8,8 @@ namespace MyInvoice\Service\Migration\Myucto;
 final class MyuctoImportProfile
 {
     public const VERSION = 'posting-groups-v1';
+    /** Starší profily, jejichž obnova se shodnými daty je pro aktuální profil úplná. */
+    public const COMPATIBLE_VERSIONS = ['classifications-v1'];
     public const TABLES = [
         'currencies', 'revenue_categories', 'expense_categories', 'cost_centers',
         'chart_of_accounts', 'vat_classifications', 'accounting_periods', 'clients', 'client_bank_accounts',
@@ -68,4 +70,16 @@ final class MyuctoImportProfile
         'recurring_invoice_templates' => ['last_error', 'last_error_at'],
     ];
     public const DOCUMENT_TYPES = ['invoice' => 'invoices', 'purchase_invoice' => 'purchase_invoices'];
+
+    /**
+     * Firma obnovená starším profilem ze shodných dat. Otisk dat zahrnuje i seznam
+     * převáděných tabulek, takže shoda znamená, že export nové tabulky nenese
+     * (zdroj bez skupin zaúčtování) a opakovaný import nemá co doplnit.
+     */
+    public static function isEarlierRestoreOfSameData(string $previous, string $digest): bool
+    {
+        [$version, $hash] = array_pad(explode(':', $previous, 2), 2, '');
+        return in_array($version, self::COMPATIBLE_VERSIONS, true) && $hash !== ''
+            && $digest === self::VERSION . ':' . $hash;
+    }
 }

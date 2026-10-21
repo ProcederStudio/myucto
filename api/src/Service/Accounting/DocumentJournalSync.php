@@ -111,6 +111,7 @@ final class DocumentJournalSync
             (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $sourceType, $sourceId, $meta): ?array {
                 $members = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $sourceId, true);
                 if ($members === []) return null;
+                $owned = DocumentPostingGroup::hasOwnedEntries($members);
                 $entryId = (int) $members[0]['id'];
                 $today = date('Y-m-d');
                 // Storno starého zápisu do DNEŠNÍHO otevřeného období (ne do uzavřeného
@@ -119,12 +120,13 @@ final class DocumentJournalSync
                 $reverseMeta = $meta;
                 $reverseMeta['entry_date']  = $today;
                 $reverseMeta['description'] = 'Storno zápisu při opravě dokladu v uzavřeném období (force reconcile)';
-                $reversals = $this->posting->reverseDocument($supplierId, $sourceType, $sourceId, $reverseMeta);
-                $reversalId = $reversals[$entryId] ?? null;
-
-                // Nativní větev zachovává dosavadní odpojení opraveného originálu.
-                // Převzatá skupina si uchová historické vlastnictví pro smír i audit.
-                if (!DocumentPostingGroup::hasOwnedEntries($members)) {
+                if ($owned) {
+                    $reversals = $this->posting->reverseDocument($supplierId, $sourceType, $sourceId, $reverseMeta);
+                    $reversalId = $reversals[$entryId] ?? null;
+                } else {
+                    $reversalId = $this->posting->reverse($supplierId, $entryId, $reverseMeta);
+                    // Nativní větev zachovává dosavadní odpojení opraveného originálu.
+                    // Převzatá skupina si uchová historické vlastnictví pro smír i audit.
                     $this->journal->detachSource($entryId, $supplierId);
                 }
 
@@ -138,7 +140,11 @@ final class DocumentJournalSync
                 $postMeta['entry_date']  = $today;
                 $postMeta['description'] = 'Oprava dokladu v uzavřeném období — přeúčtování do běžného období';
                 $postMeta['posted']      = true;
-                $postMeta['inherit_line_trace_from'] = array_column($members, 'id');
+                if ($owned) {
+                    // Nativní zápis se znovu staví z dokladu: stopa starého zápisu by
+                    // vrátila odebrané středisko nebo měnu platnou před opravou.
+                    $postMeta['inherit_line_trace_from'] = array_column($members, 'id');
+                }
                 $newEntryId = $this->posting->postDocument($supplierId, $sourceType, $sourceId, $lines, $postMeta);
 
                 return [
@@ -181,9 +187,11 @@ final class DocumentJournalSync
                     // podmínky ověří PostingService (TaxNeutralReclassification). Jinak date_locked.
                     'tax_neutral_rewrite' => true,
                 ];
-                if (DocumentPostingGroup::hasOwnedEntries($members)) {
+                if (DocumentPostingGroup::hasOwnedEntries($members)
+                    && !DocumentPostingGroup::isSingleDirectEntry($members, $sourceType, $sourceId)) {
                     // Převzatý předpis může být rozdělený i ponechaný jako jediný ruční člen.
                     // Force-edit je výslovná oprava; automatický post ho úmyslně nepřepisuje.
+                    // Jediný přímý zápis se přepíše na místě jako nativní (PostingService).
                     $reverseMeta = $meta;
                     unset($reverseMeta['entry_date']);
                     $reverseMeta['description'] = 'Storno převzatého předpisu při opravě dokladu';
@@ -202,7 +210,7 @@ final class DocumentJournalSync
     private function reverseActive(int $supplierId, string $sourceType, int $sourceId, array $meta, bool $detachRemaining): void
     {
         $members = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $sourceId, true);
-        if ($members !== []) {
+        if (DocumentPostingGroup::hasOwnedEntries($members)) {
             $reverseMeta = $meta;
             unset($reverseMeta['entry_date']);
             $reverseMeta['description'] ??= 'Storno skupiny při ' . ($detachRemaining ? 'smazání' : 'stornu') . ' dokladu';
@@ -233,8 +241,22 @@ final class DocumentJournalSync
         if ($detachRemaining) {
             // Doklad mizí — odpoj případný zbylý zápis (právě stornovaný originál nebo
             // nezaúčtovaný koncept), ať nezůstane dangling source_id na smazaný doklad.
-            $this->detachDocumentSources($supplierId, $sourceType, $sourceId);
+            // Doklad s historií převzaté skupiny odpojí i její stornované členy.
+            if ($this->hasPostingGroupHistory($supplierId, $sourceType, $sourceId)) {
+                $this->detachDocumentSources($supplierId, $sourceType, $sourceId);
+            } else {
+                $this->journal->detachSource($entryId, $supplierId);
+            }
         }
+    }
+
+    /** Doklad měl (i stornovanou) převzatou skupinu zaúčtování. */
+    private function hasPostingGroupHistory(int $supplierId, string $sourceType, int $sourceId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT 1 FROM journal_document_postings
+            WHERE supplier_id = ? AND doc_type = ? AND doc_id = ? LIMIT 1');
+        $stmt->execute([$supplierId, $sourceType, $sourceId]);
+        return $stmt->fetchColumn() !== false;
     }
 
     /** Po smazání dokladu nesmí source_id viset ani na starších stornovaných předpisech. */

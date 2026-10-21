@@ -140,14 +140,19 @@ final class DocumentRepostService
             $blocked = $shift && (self::locked($today, $lockedUntil)
                 || ($todayPeriod !== null && $todayPeriod['status'] !== 'open'));
             $plan['tax_neutral_violation'] = null;
-            $proposed = $sourceType === 'invoice'
-                ? $this->posting->buildFromInvoice($supplierId, $docId)
-                : $this->posting->buildFromPurchaseInvoice($supplierId, $docId);
-            $plan['suggested_lines'] = array_map(static fn (array $line): array => [
-                'account_code' => $line['account_code'], 'account_name' => null,
-                'side' => $line['side'], 'amount' => (float) $line['amount'],
-                'is_red_storno' => (bool) ($line['is_red_storno'] ?? false),
-            ], $proposed);
+            try {
+                $proposed = $sourceType === 'invoice'
+                    ? $this->posting->buildFromInvoice($supplierId, $docId)
+                    : $this->posting->buildFromPurchaseInvoice($supplierId, $docId);
+                $plan['suggested_lines'] = array_map(static fn (array $line): array => [
+                    'account_code' => $line['account_code'], 'account_name' => null,
+                    'side' => $line['side'], 'amount' => (float) $line['amount'],
+                    'is_red_storno' => (bool) ($line['is_red_storno'] ?? false),
+                ], $proposed);
+            } catch (PostingException) {
+                // Návrh z dokladu nejde sestavit (cizí měna bez kurzu, DDKP s RC…).
+                // Náhled i přeúčtování ručními řádky musí projít s řádky skupiny.
+            }
             return $plan + [
                 'strategy' => $blocked ? self::STRATEGY_BLOCKED : self::STRATEGY_REVERSE,
                 'needs_reversal' => true, 'target_date' => $blocked ? null : ($shift ? $today : $entryDate),

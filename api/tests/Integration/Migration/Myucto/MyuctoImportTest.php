@@ -526,6 +526,22 @@ final class MyuctoImportTest extends TestCase
         $this->importer->import($package, $this->target, $this->actor, 'synthetic-instance', false);
     }
 
+    /** Export ze zdroje bez skupin zaúčtování obnovený starším profilem se opakuje bez chyby. */
+    public function testEarlierProfileRestoreOfSameDataCanBeRepeated(): void
+    {
+        $package = (new MyuctoExportReader())->read($this->archive);
+        unset($package['tables']['journal_document_postings']);
+        $this->importer->import($package, $this->target, $this->actor, 'synthetic-instance', false);
+        $this->pdo->prepare("UPDATE external_entity_map SET external_id = REPLACE(external_id, ?, 'classifications-v1:')
+            WHERE supplier_id = ? AND entity_type = 'myucto_import'")
+            ->execute([MyuctoImportProfile::VERSION . ':', $this->target]);
+
+        $repeat = $this->importer->import($package, $this->target, $this->actor, 'synthetic-instance', false);
+
+        self::assertSame([], $repeat['created']);
+        self::assertSame(1, $repeat['existing']['invoices']);
+    }
+
     #[DataProvider('invalidClassificationGraphs')]
     public function testInvalidClassificationGraphLeavesTargetEmpty(string $table, string $column, mixed $value): void
     {

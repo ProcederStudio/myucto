@@ -311,15 +311,20 @@ final class PostingService
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             if ($sourceId !== null && in_array($sourceType, ['invoice', 'purchase_invoice'], true)) {
                 $group = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $sourceId, true);
-                $owned = DocumentPostingGroup::hasOwnedEntries($group);
-                // Zaúčtovat již převzatý doklad je idempotentní. Přepis patří do
+                // Zaúčtovat již převzatý doklad je idempotentní jen pro cesty, které
+                // pouze zajišťují zaúčtování a výslovně o to požádají. Přepis patří do
                 // výslovného přeúčtování, které nejprve vyřeší CELOU skupinu.
-                if ($owned && empty($meta['explicit_repost'])) {
+                if (DocumentPostingGroup::hasOwnedEntries($group) && empty($meta['explicit_repost'])
+                    && !empty($meta['posting_group_idempotent'])) {
                     $this->dimensionWarnings = [];
                     if ($ownTx) $pdo->commit();
                     return (int) $group[0]['id'];
                 }
-                if ($owned) {
+                // Jediný přímý zápis dokladu se přepíše na místě jako před zavedením
+                // skupin a vazba vlastnictví na něm zůstane. Rozdělený předpis nebo
+                // ruční člen bez zdroje by přepis zdvojil, proto volající dostane chybu.
+                if (DocumentPostingGroup::hasOwnedEntries($group) && !(empty($meta['explicit_repost'])
+                    && DocumentPostingGroup::isSingleDirectEntry($group, $sourceType, $sourceId))) {
                     throw new PostingException('posting_group_requires_repost',
                         'Doklad má převzaté zaúčtování. Přeúčtujte celou skupinu z detailu dokladu.', 409);
                 }
@@ -1086,7 +1091,8 @@ final class PostingService
      * Nejdřív řádky beze změny (týž účet, strana i částka) převezmou stopu doslova. Pak
      * saldokontní řádek (31x/32x), jehož částka se změnila: když na tomtéž účtu a straně
      * zůstal právě jeden původní řádek se stopou, cizí částka se přepočte poměrem nové
-     * a původní korunové částky (kurz zůstává). Rozdělené saldokonto lze sloučit,
+     * a původní korunové částky (kurz zůstává). Saldokonto rozdělené do více zápisů
+     * převzaté skupiny lze sloučit,
      * pokud všechny části nesou tutéž měnu a kurz a jejich součet přesně odpovídá
      * jedinému novému řádku. Jinak víc kandidátů zůstává nejednoznačných.
      *
@@ -1097,6 +1103,17 @@ final class PostingService
     private function inheritLineTrace(int $supplierId, array $existingLines, array $resolved): array
     {
         [$resolved, $pool, $matched] = self::carryOverExactTrace($existingLines, $resolved);
+        // Slučování částí platí jen pro předpis rozdělený do více zápisů (převzatá
+        // skupina). Jediný zápis si drží původní pravidlo: kandidát je jen řádek
+        // se stopou a nenulovou částkou a musí být právě jeden.
+        $multiEntry = count(array_unique(array_map(
+            static fn (array $l): int => (int) ($l['entry_id'] ?? 0),
+            $existingLines,
+        ))) > 1;
+        if (!$multiEntry) {
+            $pool = array_values(array_filter($pool, static fn (array $l): bool => ($l['currency_code'] ?? null) !== null
+                && ($l['amount_foreign'] ?? null) !== null && self::cents($l['amount']) !== 0));
+        }
         if ($pool === []) {
             return $resolved;
         }
@@ -1121,6 +1138,9 @@ final class PostingService
                 continue;
             }
             $old = array_values($candidates)[0];
+            if (count($candidates) > 1 && !$multiEntry) {
+                continue;
+            }
             if (count($candidates) > 1) {
                 // Import může mít závazek zvlášť pro základ a DPH. Stopu lze převzít
                 // pouze za celou stejnorodou částku, nikdy odhadovat mezi více řádky.

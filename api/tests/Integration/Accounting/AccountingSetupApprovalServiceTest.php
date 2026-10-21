@@ -793,6 +793,86 @@ final class AccountingSetupApprovalServiceTest extends BankPostingTestCase
         self::assertContains('518', $this->entryAccountCodes($entryId, $supplierId));
     }
 
+    /**
+     * Doklad s vlastnickou vazbou a jediným přímým zápisem (např. obnova z MyÚčta) se
+     * přeřadí stejně jako nativní. Dřív postDocument vrátil starý zápis beze změny
+     * a přeřazení hlásilo `applied`, ačkoli deník zůstal na 518.
+     */
+    public function testReclassificationRewritesOwnedDocumentWithSingleEntry(): void
+    {
+        $supplierId = $this->supplierId;
+        [$invoiceId, $entryId, $bundle] = $this->serviceDefaultAnalyticScenario('SYN-SERVICE-OWNED');
+        $this->attachPostingGroup($invoiceId, [$entryId]);
+
+        $items = $this->applyReclassification($bundle);
+
+        self::assertCount(1, $items);
+        self::assertSame('applied', $items[0]['status'], json_encode($items[0]) ?: '');
+        $codes = $this->entryAccountCodes($entryId, $supplierId);
+        self::assertContains('518.100', $codes);
+        self::assertNotContains('518', $codes);
+    }
+
+    /** Rozdělený předpis (základ + DPH) přeřazení nesmí tiše vykázat jako hotový. */
+    public function testReclassificationReportsFailureForSplitPostingGroup(): void
+    {
+        $supplierId = $this->supplierId;
+        [$invoiceId, $entryId, $bundle] = $this->serviceDefaultAnalyticScenario('SYN-SERVICE-SPLIT');
+        $vatEntryId = $this->posting->postDocument($supplierId, 'manual', null, [
+            ['account_code' => '343', 'side' => 'debit', 'amount' => 10.0],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 10.0],
+        ], ['entry_date' => self::YEAR . '-06-10']);
+        $this->attachPostingGroup($invoiceId, [$entryId, $vatEntryId]);
+
+        $items = $this->applyReclassification($bundle);
+
+        self::assertCount(1, $items);
+        self::assertSame('failed', $items[0]['status'], json_encode($items[0]) ?: '');
+        self::assertStringContainsString('Přeúčtujte celou skupinu', (string) $items[0]['error_message']);
+        self::assertContains('518', $this->entryAccountCodes($entryId, $supplierId));
+    }
+
+    /** @param list<int> $entryIds */
+    private function attachPostingGroup(int $invoiceId, array $entryIds): void
+    {
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(
+            fn () => (new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))
+                ->attach($this->supplierId, 'purchase_invoice', $invoiceId, $entryIds),
+        );
+    }
+
+    /**
+     * Dry-run a ostrý běh přeřazení historie nad červnem testovacího roku.
+     *
+     * @param array<string,mixed> $bundle
+     * @return list<array<string,mixed>> položky ostrého běhu
+     */
+    private function applyReclassification(array $bundle): array
+    {
+        $setup = $this->container->get(AccountingSetupRepository::class);
+        $jobs = $this->container->get(ImportJobRepository::class);
+        $runner = $this->container->get(AccountingHistoryReclassificationService::class);
+        $params = [
+            'bundle_id' => (int) $bundle['id'],
+            'bundle_hash' => (string) $bundle['bundle_hash'],
+            'input_hash' => (string) $bundle['input_hash'],
+            'date_from' => self::YEAR . '-06-01',
+            'date_to' => self::YEAR . '-06-30',
+            'scope_mode' => 'all',
+        ];
+        $dryJobId = $jobs->create($this->supplierId, 'accounting_history_reclassification', $params + ['dry_run' => true], $this->userId);
+        $runner->run($dryJobId);
+        $dryItems = $setup->reclassificationItems($this->supplierId, $dryJobId);
+        self::assertCount(1, $dryItems);
+        self::assertSame('would_change', $dryItems[0]['status']);
+        $applyJobId = $jobs->create($this->supplierId, 'accounting_history_reclassification', $params + [
+            'dry_run' => false,
+            'dry_run_job_id' => $dryJobId,
+        ], $this->userId);
+        $runner->run($applyJobId);
+        return $setup->reclassificationItems($this->supplierId, $applyJobId);
+    }
+
     public function testFixedAssetCandidateUsesProposedAnalyticAndIsNamed(): void
     {
         $supplierId = $this->cloneSupplier('double_entry');

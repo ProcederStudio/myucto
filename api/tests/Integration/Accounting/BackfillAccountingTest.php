@@ -393,6 +393,37 @@ final class BackfillAccountingTest extends TestCase
         self::assertSame(0.0, $this->sourceAccountAmount('invoice', $invoiceId, '602', 'credit'));
     }
 
+    /**
+     * Doúčtování jen zajišťuje zaúčtování. Doklad, jehož předpis tvoří vlastněná skupina
+     * (zbylý samostatný zápis DPH), ponechá beze změny a nehlásí jako chybu.
+     */
+    public function testUnpostedBackfillKeepsOwnedPostingGroup(): void
+    {
+        $clientId = $this->client('Dodavatel vlastněné skupiny s.r.o.');
+        $purchaseId = $this->purchase('PF-BF-2098-G', $clientId, 500.00, 105.00, 21.00);
+        $base = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $purchaseId, [
+            ['account_code' => '518', 'side' => 'debit', 'amount' => 500.00],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 500.00],
+        ], ['entry_date' => self::YEAR . '-06-15']);
+        $vat = $this->posting->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '343', 'side' => 'debit', 'amount' => 105.00],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 105.00],
+        ], ['entry_date' => self::YEAR . '-06-15']);
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(
+            fn () => (new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))
+                ->attach($this->supplierId, 'purchase_invoice', $purchaseId, [$base, $vat]),
+        );
+        $this->posting->reverse($this->supplierId, $base);
+        $vatBefore = $this->entryHeader($vat);
+
+        $report = $this->backfill->run($this->supplierId, null, self::YEAR, false, onlyUnposted: true);
+
+        self::assertSame([], array_values(array_filter($report['document_issues'],
+            static fn (array $issue): bool => $issue['source_id'] === $purchaseId)));
+        self::assertSame(1, $this->sourceEntryCount('purchase_invoice', $purchaseId), 'Nevznikl druhý předpis vedle DPH.');
+        self::assertSame($vatBefore, $this->entryHeader($vat));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     /** @return array<string,mixed> */

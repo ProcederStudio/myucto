@@ -604,7 +604,8 @@ final class JournalAction
             );
         }
 
-        $meta = $this->auditMeta($request);
+        // Hromadné zaúčtování jen zajišťuje zápis; převzatý předpis ve skupině nechá být.
+        $meta = $this->auditMeta($request) + ['posting_group_idempotent' => true];
         $userId = $this->userId($request);
 
         $posted = [];
@@ -1139,6 +1140,11 @@ final class JournalAction
                 'document_no' => $this->nullableString($body['document_no'] ?? null),
                 'description' => $this->nullableString($body['description'] ?? null),
             ]);
+            if ($customLines === null) {
+                // Zaúčtování podle návrhu jen zajišťuje zápis. Vlastní řádky z popupu
+                // jsou oprava a převzatou skupinu idempotentně přeskočit nesmí.
+                $meta['posting_group_idempotent'] = true;
+            }
             $entryId = $this->posting->postDocument($supplierId, $sourceType, $docId, $lines, $meta);
             $dimensionWarnings = $this->posting->dimensionWarnings();
         } catch (\Throwable $e) {

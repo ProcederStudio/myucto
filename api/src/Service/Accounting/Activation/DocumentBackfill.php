@@ -164,7 +164,7 @@ final class DocumentBackfill
 
         $process = function (string $sourceType, array $doc) use (
             &$stats, &$skipReasons, &$documentIssues, &$processed, &$ensuredYears, &$cancelled,
-            $supplierId, $dryRun, $asDrafts, $isCancelled, $existsStmt, $pdo, $emit, $report
+            $supplierId, $dryRun, $asDrafts, $isCancelled, $existsStmt, $pdo, $emit, $report, $onlyUnposted
         ): void {
             if ($isCancelled !== null && $isCancelled()) {
                 $cancelled = true;
@@ -201,6 +201,9 @@ final class DocumentBackfill
                     'entry_date' => $entryDate,
                     'document_date' => $doc['issue_date'] ?? null,
                     'posted' => !$asDrafts,
+                    // Doúčtování převzatý předpis ve skupině nepřepisuje. Průvodce aktivací
+                    // přepisuje jako dřív; rozdělenou skupinu nahlásí jako chybu dokladu.
+                    'posting_group_idempotent' => $onlyUnposted,
                 ]);
 
                 if (!$asDrafts) {

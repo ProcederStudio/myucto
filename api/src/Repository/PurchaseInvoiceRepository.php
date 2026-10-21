@@ -2562,8 +2562,9 @@ final class PurchaseInvoiceRepository
     /** Aktivní posted zápis k PF (posted_at NOT NULL, reversed_by NULL) — drží zámek. */
     private function hasActivePostedEntry(int $id, int $supplierId): bool
     {
+        // Bez zámku období: příjem konceptu PF nesmí čekat na běžící uzávěrku.
         return (new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))
-            ->active($supplierId, 'purchase_invoice', $id, $this->db->pdo()->inTransaction()) !== [];
+            ->hasActive($supplierId, 'purchase_invoice', $id);
     }
 
     /**

@@ -145,7 +145,8 @@ final class PostingServiceTest extends TestCase
         $before = [$this->journal->find($baseId, $this->supplierId), $this->journal->find($vatId, $this->supplierId)];
 
         $entryId = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId,
-            $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId), ['entry_date' => self::YEAR . '-06-20']);
+            $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId),
+            ['entry_date' => self::YEAR . '-06-20', 'posting_group_idempotent' => true]);
 
         self::assertSame($baseId, $entryId);
         self::assertSame($before, [$this->journal->find($baseId, $this->supplierId), $this->journal->find($vatId, $this->supplierId)],
@@ -332,7 +333,8 @@ final class PostingServiceTest extends TestCase
         [$docId, $baseId, $vatId] = $this->splitImportedDocument('invoice', 'SALE');
         $before = $this->journal->find($baseId, $this->supplierId);
         $this->posting->postDocument($this->supplierId, 'invoice', $docId,
-            $this->posting->buildFromInvoice($this->supplierId, $docId), ['entry_date' => self::YEAR . '-06-20']);
+            $this->posting->buildFromInvoice($this->supplierId, $docId),
+            ['entry_date' => self::YEAR . '-06-20', 'posting_group_idempotent' => true]);
         self::assertSame($before, $this->journal->find($baseId, $this->supplierId));
         self::assertNull($this->journal->find($vatId, $this->supplierId)['reversed_by']);
     }
@@ -361,9 +363,162 @@ final class PostingServiceTest extends TestCase
         $entryId = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId, [
             ['account_code' => 'NEEXISTUJE', 'side' => 'debit', 'amount' => 1210.0],
             ['account_code' => '321', 'side' => 'credit', 'amount' => 1210.0],
-        ], ['entry_date' => self::YEAR . '-06-20']);
+        ], ['entry_date' => self::YEAR . '-06-20', 'posting_group_idempotent' => true]);
         self::assertSame($baseId, $entryId);
         self::assertSame($before, $this->journal->find($baseId, $this->supplierId));
+    }
+
+    public function testRewritingSplitImportedPurchaseWithoutOptInFailsInsteadOfFakeSuccess(): void
+    {
+        [$docId, $baseId, $vatId] = $this->splitImportedDocument('purchase_invoice', 'NOOPTIN');
+        $before = [$this->journal->find($baseId, $this->supplierId), $this->journal->find($vatId, $this->supplierId)];
+        try {
+            $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId,
+                $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId), ['entry_date' => self::YEAR . '-06-20']);
+            self::fail('Přepis rozděleného předpisu nesmí tiše vrátit starý zápis jako úspěch.');
+        } catch (PostingException $e) {
+            self::assertSame('posting_group_requires_repost', $e->errorCode);
+            self::assertSame(409, $e->httpStatus);
+        }
+        self::assertSame($before, [$this->journal->find($baseId, $this->supplierId), $this->journal->find($vatId, $this->supplierId)]);
+    }
+
+    public function testRewritingSingleImportedEntryKeepsInPlaceRewriteAndOwnership(): void
+    {
+        [$docId, $baseId] = $this->singleImportedPurchase('INPLACE');
+        $entryId = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId, [
+            ['account_code' => '501', 'side' => 'debit', 'amount' => 1000.0],
+            ['account_code' => '343', 'side' => 'debit', 'amount' => 210.0],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 1210.0],
+        ], ['entry_date' => self::YEAR . '-06-20']);
+        self::assertSame($baseId, $entryId, 'Jediný přímý zápis se přepisuje na místě jako před zavedením skupin.');
+        $byAccount = $this->linesByAccountCode($this->journal->find($baseId, $this->supplierId)['lines']);
+        self::assertArrayHasKey('501', $byAccount);
+        self::assertArrayNotHasKey('518', $byAccount);
+        self::assertSame([$baseId], array_map('intval', array_column((new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))
+            ->active($this->supplierId, 'purchase_invoice', $docId), 'id')));
+        self::assertTrue(\MyInvoice\Service\Accounting\DocumentPostingGroup::hasOwnedEntries(
+            (new \MyInvoice\Service\Accounting\DocumentPostingGroup($this->db))->active($this->supplierId, 'purchase_invoice', $docId)));
+    }
+
+    /** Příjem PF (návrat do received) čte předpis bez zámku období, uzávěrka ho neblokuje. */
+    public function testReceivingPurchaseDoesNotWaitForLockedAccountingPeriods(): void
+    {
+        // Bez zaúčtování v této transakci: postDocument by sám zamkl všechna období firmy.
+        $docId = $this->purchase('TEST-RECEIVE', $this->client('Test příjmu PF', false, true), '40', false, 1000.0, 210.0, 21.0);
+        $other = Connection::withoutSharedTestConnection(static fn (): Connection => Bootstrap::buildContainer()->get(Connection::class));
+        $pdo = $this->db->pdo();
+        try {
+            $other->pdo()->beginTransaction();
+            $lock = $other->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id = ? ORDER BY id LIMIT 1 FOR UPDATE');
+            $lock->execute([$this->supplierId]);
+            if ($lock->fetchColumn() === false) {
+                self::markTestSkipped('Firma nemá potvrzené účetní období, které by šlo zamknout z jiného spojení.');
+            }
+            $pdo->exec('SET SESSION innodb_lock_wait_timeout = 1');
+            self::assertTrue($this->purchaseInvoices->setStatus($docId, 'received', $this->supplierId));
+        } finally {
+            $pdo->exec('SET SESSION innodb_lock_wait_timeout = DEFAULT');
+            if ($other->pdo()->inTransaction()) {
+                $other->pdo()->rollBack();
+            }
+            $other->close();
+        }
+    }
+
+    /** Nativní oprava v uzavřeném období staví zápis z dokladu, bez stopy starého zápisu. */
+    public function testNativeForceReconcileDoesNotInheritOldLineTrace(): void
+    {
+        $vendor = $this->client('Test nativní opravy', false, true);
+        $docId = $this->purchase('TEST-N-RECON', $vendor, '40', false, 1000.0, 210.0, 21.0);
+        $entryId = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId,
+            $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId), ['entry_date' => self::YEAR . '-06-20']);
+        $this->db->pdo()->prepare('UPDATE journal_entry_lines SET currency_code="EUR", fx_rate=25, amount_foreign=amount/25
+            WHERE supplier_id=? AND entry_id=? AND side="credit"')->execute([$this->supplierId, $entryId]);
+        $today = date('Y-m-d');
+        if ($this->periods->findForDate($this->supplierId, $today) === null) {
+            $this->periods->create($this->supplierId, (int) date('Y'), date('Y') . '-01-01', date('Y') . '-12-31');
+        }
+
+        $result = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\DocumentJournalSync::class)
+            ->reconcileForceEdit($this->supplierId, 'purchase_invoice', $docId);
+
+        self::assertNotNull($result);
+        self::assertNull($this->journal->find($entryId, $this->supplierId)['source_id'], 'Nativní originál se dál odpojuje.');
+        foreach ($this->journal->find($result['new_entry_id'], $this->supplierId)['lines'] as $line) {
+            self::assertNull($line['currency_code'], 'Korunový doklad nesmí po opravě převzít měnu starého zápisu.');
+            self::assertNull($line['amount_foreign']);
+        }
+    }
+
+    /** Nativní přeúčtování převezme stopu z jediného řádku se stopou i vedle korunového řádku. */
+    public function testNativeRepostInheritsTraceFromSingleTracedPayableLine(): void
+    {
+        $vendor = $this->client('Test nativní stopy', false, true);
+        $docId = $this->purchase('TEST-N-TRACE', $vendor, '40', false, 1000.0, 210.0, 21.0);
+        $entryId = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId, [
+            ['account_code' => '518', 'side' => 'debit', 'amount' => 1000.0],
+            ['account_code' => '343', 'side' => 'debit', 'amount' => 210.0],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 1000.0],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 210.0],
+        ], ['entry_date' => self::YEAR . '-06-20']);
+        $this->db->pdo()->prepare('UPDATE journal_entry_lines SET currency_code="EUR", fx_rate=25, amount_foreign=40
+            WHERE supplier_id=? AND entry_id=? AND side="credit" AND amount=1000')->execute([$this->supplierId, $entryId]);
+
+        $result = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\DocumentRepostService::class)
+            ->repost($this->supplierId, 'purchase_invoice', $docId, [
+                ['account_code' => '518', 'side' => 'debit', 'amount' => 1100.0],
+                ['account_code' => '343', 'side' => 'debit', 'amount' => 210.0],
+                ['account_code' => '321', 'side' => 'credit', 'amount' => 1310.0],
+            ], []);
+
+        $credit = array_values(array_filter($this->journal->find($result['entry_id'], $this->supplierId)['lines'],
+            static fn (array $line): bool => $line['side'] === 'credit'));
+        self::assertCount(1, $credit);
+        self::assertSame('EUR', $credit[0]['currency_code']);
+        self::assertEqualsWithDelta(52.4, (float) $credit[0]['amount_foreign'], 0.001);
+    }
+
+    /** Náhled přeúčtování skupiny nespadne, když návrh z dokladu nejde sestavit. */
+    public function testGroupRepostPlanOmitsSuggestionWhenDocumentCannotBeBuilt(): void
+    {
+        [$docId] = $this->splitImportedDocument('purchase_invoice', 'NOPLAN');
+        $this->db->pdo()->prepare('DELETE FROM purchase_invoice_items WHERE purchase_invoice_id = ?')->execute([$docId]);
+        try {
+            $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId);
+            self::fail('Předpoklad testu: doklad bez položek nejde sestavit.');
+        } catch (PostingException) {
+        }
+
+        $plan = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\DocumentRepostService::class)
+            ->plan($this->supplierId, 'purchase_invoice', $docId);
+
+        self::assertSame('posting_group', $plan['reason_code']);
+        self::assertCount(4, $plan['lines']);
+        self::assertArrayNotHasKey('suggested_lines', $plan);
+    }
+
+    /** Smazání nativního dokladu: původní text storna a odpojení jen aktuálního zápisu. */
+    public function testDeletingNativeDocumentKeepsOriginalReversalTextAndDetach(): void
+    {
+        $vendor = $this->client('Test nativního smazání', false, true);
+        $docId = $this->purchase('TEST-N-DELETE', $vendor, '40', false, 1000.0, 210.0, 21.0);
+        $lines = $this->posting->buildFromPurchaseInvoice($this->supplierId, $docId);
+        $first = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId, $lines, ['entry_date' => self::YEAR . '-06-20']);
+        $this->posting->reverse($this->supplierId, $first);
+        $second = $this->posting->postDocument($this->supplierId, 'purchase_invoice', $docId, $lines, ['entry_date' => self::YEAR . '-06-20']);
+        self::assertNotSame($first, $second);
+
+        Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\DocumentJournalSync::class)
+            ->onDelete($this->supplierId, 'purchase_invoice', $docId);
+
+        $current = $this->journal->find($second, $this->supplierId);
+        self::assertNull($current['source_id']);
+        self::assertNotNull($current['reversed_by']);
+        self::assertSame('Storno zápisu při smazání dokladu',
+            $this->journal->find((int) $current['reversed_by'], $this->supplierId)['description']);
+        self::assertSame($docId, (int) $this->journal->find($first, $this->supplierId)['source_id'],
+            'Nativní doklad odpojuje jen aktuální zápis jako dřív.');
     }
 
     public function testExplicitPostingCannotBypassReversalOfSingleManualOwner(): void
@@ -509,6 +664,25 @@ final class PostingServiceTest extends TestCase
         $response = Bootstrap::buildContainer()->get(\MyInvoice\Action\Accounting\JournalAction::class)
             ->{$method}($request, new \Slim\Psr7\Response(), ['id' => (string) $entryId]);
         self::assertSame($method === 'reverse' ? 201 : 200, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /** Syntetický převod s jediným zápisem (základ i DPH), navázaný stejným linkerem jako Stereo. */
+    private function singleImportedPurchase(string $tag): array
+    {
+        $client = $this->client('Test jediného převzatého zápisu ' . $tag, false, true);
+        $doc = $this->purchase('TEST-S-' . $tag, $client, '40', false, 1000.0, 210.0, 21.0);
+        $entry = $this->posting->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '518', 'side' => 'debit', 'amount' => 1000.0],
+            ['account_code' => '343', 'side' => 'debit', 'amount' => 210.0],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => 1210.0],
+        ], ['entry_date' => self::YEAR . '-06-20']);
+        $this->db->pdo()->prepare('INSERT INTO stereo_nx_import_map
+            (supplier_id, source_ico, source_company_index, kind, source_key, source_hash, target_id)
+            VALUES (?, "00000000", 1, "accounting_journal", ?, ?, ?)')
+            ->execute([$this->supplierId, 'test-single-' . $entry, str_repeat('a', 64), $entry]);
+        (new \MyInvoice\Service\Migration\Shared\JournalEntryLinker($this->db, 'Stereo NX'))
+            ->attach($this->supplierId, $this->userId, 'purchase_invoice', 'manual', 'purchase_invoice', $doc, [$entry]);
+        return [$doc, $entry];
     }
 
     /** Syntetický převod: samostatný základ a DPH navázané stejným linkerem jako Stereo. */
