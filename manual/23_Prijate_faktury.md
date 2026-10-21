@@ -1081,6 +1081,18 @@ V seznamu Přijaté faktury klikněte na **Nascanovat inbox**:
 
 Okno po skončení zobrazí přehled: vytvořeno, přeskočeno, chyby a detail po souborech.
 
+**Automatický sken cronem** (`api/bin/cron-scan-purchase-inbox.php`) potřebuje jednoznačnou vlastní firmu inboxu.
+V instalaci s více firmami nastavte v sekci `purchase_invoice` klíč `cron_supplier_id` na kladné ID existující
+firmy. Toto nastavení platí pouze pro automatický sken; ruční **Nascanovat inbox** importuje do firmy vybrané v UI.
+`inbox_dir` je společný pro celou instalaci a podadresáře nerozdělují doklady mezi firmy.
+
+Pokud `cron_supplier_id` chybí nebo je `null`, použije cron výslovně nastavené `app.default_supplier_id`,
+ale jen pokud je `app.scan_all_suppliers` vypnuté. Jinak automaticky vybere jedinou firmu v databázi
+(bez ohledu na její ID). Bez firem sken přeskočí; u více firem bez jednoznačného vlastníka skončí chybou konfigurace.
+`app.scan_all_suppliers` nezpůsobí sken společného inboxu za všechny firmy: s `cron_supplier_id` se skenuje
+jen určená firma. Neplatné nebo neexistující explicitní ID se hlásí jako chyba a nepřepne sken na jinou firmu.
+Chyby importu se v přehledu cron úlohy zaznamenají jako neúspěšný běh.
+
 Pokud se u spárované dvojice nepodaří v textu PDF najít variabilní symbol z ISDOC **a** zároveň nesedí ani celková částka,
 doklad i příloha přesto vzniknou, ale report u nich ukáže **varování**, že PDF možná patří k jiné faktuře. Skenovaný obraz
 bez textové vrstvy se neověřuje (nemá čím), takže u něj varování nikdy nevyskočí.
