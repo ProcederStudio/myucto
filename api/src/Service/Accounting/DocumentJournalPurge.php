@@ -60,6 +60,7 @@ final class DocumentJournalPurge
             throw new \LogicException('DocumentJournalPurge::purge musí běžet v transakci volajícího.');
         }
 
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
         $lock = $pdo->prepare('SELECT locked_until FROM accounting_supplier_settings WHERE supplier_id = ? FOR UPDATE');
         $lock->execute([$supplierId]);
         $lockedUntil = $lock->fetchColumn();
@@ -72,7 +73,17 @@ final class DocumentJournalPurge
 
         /** @var list<array{source_id:int, entries:list<array<string,mixed>>}> $groups */
         $groups = [];
+        $postingGroups = (new DocumentPostingGroup($this->db))->activeMany($supplierId, $sourceType, $sourceIds, true);
         foreach (array_values(array_unique(array_map('intval', $sourceIds))) as $sourceId) {
+            $postingGroup = $postingGroups[$sourceId] ?? [];
+            if (DocumentPostingGroup::hasOwnedEntries($postingGroup)) {
+                // Přímý výmaz jednoho člena by nechal část předpisu osiřet. Volající
+                // použije společnou storno cestu DocumentJournalSync pro celou skupinu.
+                return self::blocked($sourceId, (int) $postingGroup[0]['id'], [
+                    'code' => 'posting_group_requires_reversal',
+                    'message' => 'Doklad má skupinu účetních zápisů; ruší se společnými protizápisy.',
+                ]);
+            }
             $bySource->execute([$supplierId, $sourceType, $sourceId]);
             $entry = $bySource->fetch(PDO::FETCH_ASSOC);
             if ($entry === false) {

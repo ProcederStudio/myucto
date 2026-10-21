@@ -113,6 +113,12 @@ final class DocumentAutoPoster
         if (!$this->isPostableKind($supplierId, $sourceType, $docId)) {
             return;
         }
+        // Přijetí konceptu z převodu nesmí znovu klasifikovat ani přepisovat
+        // předpis, který již existuje v převzatém deníku (základ + samostatná DPH).
+        $group = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $docId, $this->db->pdo()->inTransaction());
+        if (DocumentPostingGroup::hasOwnedEntries($group)) {
+            return;
+        }
 
         // Před zaúčtováním doplnit JISTOU klasifikaci nákladu na položky, které ji nemají.
         // Bez tohoto kroku čte purchaseExpenseWeights() prázdné sloupce a celý řádek spadne

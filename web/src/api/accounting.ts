@@ -1759,7 +1759,7 @@ export const POSTING_ERROR_CODES = [
   'ddkp_reverse_charge_unsupported',
   // Přeúčtování: datum je zamčené (§35 soft-close) resp. storno i oprava by padly
   // na jiné datum než původní zápis a uživatel to ještě nepotvrdil.
-  'date_locked', 'repost_date_shift_confirmation_required',
+  'date_locked', 'repost_date_shift_confirmation_required', 'version_conflict',
 ] as const
 
 /** Vrátí i18n klíč pro hlášku k chybovému kódu zaúčtování (fallback = generic). */
@@ -1908,7 +1908,9 @@ export interface RepostPlan {
   needs_reversal: boolean
   target_date: string | null
   date_shifted: boolean
-  reason_code: 'period_not_open' | 'date_locked' | 'entry_reversed' | 'tax_neutral_rewrite' | null
+  reason_code: 'period_not_open' | 'date_locked' | 'entry_reversed' | 'tax_neutral_rewrite' | 'posting_group' | null
+  posting_entries?: Array<{ id: number; entry_date: string; row_version: number }>
+  suggested_lines?: RepostPlan['lines']
   /** Zamčené datum v otevřeném roce: přesun mezi účty téže třídy bez daňového dopadu se přepíše na místě. */
   tax_neutral_available: boolean
   /** Proč opravené řádky nejdou přepsat na místě (jen u plánu počítaného nad řádky). */
@@ -1924,6 +1926,7 @@ export interface RepostResult {
   strategy: 'replace' | 'reverse'
   entry_id: number
   reversal_entry_id: number | null
+  reversal_entry_ids?: number[]
   entry_date: string
   date_shifted: boolean
   items_synced: number
@@ -1933,6 +1936,7 @@ export interface RepostPayload {
   lines: Array<{ account_code: string; side: 'debit' | 'credit'; amount: number; is_red_storno?: boolean }>
   description?: string | null
   confirm_date_shift?: boolean
+  expected_posting_entries?: Array<{ id: number; row_version: number }>
   /** Dimenze dokladu uložené v téže transakci (bez `items` zůstanou dimenze položek). */
   dimensions?: { header: Record<number, number>; items?: Record<number, Record<number, number>> }
 }

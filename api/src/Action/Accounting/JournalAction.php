@@ -8,6 +8,8 @@ use MyInvoice\Action\Accounting\Reports\DimensionFilterParam;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\DocumentPostingGroup;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
@@ -759,6 +761,19 @@ final class JournalAction
         $meta = array_merge($this->auditMeta($request), array_filter([
             'description' => $this->nullableString($body['description'] ?? null),
         ], static fn ($v) => $v !== null));
+        if (array_key_exists('expected_posting_entries', $body)) {
+            $expected = $body['expected_posting_entries'];
+            if (!is_array($expected) || !array_is_list($expected) || count($expected) > 5000) {
+                return Json::error($response, 'validation_failed', 'Neplatný seznam zápisů zaúčtování.', 422);
+            }
+            foreach ($expected as $member) {
+                if (!is_array($member) || !is_int($member['id'] ?? null) || $member['id'] <= 0
+                    || !is_int($member['row_version'] ?? null) || $member['row_version'] <= 0) {
+                    return Json::error($response, 'validation_failed', 'Neplatná verze zápisu zaúčtování.', 422);
+                }
+            }
+            $meta['expected_posting_entries'] = $expected;
+        }
 
         // Dimenze z dialogu se ukládají v TÉŽE transakci jako přeúčtování: nový zápis
         // si je při zaúčtování orazítkuje (a řádek nákladu rozdělí podle položek).
@@ -1021,6 +1036,8 @@ final class JournalAction
     /** Id už existujícího zápisu dokladu, nebo null. Náhled tím řekne, že je zaúčtováno. */
     private function existingEntryId(int $supplierId, string $sourceType, int $docId): ?int
     {
+        $group = (new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $docId);
+        if ($group !== []) return (int) $group[0]['id'];
         $stmt = $this->db->pdo()->prepare(
             'SELECT id FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL
@@ -1264,26 +1281,21 @@ final class JournalAction
         ], static fn ($v) => $v !== null));
 
         try {
-            $reversalId = $this->posting->reverse($supplierId, $id, $meta);
+            $reversalId = TransactionFailure::retrying($this->db->pdo(), fn (): int =>
+                (new DimensionPeriodGuard($this->db))->transaction(function () use ($request, $supplierId, $id, $meta): int {
+                    (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+                    $owner = (new DocumentPostingGroup($this->db))->owner($supplierId, $id, true);
+                    $reversalId = $this->posting->reverse($supplierId, $id, $meta);
+                    // I poslední ruční člen převzatého předpisu odemyká svůj doklad.
+                    if ($owner !== null) {
+                        $this->unlockSourceAfterReverse($request, $supplierId, $owner['doc_type'],
+                            $owner['doc_id'], $id, $reversalId);
+                    }
+                    return $reversalId;
+                }),
+            );
         } catch (\Throwable $e) {
             return $this->mapPostingError($response, $e);
-        }
-
-        // Epic F6 (§4.7, R9): storno zápisu dokladu odemyká booked_at, pokud k source
-        // po reversu neexistuje jiný aktivní posted zápis. Vědomé riziko L2 (klient může
-        // odemčený doklad změnit před re-postem) kryje activity log + FE hint.
-        if ($original !== null
-            && in_array((string) ($original['source_type'] ?? ''), ['invoice', 'purchase_invoice'], true)
-            && $original['source_id'] !== null
-        ) {
-            $this->unlockSourceAfterReverse(
-                $request,
-                $supplierId,
-                (string) $original['source_type'],
-                (int) $original['source_id'],
-                $id,
-                $reversalId,
-            );
         }
 
         return Json::ok($response, $this->journal->find($reversalId, $supplierId), 201);
@@ -1310,6 +1322,7 @@ final class JournalAction
 
         $attachmentRows = [];
         try {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             $stmt = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.source_type,
                         je.source_id, je.posted_at, je.reversed_by, p.status AS period_status,
@@ -1452,6 +1465,9 @@ final class JournalAction
                 );
             }
 
+            $postingOwner = (new DocumentPostingGroup($this->db))->owner($supplierId, $id, true);
+            $postingType = $postingOwner['doc_type'] ?? null;
+            $postingId = $postingOwner['doc_id'] ?? null;
             $deleted = $pdo->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ?');
             $deleted->execute([$id, $supplierId]);
             if ($deleted->rowCount() !== 1) {
@@ -1468,11 +1484,12 @@ final class JournalAction
                 if ($deleteDepreciation->rowCount() < 1) {
                     throw new \RuntimeException('Řádky odpisu se nepodařilo smazat.');
                 }
-            } elseif ($sourceType === 'purchase_invoice') {
+            } elseif ($postingType === 'purchase_invoice' && ($postingId !== null
+                && (new DocumentPostingGroup($this->db))->active($supplierId, $postingType, $postingId, true) === [])) {
                 $doc = $pdo->prepare(
                     'SELECT status FROM purchase_invoices WHERE id = ? AND supplier_id = ? FOR UPDATE'
                 );
-                $doc->execute([$sourceId, $supplierId]);
+                $doc->execute([$postingId, $supplierId]);
                 $status = $doc->fetchColumn();
                 if ($status !== false) {
                     $statusFrom = (string) $status;
@@ -1482,13 +1499,14 @@ final class JournalAction
                             SET booked_at = NULL, booked_by = NULL,
                                 status = CASE WHEN status = 'booked' THEN 'received' ELSE status END
                           WHERE id = ? AND supplier_id = ?"
-                    )->execute([$sourceId, $supplierId]);
+                    )->execute([$postingId, $supplierId]);
                 }
-            } elseif ($sourceType === 'invoice') {
+            } elseif ($postingType === 'invoice' && ($postingId !== null
+                && (new DocumentPostingGroup($this->db))->active($supplierId, $postingType, $postingId, true) === [])) {
                 $pdo->prepare(
                     'UPDATE invoices SET booked_at = NULL, booked_by = NULL
                       WHERE id = ? AND supplier_id = ?'
-                )->execute([$sourceId, $supplierId]);
+                )->execute([$postingId, $supplierId]);
             }
 
             $this->logger->log(
@@ -1615,6 +1633,7 @@ final class JournalAction
 
         $attachmentRows = [];
         try {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             $load = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.description,
                         je.source_type, je.source_id, je.reversed_by, p.status AS period_status,
@@ -1699,6 +1718,9 @@ final class JournalAction
                 );
             }
 
+            $postingOwner = (new DocumentPostingGroup($this->db))->owner($supplierId, (int) $original['id'], true);
+            $postingType = $postingOwner['doc_type'] ?? null;
+            $postingId = $postingOwner['doc_id'] ?? null;
             $sourceId = $original['source_id'] === null ? null : (int) $original['source_id'];
             $deletedLines = [];
             foreach ([$original, $reversal] as $row) {
@@ -1710,7 +1732,10 @@ final class JournalAction
             // Dvojice se pak smaže, ale doklad zůstává zaúčtovaný: nevrací se do fronty
             // ani se neodemyká.
             $replacementId = null;
-            if ($sourceId !== null) {
+            if ($postingOwner !== null) {
+                $members = (new DocumentPostingGroup($this->db))->active($supplierId, $postingType, $postingId, true);
+                $replacementId = $members === [] ? null : (int) $members[0]['id'];
+            } elseif ($sourceId !== null) {
                 $replacement = $pdo->prepare(
                     'SELECT id FROM journal_entries
                       WHERE supplier_id = ? AND source_type = ? AND source_id = ?
@@ -1747,9 +1772,9 @@ final class JournalAction
 
             $statusFrom = null;
             $statusTo = null;
-            if ($replacementId === null && $sourceId !== null && $sourceType === 'purchase_invoice') {
+            if ($replacementId === null && $postingId !== null && $postingType === 'purchase_invoice') {
                 $doc = $pdo->prepare('SELECT status FROM purchase_invoices WHERE id = ? AND supplier_id = ? FOR UPDATE');
-                $doc->execute([$sourceId, $supplierId]);
+                $doc->execute([$postingId, $supplierId]);
                 $status = $doc->fetchColumn();
                 if ($status !== false) {
                     $statusFrom = (string) $status;
@@ -1759,11 +1784,11 @@ final class JournalAction
                             SET booked_at = NULL, booked_by = NULL,
                                 status = CASE WHEN status = 'booked' THEN 'received' ELSE status END
                           WHERE id = ? AND supplier_id = ?"
-                    )->execute([$sourceId, $supplierId]);
+                    )->execute([$postingId, $supplierId]);
                 }
-            } elseif ($replacementId === null && $sourceId !== null && $sourceType === 'invoice') {
+            } elseif ($replacementId === null && $postingId !== null && $postingType === 'invoice') {
                 $pdo->prepare('UPDATE invoices SET booked_at = NULL, booked_by = NULL WHERE id = ? AND supplier_id = ?')
-                    ->execute([$sourceId, $supplierId]);
+                    ->execute([$postingId, $supplierId]);
             }
 
             $this->logger->log(
@@ -1852,14 +1877,7 @@ final class JournalAction
     ): void {
         $pdo = $this->db->pdo();
 
-        $active = $pdo->prepare(
-            'SELECT 1 FROM journal_entries
-              WHERE supplier_id = ? AND source_type = ? AND source_id = ?
-                AND posted_at IS NOT NULL AND reversed_by IS NULL
-              LIMIT 1'
-        );
-        $active->execute([$supplierId, $sourceType, $sourceId]);
-        if ($active->fetchColumn() !== false) {
+        if ((new DocumentPostingGroup($this->db))->active($supplierId, $sourceType, $sourceId, true) !== []) {
             return; // jiný aktivní zápis zámek drží dál
         }
 
