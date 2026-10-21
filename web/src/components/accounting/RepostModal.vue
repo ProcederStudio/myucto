@@ -175,14 +175,10 @@ async function load(): Promise<void> {
     plan.value = p
     accounts.value = acc
     description.value = p.description ?? ''
-    // U skupiny server nabídne celý předpis z dokladu; aktuální skupina může
-    // obsahovat i duplicitu po starším přeúčtování. Jinak se upravuje původní kontace.
-    lines.value = (p.suggested_lines ?? p.lines).map(l => ({
-      account_code: l.account_code ?? '',
-      side: l.side,
-      amount: l.amount,
-      is_red_storno: l.is_red_storno,
-    }))
+    // Předvyplní se stávající zaúčtování. Předpis z aktuálního dokladu (u skupiny)
+    // se jen nabídne: převzatý doklad může mít kontace, které návrh z dokladu nezná
+    // (pokladna místo 311, analytiky zdroje), a potvrzení beze změn je nesmí přepsat.
+    lines.value = editableLines(p.lines)
     applyProposal()
   } catch (e: any) {
     error.value = t(postingErrorI18nKey(e?.response?.data?.error?.code))
@@ -199,6 +195,37 @@ watch(() => [props.open, props.docId], ([open]) => {
 }, { immediate: true })
 
 const proposalApplied = ref(false)
+
+function editableLines(source: Array<{ account_code: string | null; side: 'debit' | 'credit'; amount: number | string | null; is_red_storno?: boolean }>) {
+  return source.map(l => ({
+    account_code: l.account_code ?? '',
+    side: l.side,
+    amount: l.amount === null ? null : Number(l.amount),
+    is_red_storno: l.is_red_storno,
+  }))
+}
+
+const suggestionDiffers = computed(() => {
+  const suggested = plan.value?.suggested_lines
+  return !!suggested && suggested.length > 0 && linesKeyOf(suggested) !== linesKeyOf(plan.value?.lines ?? [])
+})
+
+const usingSuggestion = computed(() => {
+  const suggested = plan.value?.suggested_lines
+  return !!suggested && linesKeyOf(lines.value) === linesKeyOf(suggested)
+})
+
+function useSuggestedLines(): void {
+  if (plan.value?.suggested_lines) lines.value = editableLines(plan.value.suggested_lines)
+}
+
+function useCurrentLines(): void {
+  if (plan.value) lines.value = editableLines(plan.value.lines)
+}
+
+function linesKeyOf(ls: Array<{ account_code: string | null; side: string; amount: number | string | null; is_red_storno?: boolean }>): string {
+  return ls.map(l => `${l.side}|${(l.account_code ?? '').trim()}|${Math.round(Number(l.amount ?? 0) * 100)}|${l.is_red_storno ? 1 : 0}`).sort().join(';')
+}
 
 function applyProposal(): void {
   proposalApplied.value = false
@@ -224,8 +251,7 @@ const postingChanged = computed(() => {
   if (description.value.trim() !== (plan.value.description ?? '').trim()) return true
   const key = (ls: Array<{ account_code: string | null; side: string; amount: number | string | null; is_red_storno?: boolean }>) =>
     ls.map(l => `${l.side}|${(l.account_code ?? '').trim()}|${Math.round(Number(l.amount ?? 0) * 100)}|${l.is_red_storno ? 1 : 0}`).sort().join(';')
-  // U převzaté skupiny se upravuje návrh z dokladu, ne staré řádky všech členů.
-  return key(lines.value) !== key(plan.value.suggested_lines ?? plan.value.lines)
+  return key(lines.value) !== key(plan.value.lines)
 })
 
 function scheduleLinesPlan(): void {
@@ -342,6 +368,19 @@ async function submit(): Promise<void> {
           <ul class="mt-1 list-disc list-inside font-mono">
             <li v-for="entry in plan.posting_entries" :key="entry.id">#{{ entry.id }} · {{ formatDate(entry.entry_date) }}</li>
           </ul>
+        </div>
+        <div v-if="suggestionDiffers"
+          class="px-3 py-2 rounded-md border border-primary-200 bg-primary-50 text-primary-700 text-sm flex flex-wrap items-center gap-2"
+          data-test="repost-suggestion">
+          <p class="flex-1 min-w-[12rem]">{{ t(usingSuggestion ? 'accounting.repost.suggestion_used' : 'accounting.repost.suggestion_available') }}</p>
+          <button v-if="!usingSuggestion" type="button" :class="btnOutline('primary')" class="whitespace-nowrap"
+            data-test="repost-use-suggested" @click="useSuggestedLines">
+            {{ t('accounting.repost.use_suggested') }}
+          </button>
+          <button v-else type="button" :class="btnOutline('neutral')" class="whitespace-nowrap"
+            data-test="repost-use-current" @click="useCurrentLines">
+            {{ t('accounting.repost.use_current') }}
+          </button>
         </div>
         <!-- Co se stane. Bez téhle věty by uživatel nepoznal rozdíl mezi „přepíše se"
              a „vznikne protizápis" — a přitom je to ten rozdíl, který zůstane v deníku.

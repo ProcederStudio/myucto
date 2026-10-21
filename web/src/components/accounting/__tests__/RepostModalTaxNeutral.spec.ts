@@ -99,7 +99,7 @@ describe('RepostModal — přepis na místě v zamčeném datu', () => {
     expect(wrapper.find('[data-test="repost-confirm-shift"]').exists()).toBe(false)
   })
 
-  it('ukáže všechny členy skupiny, předvyplní celý předpis z dokladu a odešle verze náhledu', async () => {
+  it('ukáže všechny členy skupiny, předvyplní stávající zaúčtování a předpis z dokladu jen nabídne', async () => {
     const members = [
       { id: 9, entry_date: '2026-01-21', row_version: 2 },
       { id: 10, entry_date: '2026-01-21', row_version: 1 },
@@ -113,8 +113,12 @@ describe('RepostModal — přepis na místě v zamčeném datu', () => {
     expect(wrapper.get('[data-test="repost-posting-group"]').text()).toContain('#9')
     expect(wrapper.get('[data-test="repost-posting-group"]').text()).toContain('#10')
     const editor = wrapper.findComponent({ name: 'JournalLinesEditor' })
-    expect(editor.props('modelValue')).toHaveLength(3)
-    expect(editor.props('modelValue')[1]).toMatchObject({ account_code: '343.100', amount: 210 })
+    // Potvrzení beze změn nesmí převzaté kontace nahradit návrhem z dokladu.
+    expect(editor.props('modelValue')).toHaveLength(5)
+    expect(wrapper.find('[data-test="repost-suggestion"]').exists()).toBe(true)
+    await wrapper.get('[data-test="repost-use-suggested"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'JournalLinesEditor' }).props('modelValue')).toHaveLength(3)
+    expect(wrapper.find('[data-test="repost-use-current"]').exists()).toBe(true)
     await wrapper.get('[data-test="repost-submit"]').trigger('click')
     await flushPromises()
     expect(m.repost).toHaveBeenCalledWith('purchase-invoices', 43, expect.objectContaining({
