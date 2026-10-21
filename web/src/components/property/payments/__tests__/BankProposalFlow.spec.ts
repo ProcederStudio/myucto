@@ -61,7 +61,7 @@ describe('bank proposal to unit payment', () => {
     const wrapper = mount(PropertyPaymentsView, { global: { plugins: plugins(router), stubs } })
     await flushPromises()
     expect(wrapper.find('[data-field="alloc-amount"]').exists()).toBe(false)
-    expect(wrapper.get('[data-flag="proposal-review"]').exists()).toBe(true)
+    expect(wrapper.find('[data-flag="proposal-review"]').exists()).toBe(true)
     await wrapper.get('[data-field="proposal-unit"]').setValue('15')
     await wrapper.get('[data-action="proposal-use-unit"]').trigger('click'); await flushPromises()
     expect(calls.bankProposalPlan).toHaveBeenLastCalledWith(1, 41, { unit_id: 15 })
