@@ -12,7 +12,7 @@ import CreditNoteOffsetNotice from '@/components/invoices/CreditNoteOffsetNotice
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { purchaseInvoicesApi, type PurchaseInvoice, type PurchaseInvoiceStatus, type PurchaseInvoiceBrief, type PaymentQrResponse } from '@/api/purchaseInvoices'
+import { purchaseInvoicesApi, type PurchaseInvoice, type PurchaseInvoiceStatus, type PurchaseInvoiceBrief, type PaymentQrResponse, type VatDeduction } from '@/api/purchaseInvoices'
 import { formatMoney, formatHourlyRate, formatDate } from '@/composables/useFormat'
 import { formatDuration, isTimeItem, itemQuantity } from '@/utils/timeBilling'
 import { useToast } from '@/composables/useToast'
@@ -269,6 +269,24 @@ const vatClassificationLabel = computed(() => {
   if (!code) return null
   return vatClassifications.value.find(vc => vc.code === code)?.label ?? null
 })
+
+// Skutečný nárok na odpočet (rozpis DPH má přednost před hlavičkou) — počítá server.
+const vatTreatment = computed(() => invoice.value?.vat_treatment ?? null)
+const itemVatStates = computed(() => new Map((vatTreatment.value?.items ?? []).map(i => [i.id, i])))
+const effectiveDeduction = computed<VatDeduction | 'mixed'>(() =>
+  vatTreatment.value?.effective ?? invoice.value?.vat_deduction ?? 'full')
+const effectivePercent = computed(() => vatTreatment.value?.source === 'allocations'
+  ? (vatTreatment.value.parts[0]?.vat_deduction_percent ?? 100)
+  : (invoice.value?.vat_deduction_percent ?? 100))
+function deductionLabel(mode: VatDeduction | string, percent: number | null | undefined): string {
+  const label = t('purchase_invoice.vat_deduction.' + mode)
+  return mode === 'proportional' ? `${label} (${Number(percent ?? 0)} %)` : label
+}
+function deductionClass(mode: VatDeduction | 'mixed'): string {
+  if (mode === 'none') return 'text-danger-600'
+  if (mode === 'proportional' || mode === 'mixed') return 'text-warning-600'
+  return 'text-neutral-700'
+}
 
 async function loadVatClassifications() {
   try {
@@ -1379,11 +1397,24 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-neutral-500">{{ t('purchase_invoice.classification.vat_deduction') }}</dt>
-              <dd class="font-medium text-right" :class="invoice.vat_deduction === 'none' ? 'text-danger-600' : (invoice.vat_deduction === 'proportional' ? 'text-warning-600' : 'text-neutral-700')">
-                {{ t('purchase_invoice.vat_deduction.' + (invoice.vat_deduction || 'full')) }}<span v-if="invoice.vat_deduction === 'proportional'"> ({{ invoice.vat_deduction_percent }} %)</span>
+              <dd class="font-medium text-right" :class="deductionClass(effectiveDeduction)" data-test="effective-vat-deduction">
+                <template v-if="effectiveDeduction === 'mixed'">{{ t('purchase_invoice.vat_treatment.mixed') }}</template>
+                <template v-else>{{ deductionLabel(effectiveDeduction, effectivePercent) }}</template>
+                <span v-if="vatTreatment?.source === 'allocations'" class="block text-xs font-normal text-neutral-500">
+                  {{ t('purchase_invoice.vat_treatment.by_allocations') }}
+                </span>
               </dd>
             </div>
+            <ul v-if="effectiveDeduction === 'mixed'" class="space-y-1 text-xs text-neutral-600" data-test="vat-treatment-parts">
+              <li v-for="(p, i) in vatTreatment?.parts ?? []" :key="i" class="flex justify-between gap-3">
+                <span>{{ deductionLabel(p.vat_deduction, p.vat_deduction_percent) }}</span>
+                <span class="font-mono whitespace-nowrap">{{ t('purchase_invoice.vat_treatment.part_amounts', { base: formatMoney(p.base_amount, invoice.currency), vat: formatMoney(p.vat_amount, invoice.currency) }) }}</span>
+              </li>
+            </ul>
           </dl>
+          <ul v-if="vatTreatment?.warnings?.length" class="mt-3 space-y-1 p-2 rounded-md bg-warning-50 border border-warning-500/40 text-xs text-warning-700" data-test="vat-treatment-warnings">
+            <li v-for="w in vatTreatment.warnings" :key="w">⚠ {{ t(`purchase_invoice.vat_treatment.warning.${w}`, { header: deductionLabel(invoice.vat_deduction || 'full', invoice.vat_deduction_percent) }) }}</li>
+          </ul>
         </div>
 
         <!-- Platba v jiné měně -->
@@ -1526,7 +1557,7 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
                 <!-- Daňové zařazení položky: druh nákladu (§DM — z něj se odvozuje
                      dlouhodobý/drobný majetek), klasifikace plnění a časové rozlišení
                      (§DČR), plus karta drobného majetku. Sdílené s mobilní kartou. -->
-                <PurchaseItemMeta :item="it" />
+                <PurchaseItemMeta :item="it" :vat-state="itemVatStates.get(it.id ?? 0)" />
               </td>
               <td class="py-2 px-2 text-right font-mono">{{ isTimeItem(it) && it.duration_minutes != null ? formatDuration(it.duration_minutes) : it.quantity }}</td>
               <td class="py-2 px-2">{{ it.unit }}</td>
@@ -1542,7 +1573,7 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
         <div class="md:hidden divide-y divide-neutral-100">
           <div v-for="it in invoice.items" :key="`m-${it.id}`" class="p-3 space-y-1.5">
             <div class="text-sm text-neutral-900 whitespace-pre-wrap">{{ it.description }}</div>
-            <PurchaseItemMeta :item="it" />
+            <PurchaseItemMeta :item="it" :vat-state="itemVatStates.get(it.id ?? 0)" />
             <div class="flex items-baseline justify-between text-xs text-neutral-500">
               <span>
                 <span class="font-mono text-neutral-700">{{ isTimeItem(it) && it.duration_minutes != null ? formatDuration(it.duration_minutes) : it.quantity }}</span>

@@ -19237,6 +19237,10 @@
       "vat_classification_auto": "Automatic (by rate, vendor and expense kind)",
       "vat_classification_same": "Same as the document header",
       "vat_classification_differs": "Differs from the header ({code}) - reports use the item code",
+      "vat_state_conflict": "Code {code} assumes a VAT deduction, but the document header has no deduction. Check whether the item should enter VAT.",
+      "vat_state_no_claim_header": "{code}, no deduction per the header - not in VAT",
+      "vat_state_no_claim_header_short": "no deduction per the header",
+      "vat_state_allocations": "VAT per the VAT split",
       "expense_kind_hint": "Drives the expense account: Service → 518, Material (incl. fuel) → 501, Small asset → 501 + asset record, Fixed asset → 042 and depreciation. Unspecified behaves as before (518).",
       "accrual_show": "Time accrual",
       "accrual_hide": "Hide time accrual",
@@ -19689,6 +19693,7 @@
       "vat_classification_more": "Show more information",
       "vat_classification_less": "Hide information",
       "items_differ": "Some items have a different VAT classification than the header.",
+      "items_conflict_with_header": "The header has no VAT deduction, but some items have a code with a deduction. Align the header and the items so the document enters VAT as you expect.",
       "apply_to_items": "Apply to all items",
       "vat_deduction": "VAT deduction entitlement",
       "vat_deduction_hint": "“None” = invoice is excluded from the VAT ledger and DPHDP3/KH (accounting cost only). “Proportional” = partial deduction §75 — enter the % the deduction is reduced to.",
@@ -19727,6 +19732,17 @@
       "non_tax": "non-deductible"
     },
     "vat_deduction_percent": "Deduction %",
+    "vat_treatment": {
+      "mixed": "Mixed",
+      "by_allocations": "per the VAT split",
+      "part_amounts": "base {base}, VAT {vat}",
+      "header_differs_editor": "The VAT split has a different deduction than the header. The return uses the deduction from the split. A change in the header is carried over to the split only when the whole split had the same deduction as the header.",
+      "warning": {
+        "header_differs_from_allocations": "The header says “{header}”, but the VAT return and control statement use the deduction from the VAT split.",
+        "items_claim_code_without_header_claim": "The document has no VAT deduction, but some items have a code with a deduction. They do not enter VAT.",
+        "header_no_claim_code_with_claim_items": "The header has a no-deduction code, but some items have a code with a deduction. The return uses the item codes."
+      }
+    },
     "vat_deduction_reduced_hint": "An input used for both taxable and exempt-without-entitlement supplies (§51) — e.g. rent, utilities, accounting fees at a company with exempt income. The deduction is reduced by a company-wide, per-year coefficient (set by an admin), not a per-invoice percentage. The invoice can't be posted until a coefficient is set.",
     "vat_deduction_percent_hint": "Percentage the VAT deduction is reduced to (e.g. car 70 % for business). The rest is a non-deductible part.",
     "force_edit": "Edit (force)",

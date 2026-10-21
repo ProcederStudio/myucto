@@ -34,6 +34,7 @@ import { stockApi, type StockItemSearchResult } from '@/api/stock'
 import { expenseCategoriesApi, type ExpenseCategory } from '@/api/expenseCategories'
 import { projectsApi, type Project } from '@/api/projects'
 import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifications'
+import { headerDiffersFromAllocations, itemConflictsWithHeader, itemVatState, type HeaderVat } from './purchaseVatTreatment'
 import { settingsApi } from '@/api/settings'
 import { usePaneDom } from '@/composables/usePaneDom'
 import AutomationBadge from '@/components/automation/AutomationBadge.vue'
@@ -963,8 +964,23 @@ function itemClassDiffers(it: PurchaseInvoiceItem): boolean {
   const header = form.value.vat_classification_code
   return !!it.vat_classification_code && !!header && it.vat_classification_code !== header
 }
+// Skutečný stav položky v evidenci DPH (zrcadlo serverového PurchaseVatTreatment):
+// hlavička „bez nároku" nebo rozpis DPH rozhodují i o položce s kódem odpočtu.
+const headerVat = computed<HeaderVat>(() => ({
+  vat_deduction: form.value.vat_deduction,
+  vat_deduction_percent: Number(form.value.vat_deduction_percent ?? 100),
+  vat_classification_code: form.value.vat_classification_code,
+}))
+function itemVat(it: PurchaseInvoiceItem) {
+  return itemVatState(it.vat_classification_code, headerVat.value, vatAllocations.value.length > 0, vatClassifications.value)
+}
+function itemVatConflict(it: PurchaseInvoiceItem): boolean {
+  return itemConflictsWithHeader(it.vat_classification_code, headerVat.value, vatAllocations.value.length > 0, vatClassifications.value)
+}
+const itemsConflictWithHeader = computed(() => form.value.items.some(itemVatConflict))
+const headerDiffersFromRozpis = computed(() => headerDiffersFromAllocations(headerVat.value, vatAllocations.value))
 function itemDetailsFilled(it: PurchaseInvoiceItem): boolean {
-  return (showItemAccount.value && !!it.expense_account_code) || itemClassDiffers(it)
+  return (showItemAccount.value && !!it.expense_account_code) || itemClassDiffers(it) || itemVatConflict(it)
 }
 function toggleItemDetails(it: PurchaseInvoiceItem) {
   if (itemDetailsOpen.has(it)) itemDetailsOpen.delete(it)
@@ -2202,14 +2218,23 @@ useWindowTitle(
                     <select v-model="it.vat_classification_code" :aria-label="t('purchase_invoice.items.vat_classification')"
                       data-test="item-vat-classification"
                       class="w-72 h-8 px-1 border rounded bg-surface text-sm text-neutral-900"
-                      :class="itemClassDiffers(it) ? 'border-warning-500' : 'border-neutral-300'">
+                      :class="itemClassDiffers(it) || itemVatConflict(it) ? 'border-warning-500' : 'border-neutral-300'">
                       <option :value="null">{{ t('purchase_invoice.items.vat_classification_auto') }}</option>
                       <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
                         {{ vc.code }} - {{ vc.label.length > 50 ? vc.label.slice(0, 50) + '…' : vc.label }}
                       </option>
                     </select>
                   </label>
-                  <span v-if="itemClassDiffers(it)" class="text-xs text-warning-700">
+                  <span v-if="itemVatConflict(it)" class="text-xs text-warning-700" data-test="item-vat-conflict">
+                    {{ t('purchase_invoice.items.vat_state_conflict', { code: itemVat(it).effectiveCode ?? '' }) }}
+                  </span>
+                  <span v-else-if="itemVat(it).state === 'allocations'" class="text-xs text-neutral-500" data-test="item-vat-state">
+                    {{ t('purchase_invoice.items.vat_state_allocations') }}
+                  </span>
+                  <span v-else-if="itemVat(it).state === 'no_claim_header'" class="text-xs text-neutral-500" data-test="item-vat-state">
+                    {{ t('purchase_invoice.items.vat_state_no_claim_header', { code: itemVat(it).effectiveCode ?? '—' }) }}
+                  </span>
+                  <span v-else-if="itemClassDiffers(it)" class="text-xs text-warning-700">
                     {{ t('purchase_invoice.items.vat_classification_differs', { code: form.vat_classification_code }) }}
                   </span>
                   <span v-else-if="it.vat_classification_code && it.vat_classification_code === form.vat_classification_code" class="text-xs text-neutral-500">
@@ -2342,14 +2367,23 @@ useWindowTitle(
                   {{ t('purchase_invoice.items.vat_classification') }}
                   <select v-model="it.vat_classification_code" :aria-label="t('purchase_invoice.items.vat_classification')"
                     class="mt-1 w-full h-10 px-2 border rounded bg-surface text-sm"
-                    :class="itemClassDiffers(it) ? 'border-warning-500' : 'border-neutral-300'">
+                    :class="itemClassDiffers(it) || itemVatConflict(it) ? 'border-warning-500' : 'border-neutral-300'">
                     <option :value="null">{{ t('purchase_invoice.items.vat_classification_auto') }}</option>
                     <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
                       {{ vc.code }} - {{ vc.label.length > 40 ? vc.label.slice(0, 40) + '…' : vc.label }}
                     </option>
                   </select>
                 </label>
-                <p v-if="itemClassDiffers(it)" class="mt-1 text-xs text-warning-700">
+                <p v-if="itemVatConflict(it)" class="mt-1 text-xs text-warning-700">
+                  {{ t('purchase_invoice.items.vat_state_conflict', { code: itemVat(it).effectiveCode ?? '' }) }}
+                </p>
+                <p v-else-if="itemVat(it).state === 'allocations'" class="mt-1 text-xs text-neutral-500">
+                  {{ t('purchase_invoice.items.vat_state_allocations') }}
+                </p>
+                <p v-else-if="itemVat(it).state === 'no_claim_header'" class="mt-1 text-xs text-neutral-500">
+                  {{ t('purchase_invoice.items.vat_state_no_claim_header', { code: itemVat(it).effectiveCode ?? '—' }) }}
+                </p>
+                <p v-else-if="itemClassDiffers(it)" class="mt-1 text-xs text-warning-700">
                   {{ t('purchase_invoice.items.vat_classification_differs', { code: form.vat_classification_code }) }}
                 </p>
                 <p v-else-if="it.vat_classification_code && it.vat_classification_code === form.vat_classification_code" class="mt-1 text-xs text-neutral-500">
@@ -2651,6 +2685,9 @@ useWindowTitle(
                 {{ t('purchase_invoice.classification.apply_to_items') }}
               </button>
             </div>
+            <p v-if="itemsConflictWithHeader" class="mt-1 text-xs text-warning-700" data-test="items-conflict-with-header">
+              {{ t('purchase_invoice.classification.items_conflict_with_header') }}
+            </p>
             <button type="button" class="mt-1 text-xs text-primary-600 hover:underline" :aria-expanded="vatClassHintOpen"
               data-test="vat-classification-hint-toggle" @click="vatClassHintOpen = !vatClassHintOpen">
               {{ vatClassHintOpen ? t('purchase_invoice.classification.vat_classification_less') : t('purchase_invoice.classification.vat_classification_more') }}
@@ -2677,6 +2714,9 @@ useWindowTitle(
               {{ t('purchase_invoice.vat_deduction_reduced_hint') }}
             </p>
             <p v-else class="text-xs text-neutral-500 mt-1">{{ t('purchase_invoice.classification.vat_deduction_hint') }}</p>
+            <p v-if="headerDiffersFromRozpis" class="text-xs text-warning-700 mt-1" data-test="header-differs-from-allocations">
+              {{ t('purchase_invoice.vat_treatment.header_differs_editor') }}
+            </p>
           </div>
           <div>
             <label class="inline-flex items-center gap-2 text-sm mt-6" :title="t('purchase_invoice.classification.tax_deductible_hint')">

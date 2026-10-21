@@ -28,6 +28,8 @@ use MyInvoice\Service\Currency\PurchaseInvoiceRateReloader;
 use MyInvoice\Service\Invoice\DocumentItemsPayload;
 use MyInvoice\Service\Invoice\PurchaseInvoiceCalculator;
 use MyInvoice\Service\IpMatcher;
+use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatment;
+use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatmentConflict;
 use MyInvoice\Service\PurchaseInvoice\VendorNumberDuplicates;
 use MyInvoice\Service\Validation\PurchaseInvoiceValidation;
 use MyInvoice\Service\Ai\AiSuggestionService;
@@ -210,6 +212,23 @@ final class UpdatePurchaseInvoiceAction
                 DocumentItemsPayload::emptyErrorMessage(),
                 422,
             );
+        }
+
+        // Změna nároku na odpočet v hlavičce u dokladu s rozpisem DPH: evidence čte nárok
+        // z rozpisu, takže samotná hlavička by se s ní tiše rozešla. Jednoznačný případ se
+        // promítne do rozpisu, nejednoznačný se odmítne ({@see PurchaseVatTreatment}).
+        try {
+            $syncedAllocations = PurchaseVatTreatment::syncAllocationsWithHeader(
+                ['vat_deduction' => $existing['vat_deduction'] ?? null, 'vat_deduction_percent' => $existing['vat_deduction_percent'] ?? null],
+                ['vat_deduction' => $body['vat_deduction'] ?? null, 'vat_deduction_percent' => $body['vat_deduction_percent'] ?? null],
+                array_values((array) ($existing['vat_allocations'] ?? [])),
+                array_key_exists('vat_allocations', $sent) && is_array($sent['vat_allocations']) ? array_values($sent['vat_allocations']) : null,
+            );
+        } catch (PurchaseVatTreatmentConflict $e) {
+            return Json::error($response, PurchaseVatTreatmentConflict::ERROR_CODE, $e->getMessage(), 422);
+        }
+        if ($syncedAllocations !== null) {
+            $body['vat_allocations'] = $syncedAllocations;
         }
 
         // BOLA guard (security report 2026-08, R2 #5 / sweep F5) — vendor_id má vlastní

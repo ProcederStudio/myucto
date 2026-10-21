@@ -6707,6 +6707,11 @@ paths:
         Vynechané `vat_deduction` zachová uloženou hodnotu; na `none` se nastaví jen při změně
         dodavatele na neplátce. Vynechané `vat_classification_code` se odvodí znovu z položek, pokud
         se nahrazují `items` nebo se změní `reverse_charge`; jinak zůstane uložený kód.
+
+        Změna `vat_deduction` u dokladu s rozpisem DPH (`vat_allocations`): měl-li celý rozpis
+        dosavadní nárok hlavičky, převezme nový nárok i rozpis. Mění-li požadavek nárok
+        v rozpisu sám, platí rozpis z požadavku. Jinak (rozpis se smíšeným nárokem) vrací
+        `422 vat_allocations_deduction_conflict` a nic neuloží.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - in: query
@@ -6769,8 +6774,9 @@ paths:
           description: |
             `items: []` by doklad připravilo o všechny položky (`no_items`), chybí
             `force_mode` u zaúčtovaného dokladu v uzavřeném období (`force_mode_required`),
-            nebo `force_mode=notes_only` narazil na změnu účetního pole
-            (`financial_change_not_allowed`).
+            `force_mode=notes_only` narazil na změnu účetního pole
+            (`financial_change_not_allowed`), nebo změnu nároku v hlavičce nejde jednoznačně
+            promítnout do rozpisu DPH (`vat_allocations_deduction_conflict`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -39218,6 +39224,8 @@ components:
           type: array
           description: "Volitelné rozdělení rekapitulace DPH na odpočtové a účetní režimy; prázdné pole zachovává hlavičkové nastavení."
           items: { $ref: '#/components/schemas/PurchaseVatAllocation' }
+        vat_treatment:
+          $ref: '#/components/schemas/PurchaseVatTreatment'
         extraction_warning: { type: [string, "null"], description: "Varování z AI/automatické extrakce dokladu (rozdíl součtů apod.)" }
         extraction_review:
           type: [object, "null"]
@@ -39297,6 +39305,45 @@ components:
           type: array
           items: { type: string }
           description: "Jen v odpovědi POST/PUT — non-blocking varování (credit_note_positive_total, vendor_non_payer_deduction, vendor_unreliable_payer — CRPDPH nespolehlivý plátce, audit 2026-07, public_authority_fee_out_of_scope, missing_vat_classification, eu_acquisition_delivery_date_missing, eu_acquisition_tax_date_mismatch), uložení neblokují."
+
+    PurchaseVatTreatment:
+      type: object
+      description: |
+        Nárok na odpočet a členění, se kterými doklad do evidence DPH opravdu jde (jen čtení).
+        Má-li doklad rozpis DPH (`vat_allocations`), rozhoduje nárok z rozpisu a hlavička
+        ani položky se nečtou; jinak rozhoduje nárok hlavičky a kód položky, chybí-li, kód
+        hlavičky.
+      required: [source, effective, parts, items, warnings]
+      properties:
+        source: { type: string, enum: [header, allocations] }
+        effective:
+          type: string
+          enum: [full, none, proportional, reduced, mixed]
+          description: "`mixed` = části rozpisu mají různý nárok (viz `parts`)."
+        parts:
+          type: array
+          items:
+            type: object
+            properties:
+              vat_deduction: { type: string, enum: [full, none, proportional, reduced] }
+              vat_deduction_percent: { type: number }
+              base_amount: { type: number }
+              vat_amount: { type: number }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              effective_code: { type: [string, "null"] }
+              state:
+                type: string
+                enum: [allocations, no_claim_header, no_claim_code, claim, unclassified]
+        warnings:
+          type: array
+          items:
+            type: string
+            enum: [header_differs_from_allocations, items_claim_code_without_header_claim, header_no_claim_code_with_claim_items]
 
     PurchaseVatAllocation:
       type: object

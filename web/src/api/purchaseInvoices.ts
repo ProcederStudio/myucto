@@ -233,6 +233,22 @@ export interface VendorSnapshot {
 /** Nárok na odpočet DPH: plný / bez nároku / krácený (poměrný §75, viz vat_deduction_percent). */
 export type VatDeduction = 'full' | 'none' | 'proportional' | 'reduced'
 
+export type PurchaseVatTreatmentWarning =
+  | 'header_differs_from_allocations'
+  | 'items_claim_code_without_header_claim'
+  | 'header_no_claim_code_with_claim_items'
+
+export type PurchaseVatItemState = 'allocations' | 'no_claim_header' | 'no_claim_code' | 'claim' | 'unclassified'
+
+/** Skutečný nárok na odpočet dokladu (SSOT PurchaseVatTreatment na serveru). */
+export interface PurchaseVatTreatment {
+  source: 'header' | 'allocations'
+  effective: VatDeduction | 'mixed'
+  parts: { vat_deduction: VatDeduction; vat_deduction_percent: number; base_amount: number; vat_amount: number }[]
+  items: { id: number; effective_code: string | null; state: PurchaseVatItemState }[]
+  warnings: PurchaseVatTreatmentWarning[]
+}
+
 /** Stručné shrnutí navázané přijaté faktury (záloha ↔ vyúčtovací). */
 export interface PurchaseInvoiceBrief {
   id: number
@@ -534,6 +550,8 @@ export interface PurchaseInvoice {
   vat_overrides: PurchaseVatOverride[] | null
   /** Volitelné rozdělení rekapitulace DPH na účetní a odpočtové režimy. */
   vat_allocations: PurchaseVatAllocation[]
+  /** Nárok a členění, se kterými doklad do evidence DPH opravdu jde (rozpis má přednost před hlavičkou). */
+  vat_treatment?: PurchaseVatTreatment
   // Related
   items: PurchaseInvoiceItem[]
   vat_breakdown: PurchaseVatBreakdownRow[]

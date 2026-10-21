@@ -19237,6 +19237,10 @@
       "vat_classification_auto": "Automaticky (dle sazby, dodavatele a druhu nákladu)",
       "vat_classification_same": "Shodné s hlavičkou dokladu",
       "vat_classification_differs": "Liší se od hlavičky ({code}) - do výkazů jde kód položky",
+      "vat_state_conflict": "Kód {code} počítá s nárokem na odpočet, hlavička dokladu je ale bez nároku. Zkontrolujte, zda má položka jít do DPH.",
+      "vat_state_no_claim_header": "{code}, bez nároku podle hlavičky - do DPH nejde",
+      "vat_state_no_claim_header_short": "bez nároku podle hlavičky",
+      "vat_state_allocations": "DPH podle rozpisu DPH",
       "expense_kind_hint": "Řídí nákladový účet: Služba → 518, Materiál (vč. PHM) → 501, Drobný majetek → 501 + karta v evidenci, Dlouhodobý majetek → 042 a odpisy. Neurčeno se chová jako dosud (518).",
       "accrual_show": "Časové rozlišení",
       "accrual_hide": "Skrýt časové rozlišení",
@@ -19689,6 +19693,7 @@
       "vat_classification_more": "Ukázat více informací",
       "vat_classification_less": "Skrýt informace",
       "items_differ": "Některé položky mají jiné členění DPH než hlavička.",
+      "items_conflict_with_header": "Hlavička je bez nároku na odpočet, některé položky ale mají kód s nárokem. Sjednoťte hlavičku a položky, ať doklad do DPH jde tak, jak čekáte.",
       "apply_to_items": "Použít na všechny položky",
       "vat_deduction": "Nárok na odpočet DPH",
       "vat_deduction_hint": "„Bez nároku“ = faktura nevstupuje do Knihy DPH ani DPHDP3/KH (jen účetní náklad). „Krácený“ = poměrný odpočet §75 - zadáte %, kterým se odpočet zkrátí.",
@@ -19727,6 +19732,17 @@
       "non_tax": "nedaňový"
     },
     "vat_deduction_percent": "Odpočet %",
+    "vat_treatment": {
+      "mixed": "Smíšený",
+      "by_allocations": "podle rozpisu DPH",
+      "part_amounts": "základ {base}, DPH {vat}",
+      "header_differs_editor": "Rozpis DPH má jiný nárok na odpočet než hlavička. Do přiznání jde nárok z rozpisu. Změnu v hlavičce systém do rozpisu promítne jen tehdy, když měl celý rozpis stejný nárok jako hlavička.",
+      "warning": {
+        "header_differs_from_allocations": "V hlavičce je nárok „{header}“, do přiznání a kontrolního hlášení ale jde nárok z rozpisu DPH.",
+        "items_claim_code_without_header_claim": "Doklad je bez nároku na odpočet, některé položky ale mají kód s nárokem. Do DPH nejdou.",
+        "header_no_claim_code_with_claim_items": "Hlavička má kód bez nároku na odpočet, některé položky ale kód s nárokem. Do přiznání jdou kódy položek."
+      }
+    },
     "vat_deduction_percent_hint": "Procento, kterým se zkrátí odpočet DPH (např. auto 70 % pro ekonomickou činnost). Zbytek je nedaňová část.",
     "vat_deduction_reduced_hint": "Vstup používaný jak pro plnění s nárokem na odpočet, tak pro plnění osvobozená bez nároku (§51) - např. nájem, energie, účetní služby u firmy s osvobozenými příjmy. Odpočet se krátí koeficientem za celou firmu a rok (nastavuje administrátor), ne procentem na dokladu. Bez nastaveného koeficientu nejde doklad zaúčtovat.",
     "force_edit": "Upravit (force)",

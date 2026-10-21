@@ -12,6 +12,7 @@ use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\PurchaseInvoice\ExtractionReviewSync;
 use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
+use MyInvoice\Service\PurchaseInvoice\PurchaseVatTreatment;
 use MyInvoice\Service\Validation\PurchaseInvoiceValidation;
 use MyInvoice\Support\ExchangeRateSources;
 use MyInvoice\Support\PaymentMethods;
@@ -95,6 +96,12 @@ final class PurchaseInvoiceRepository
         $row['items'] = $this->itemsFor($id);
         $row['vat_breakdown'] = $this->buildVatBreakdown($row['items']);
         $row['vat_allocations'] = $this->vatAllocationsFor($id, $supplierId);
+        // Nárok a členění, se kterými doklad do evidence DPH opravdu jde (rozpis má přednost
+        // před hlavičkou) — detail i editor je ukazují místo samotné hodnoty v hlavičce.
+        $row['vat_treatment'] = PurchaseVatTreatment::summarize(
+            $row,
+            \MyInvoice\Service\Report\VatLedgerService::classificationMapFor($this->db->pdo(), $supplierId),
+        );
         $row['totals'] = [
             'without_vat'         => $row['total_without_vat'],
             'vat'                 => $row['total_vat'],
