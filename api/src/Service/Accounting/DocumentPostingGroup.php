@@ -31,7 +31,17 @@ final class DocumentPostingGroup
 
     private static function directDocumentKeySql(string $alias): string
     {
-        return "COALESCE((SELECT CONCAT(jdp.doc_type, ':', jdp.doc_id) FROM journal_document_postings jdp
+        // Historické vlastnictví přežívá smazání dokladu. Smír pak musí nabídnout
+        // existující zápis deníku, nikoli odkaz na již neexistující fakturu.
+        return "COALESCE((SELECT CASE WHEN
+                           (jdp.doc_type = 'invoice' AND EXISTS (
+                               SELECT 1 FROM invoices jdp_invoice
+                                WHERE jdp_invoice.supplier_id = jdp.supplier_id AND jdp_invoice.id = jdp.doc_id))
+                           OR (jdp.doc_type = 'purchase_invoice' AND EXISTS (
+                               SELECT 1 FROM purchase_invoices jdp_purchase
+                                WHERE jdp_purchase.supplier_id = jdp.supplier_id AND jdp_purchase.id = jdp.doc_id))
+                           THEN CONCAT(jdp.doc_type, ':', jdp.doc_id) ELSE CONCAT('manual:', {$alias}.id) END
+                           FROM journal_document_postings jdp
                            WHERE jdp.supplier_id = {$alias}.supplier_id AND jdp.entry_id = {$alias}.id),
                          CONCAT({$alias}.source_type, ':', {$alias}.source_id))";
     }

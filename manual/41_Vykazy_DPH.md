@@ -431,9 +431,11 @@ Pokud vše sedí, na stránce se nic nezobrazí. Jinak se nad kartami objeví č
 
 - popis, čeho se rozdíl týká (např. "DPHDP3 ř.1+2 a KH A.4 + A.5"),
 - konkrétní částku z obou stran a rozdíl v Kč,
-- je-li možné rozdíl přiřadit ke konkrétním dokladům, seznam dokladů (číslo dokladu a částka na obou stranách). U rozdílu proti souhrnnému hlášení je i vysvětlení pravděpodobné příčiny (chybějící DIČ odběratele, plnění zařazené jako EU, ale na tuzemské nebo ne-EU zemi apod.).
+- je-li možné rozdíl přiřadit ke konkrétním dokladům, seznam dokladů (číslo dokladu a částka na obou stranách). Kliknutím na číslo otevřete detail vedle přiznání; **Shift+klik** jej otevře v pravém panelu. Ruční účetní zápis vede na konkrétní zápis v deníku. Pokud byl původní převzatý doklad smazán, historický rozdíl rovněž odkazuje na existující účetní zápis. Odkaz se zobrazuje podle oprávnění ke čtení příslušné agendy. U rozdílu proti souhrnnému hlášení je i vysvětlení pravděpodobné příčiny (chybějící DIČ odběratele, plnění zařazené jako EU, ale na tuzemské nebo ne-EU zemi apod.).
 
 U kontroly účtu 343 rozpis navíc u každého rozdílového dokladu vysvětlí, zda jde o časový posun odpočtu podle § 73 ZDPH, odlišnou částku, chybějící řádek 343, nebo zápis bez protějšku v přiznání. Typický časový posun vznikne, když je předpis zaúčtovaný k DUZP na konci měsíce, ale přijatý doklad dorazí až v následujícím měsíci. Pokud celý rozdíl vysvětlují pouze časové posuny, zobrazí se neutrální informace **Rozdíl obratu 343 je vysvětlen časovým posunem podle § 73 ZDPH** s čísly dokladů a přiznání můžete stáhnout bez potvrzování nesouladu. Nevysvětlený zbytek nad toleranci zůstává červený a blokující.
+
+U dokladů převzatých z jiného účetního programu kontrola přiřadí i samostatný zápis DPH, pokud je převzatý zápis jednoznačně navázaný na doklad. Obyčejná ruční vazba mezi zápisem a dokladem sama o sobě původ DPH neurčuje. Doklad ponechaný po převodu jako koncept do přiznání nevstupuje; jeho případné zaúčtování na účtu 343 proto zůstává rozdílem ke kontrole.
 
 > [!WARNING]
 > Tlačítko **Stáhnout XML** se při nalezeném rozdílu úplně nezablokuje, ale vyžádá potvrzení: zobrazí se dialog, že se přiznání rozchází s kontrolním nebo souhrnným hlášením, nebo s obratem účtu 343, a že finanční úřad páruje podání strojově. Teprve po potvrzení se XML stáhne. Tahle vědomá volba se spolu s celým rozpisem rozdílu zapíše do auditní stopy.
