@@ -909,11 +909,14 @@ export interface CertificateVaultUploadPayload {
   shareWithOtherSuppliers?: boolean
   /** Jen do firem, kde uživatel ještě nemá platný certifikát. */
   shareOnlyWithoutValid?: boolean
+  /** Starý certifikát, který nový nahradí ve všech firmách (má přednost před sdílením). */
+  replaceCredentialId?: number | null
 }
 
 export type CertificateVaultSharingStatus =
   | 'enabled'
   | 'already_enabled'
+  | 'replaced'
   | 'skipped_has_valid'
   | 'skipped_no_permission'
 
@@ -921,10 +924,14 @@ export interface CertificateVaultSharingResult {
   supplier_id: number
   name: string
   status: CertificateVaultSharingStatus
+  /** Jen u náhrady: kolik míst firmy se přepojilo ze starého certifikátu. */
+  replaced?: { data_box: number; signing_profiles: number; payroll: number }
 }
 
 export type CertificateVaultUploadResult = CertificateVaultItem & {
   supplier_sharing?: CertificateVaultSharingResult[]
+  /** Certifikát se uložil, ale náhrada starého neproběhla. */
+  supplier_sharing_error?: string
 }
 
 export interface CertificateVaultDeleteResult {
@@ -1224,7 +1231,9 @@ export const settingsApi = {
     data.append('label', payload.label)
     data.append('pfx_password', payload.password)
     appendStepUpProof(data, payload.proof)
-    if (payload.shareWithOtherSuppliers) {
+    if (payload.replaceCredentialId) {
+      data.append('replace_credential_id', String(payload.replaceCredentialId))
+    } else if (payload.shareWithOtherSuppliers) {
       data.append('share_with_other_suppliers', '1')
       data.append('share_only_without_valid', payload.shareOnlyWithoutValid ? '1' : '0')
     }
@@ -1236,9 +1245,15 @@ export const settingsApi = {
     api.delete<CertificateVaultDeleteResult>(`/settings/certificates/${id}`, {
       data: stepUpProofBody(proof),
     }).then(r => r.data),
-  shareCertificateWithOtherSuppliers: (id: number, onlyWithoutValid: boolean, proof: EpoStepUpProof) =>
+  shareCertificateWithOtherSuppliers: (
+    id: number,
+    onlyWithoutValid: boolean,
+    proof: EpoStepUpProof,
+    replaceCredentialId: number | null = null,
+  ) =>
     api.post<{ supplier_sharing: CertificateVaultSharingResult[] }>(`/settings/certificates/${id}/share`, {
       share_only_without_valid: onlyWithoutValid,
+      ...(replaceCredentialId ? { replace_credential_id: replaceCredentialId } : {}),
       ...stepUpProofBody(proof),
     }).then(r => r.data.supplier_sharing),
   getSigningSettings: () =>
