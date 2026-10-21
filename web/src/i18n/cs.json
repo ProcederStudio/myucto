@@ -2286,6 +2286,9 @@
       "auto_created_hint_maintenance": "Období doplnila kontrola účetních období (api/bin/check-accounting-periods.php --fix).",
       "auto_created_hint_posting": "Období doplnil systém při zaúčtování dokladu s datem, které do žádného období nespadalo.",
       "auto_created_hint_setup": "Období založil průvodce prvním spuštěním při zakládání firmy.",
+      "change_start": "Změnit začátek",
+      "change_start_hint": "První účetní období začíná dnem vzniku firmy (§ 3 zákona o účetnictví). Začátek jde změnit jen u prvního otevřeného období a jen v rámci téhož účetního roku. Konec období zůstává.",
+      "change_start_title": "Začátek účetního období {year}",
       "change_status": "Změna stavu",
       "empty": "Zatím žádné účetní období.",
       "ends_on": "Konec",
@@ -2294,6 +2297,15 @@
       "new_title": "Nové účetní období",
       "reopen_confirm": "Opravdu znovu otevřít uzavřené období {year}? Zásah do uzavřeného účetnictví se zaznamená do auditní stopy.",
       "reopen_warning": "Znovuotevření uzavřeného období zasahuje do uzavřeného účetnictví (§35 ZoÚ).",
+      "start_errors": {
+        "activation_running": "Právě běží doúčtování dokladů při aktivaci účetnictví. Začátek období změňte, až doběhne.",
+        "entries_before_start": "V období je {count} zápisů v deníku s datem před novým začátkem (nejstarší {date}). Nejprve je stornujte nebo přeúčtujte do pozdějšího data.",
+        "fiscal_calendar_changed": "Změna by firmě změnila začátek účetního roku. Nejprve v Nastavení firmy vyplňte, kterým měsícem účetní rok začíná.",
+        "not_first_period": "Začátek jde změnit jen u prvního účetního období. Další období navazují na konec předchozího.",
+        "period_not_open": "Začátek jde změnit jen u otevřeného období.",
+        "period_overlap": "Období by se překrývalo s jiným účetním obdobím.",
+        "version_conflict": "Období mezitím změnil jiný uživatel. Seznam jsme načetli znovu, zkuste to prosím ještě jednou."
+      },
       "starts_on": "Začátek",
       "status": {
         "approved": "Schválené",
@@ -33292,6 +33304,8 @@
     "financial_office_hint": "např. 451 = Praha 1. Najdete na portálu daně.cz.",
     "fiscal_year_start": {
       "calendar": "Leden (kalendářní rok)",
+      "first_period_hint": "Firma vznikla v průběhu roku? První účetní období začíná dnem vzniku. Začátek nastavíte u prvního období tlačítkem Změnit začátek:",
+      "first_period_link": "Nástroje → Uzávěrka",
       "hint": "Hospodářský rok (§ 3 odst. 2 zákona o účetnictví) nastavte předem, před převodem z jiného programu nebo před založením prvního účetního období. Podle něj vzniknou období i převedená data. Jakmile firma účetní období má, změna účetního roku se řeší přechodným obdobím.",
       "label": "Účetní rok začíná",
       "month_10": "Říjen",

@@ -2619,6 +2619,7 @@ final class Routes
             $g->get   ('/periods',                    [AccountingPeriodAction::class, 'list']);
             $g->post  ('/periods',                    [AccountingPeriodAction::class, 'create']);
             $g->post  ('/periods/{id:[0-9]+}/status', [AccountingPeriodAction::class, 'status']);
+            $g->patch ('/periods/{id:[0-9]+}',        [AccountingPeriodAction::class, 'updateStart']);
             // Deník — specifické cesty PŘED generickým /journal/{id}
             $g->get   ('/journal',                            [JournalAction::class, 'list']);
             $g->post  ('/journal',                            [JournalAction::class, 'create']);

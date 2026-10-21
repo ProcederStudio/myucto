@@ -2286,6 +2286,9 @@
       "auto_created_hint_maintenance": "The period check added this period (api/bin/check-accounting-periods.php --fix).",
       "auto_created_hint_posting": "The system added this period when posting a document dated outside every existing period.",
       "auto_created_hint_setup": "The initial setup wizard created this period when the company was created.",
+      "change_start": "Change start",
+      "change_start_hint": "The first accounting period starts on the day the company was established (Section 3 of the Accounting Act). The start can only be changed for the first open period and only within the same accounting year. The end of the period stays the same.",
+      "change_start_title": "Start of accounting period {year}",
       "change_status": "Change status",
       "empty": "No fiscal periods yet.",
       "ends_on": "End",
@@ -2294,6 +2297,15 @@
       "new_title": "New fiscal period",
       "reopen_confirm": "Really reopen closed period {year}? Touching closed records will be recorded in the audit trail.",
       "reopen_warning": "Reopening a closed period touches closed accounting records (§35 of the Accounting Act).",
+      "start_errors": {
+        "activation_running": "Documents are being posted as part of the accounting activation. Change the period start once it finishes.",
+        "entries_before_start": "The period has {count} journal entries dated before the new start (earliest {date}). Reverse them or repost them to a later date first.",
+        "fiscal_calendar_changed": "The change would alter the company's accounting year start. First set the month the accounting year starts in the company settings.",
+        "not_first_period": "Only the start of the first accounting period can be changed. Later periods follow on from the end of the previous one.",
+        "period_not_open": "The start can only be changed for an open period.",
+        "period_overlap": "The period would overlap another accounting period.",
+        "version_conflict": "Another user changed the period in the meantime. The list has been reloaded, please try again."
+      },
       "starts_on": "Start",
       "status": {
         "approved": "Approved",
@@ -33292,6 +33304,8 @@
     "financial_office_hint": "e.g. 451 = Prague 1. Find on tax portal.",
     "fiscal_year_start": {
       "calendar": "January (calendar year)",
+      "first_period_hint": "Was the company established during the year? The first accounting period starts on the day it was established. Set the start on the first period with Change start:",
+      "first_period_link": "Tools → Closing",
       "hint": "Set a fiscal year in advance, before migrating from another program or creating the first accounting period. Periods and migrated data follow it. Once the company has accounting periods, changing the accounting year is done through a transitional period.",
       "label": "Accounting year starts in",
       "month_10": "October",
