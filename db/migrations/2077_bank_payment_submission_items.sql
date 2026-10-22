@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS bank_payment_submission_items (
     instruction_identification VARCHAR(35) NOT NULL,
     amount_minor               BIGINT UNSIGNED NOT NULL,
     creditor_iban              VARCHAR(34) NOT NULL,
+    variable_symbol            VARCHAR(10) NULL,
     status                     ENUM('planned','sending','created','rejected','unknown') NOT NULL DEFAULT 'planned',
     provider_sign_id           VARCHAR(64) NULL,
     provider_hash              VARCHAR(128) NULL,

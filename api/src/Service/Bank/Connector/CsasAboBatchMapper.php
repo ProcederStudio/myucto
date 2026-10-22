@@ -31,6 +31,7 @@ final class CsasAboBatchMapper
         if (!hash_equals(strtoupper($expectedPayerIban), $batch['payer_iban'])) {
             throw new BankConnectorException('payment_order_account_mismatch', 'Účet plátce neodpovídá připojenému účtu České spořitelny.');
         }
+        self::assertNoDuplicates($batch['items']);
         $fingerprint = hash('sha256', $abo);
         $payments = [];
         foreach ($batch['items'] as $item) {
@@ -58,10 +59,32 @@ final class CsasAboBatchMapper
                 'instruction_identification' => $instruction,
                 'amount_minor' => $item['amount_minor'],
                 'creditor_iban' => $item['creditor_iban'],
+                'variable_symbol' => $item['variable_symbol'],
                 'body' => $body,
             ];
         }
         return ['exchange_identification' => 'MU' . substr($fingerprint, 0, 14), 'payments' => $payments];
+    }
+
+    /**
+     * Stejný účet příjemce, částka a symboly ve dvou řádcích banka v dávce odmítne
+     * (BATCH_PAYMENT_CONTAINS_DUPLICITIES), ale až ve chvíli, kdy jsou platby založené.
+     * Proto se odmítnou předem a chyba nese čísla řádků příkazu.
+     *
+     * @param list<array{line_no:int,creditor_iban:string,amount_minor:int,variable_symbol:string,constant_symbol:string,specific_symbol:string}> $items
+     */
+    private static function assertNoDuplicates(array $items): void
+    {
+        $groups = [];
+        foreach ($items as $item) {
+            $key = implode('|', [$item['creditor_iban'], $item['amount_minor'], $item['variable_symbol'], $item['constant_symbol'], $item['specific_symbol']]);
+            $groups[$key][] = $item['line_no'];
+        }
+        $duplicates = array_values(array_filter($groups, static fn (array $lines): bool => count($lines) > 1));
+        if ($duplicates !== []) {
+            throw new BankConnectorException('payment_order_duplicate_items',
+                'Příkaz obsahuje platby se stejným účtem, částkou a symboly.', details: ['duplicate_lines' => $duplicates]);
+        }
     }
 
     private function invalid(): BankConnectorException

@@ -72,7 +72,7 @@ final class CsasApiClient
         return in_array(self::SCOPE_PAYMENTS, preg_split('/\s+/', trim($scope)) ?: [], true);
     }
 
-    public function authorizationUrl(#[\SensitiveParameter] array $credentials, string $state, bool $payments = true): string
+    public function authorizationUrl(#[\SensitiveParameter] array $credentials, string $state, bool $payments = false): string
     {
         $this->assertEnvironment($credentials);
         if (!preg_match('/^[a-f0-9]{64}$/D', $state)) throw $this->invalid();

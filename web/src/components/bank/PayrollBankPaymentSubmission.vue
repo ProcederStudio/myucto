@@ -5,7 +5,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useDemoMode } from '@/composables/useDemoMode'
 import type { PayrollPaymentBatch } from '@/api/payrollPayments'
 import { payrollBankSubmissionsApi, type PayrollBankSubmissionState } from '@/api/payrollBankSubmissions'
-import { bankSignatureStatuses, trustedBankSigningUrl } from '@/api/bankConnections'
+import { bankSignatureStatuses, needsItemReview, trustedBankSigningUrl } from '@/api/bankConnections'
+import BankSubmissionItemsReview from './BankSubmissionItemsReview.vue'
 import { bankConnectionErrorMessage, bankSubmissionNote } from '@/utils/bankConnectionError'
 import { apiErrorCode } from '@/api/errors'
 import { formatDateTime, formatMoneyMinor } from '@/composables/useFormat'
@@ -32,8 +33,12 @@ const submitting = ref(false)
 const error = ref('')
 let version = 0
 const submission = computed(() => state.value?.submission ?? null)
-const awaitingSignature = computed(() => submission.value?.status === 'awaiting_signature')
-const bankStatusAvailable = computed(() => !!submission.value && bankSignatureStatuses.includes(submission.value.status))
+// Zahozenou dávku server už nepodepíše ani neověří; tlačítka se nenabízejí.
+const withdrawn = computed(() => submission.value?.error_code === 'payment_order_no_longer_payable')
+const awaitingSignature = computed(() => submission.value?.status === 'awaiting_signature' && !withdrawn.value)
+const bankStatusAvailable = computed(() => !!submission.value && bankSignatureStatuses.includes(submission.value.status) && !withdrawn.value)
+const reviewItems = computed(() => needsItemReview(submission.value))
+const loadItems = () => payrollBankSubmissionsApi.items(submission.value?.payroll_batch_id ?? 0)
 const interrupted = computed(() => submission.value?.status === 'creating')
 const note = computed(() => bankSubmissionNote(submission.value?.error_code, t, te))
 const blocked = computed(() => {
@@ -81,7 +86,7 @@ async function send(current: PayrollPaymentBatch, connectionId: number) {
     if (selectedId.value === current.id && state.value) state.value.submission = result.submission
   } catch (caught) {
     if (['bank_rate_limited', 'bank_connection_busy'].includes(apiErrorCode(caught))) uncertain.value.delete(current.id)
-    const safeError = { response: { data: { error: { code: apiErrorCode(caught) } } } }
+    const safeError = { response: { data: { error: { code: apiErrorCode(caught), duplicate_lines: (caught as any)?.response?.data?.error?.duplicate_lines } } } }
     error.value = bankConnectionErrorMessage(safeError, t, t('bank_connection.payment_unknown'))
   } finally {
     submitting.value = false
@@ -156,6 +161,7 @@ async function refreshFromBank() {
       <p v-if="state.submission.rejected_count != null">{{ t('bank_connection.payment_rejected_count', { count: state.submission.rejected_count }) }}</p>
       <p v-if="state.submission.submitted_at">{{ formatDateTime(state.submission.submitted_at) }}</p>
     </div>
+    <BankSubmissionItemsReview v-if="reviewItems && submission" :key="submission.id + submission.status" :load="loadItems" />
     <div class="flex flex-wrap gap-2">
       <button v-if="maySubmit && !state?.submission" type="button" :class="btnFilled('primary')" class="whitespace-nowrap" :disabled="!!blocked || loading || submitting" data-test="submit" @click="submit"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.send" /></svg>{{ t('bank_connection.payment_submit') }}</button>
       <button v-if="maySubmit && awaitingSignature" type="button" :class="btnFilled('primary')" class="whitespace-nowrap" :disabled="loading || submitting" data-test="sign" @click="sign"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.edit" /></svg>{{ t('bank_connection.payment_sign') }}</button>

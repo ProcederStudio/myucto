@@ -10,6 +10,7 @@ use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\Connector\BankConnectorOperationException;
 use MyInvoice\Service\Bank\Connector\BankPaymentSignatureService;
+use MyInvoice\Service\Bank\Connector\BankPaymentSubmissionHttp;
 use MyInvoice\Service\Payroll\PayrollModuleAccess;
 use MyInvoice\Service\Payroll\Payment\PayrollBankSubmissionService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -69,7 +70,7 @@ final class PayrollBankSubmissionAction
             return Json::ok($response, $this->signatures->startSignature($this->currentSupplierId($request), (int) $args['batchId'],
                 'payroll', $userId))->withHeader('Cache-Control', 'no-store');
         } catch (BankConnectorOperationException $e) {
-            return $this->failure($response, $e);
+            return $this->signatureFailure($response, $e);
         }
     }
 
@@ -81,7 +82,19 @@ final class PayrollBankSubmissionAction
             return Json::ok($response, ['submission' => $this->signatures->refresh($this->currentSupplierId($request),
                 (int) $args['batchId'], 'payroll')])->withHeader('Cache-Control', 'no-store');
         } catch (BankConnectorOperationException $e) {
-            return $this->failure($response, $e);
+            return $this->signatureFailure($response, $e);
+        }
+    }
+
+    /** Položky nejasného nebo přerušeného odeslání mzdové dávky ke kontrole v George. */
+    public function items(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->denied($request, $response, AccessLevel::READ)) return $denied;
+        try {
+            return Json::ok($response, ['items' => $this->signatures->items($this->currentSupplierId($request), (int) $args['batchId'], 'payroll')])
+                ->withHeader('Cache-Control', 'no-store');
+        } catch (BankConnectorOperationException $e) {
+            return $this->signatureFailure($response, $e);
         }
     }
 
@@ -97,6 +110,13 @@ final class PayrollBankSubmissionAction
     private function failure(Response $response, BankConnectorOperationException $e): Response
     {
         return Json::error($response, $e->errorCode, 'Mzdový příkaz se nepodařilo bezpečně předat bance.',
-            $e->errorCode === 'payment_order_not_found' ? 404 : 409);
+            $e->errorCode === 'payment_order_not_found' ? 404 : 409, $e->details);
+    }
+
+    /** Podpis a stav dávky mají stejné HTTP stavy jako u platebních příkazů. */
+    private function signatureFailure(Response $response, BankConnectorOperationException $e): Response
+    {
+        return Json::error($response, $e->errorCode, 'Mzdový příkaz se nepodařilo bezpečně předat bance.',
+            BankPaymentSubmissionHttp::forError($e->errorCode), $e->details);
     }
 }

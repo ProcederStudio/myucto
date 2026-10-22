@@ -59,6 +59,24 @@ export interface BankPaymentSubmission {
   submitted_at: string | null
 }
 
+/** Položka odeslání po jednotlivých platbách (ČS) ke kontrole v bankovnictví. */
+export interface BankPaymentSubmissionItem {
+  line_no: number
+  status: 'planned' | 'sending' | 'created' | 'rejected' | 'unknown'
+  amount: string
+  creditor_iban: string
+  creditor_account: string | null
+  variable_symbol: string | null
+  instruction_identification: string
+  provider_sign_id: string | null
+  instruction_status: string | null
+}
+
+/** Stav odeslání, u kterého může banka mít založené platby a uživatel je má zkontrolovat. */
+export function needsItemReview(submission: { status: string; provider?: string } | null): boolean {
+  return !!submission && submission.provider === 'csas' && ['unknown', 'creating'].includes(submission.status)
+}
+
 /** Adresa podpisu musí vést do banky (Česká spořitelna, v sandboxu portál Erste). */
 export function trustedBankSigningUrl(raw: string): URL | null {
   try {
@@ -86,4 +104,6 @@ export const bankConnectionsApi = {
     api.post<{ signing_url: string; submission: BankPaymentSubmission }>(`/purchase-invoices/payment-orders/${orderId}/submission/sign`).then(r => r.data),
   refreshFromBank: (orderId: number) =>
     api.post<{ submission: BankPaymentSubmission }>(`/purchase-invoices/payment-orders/${orderId}/submission/refresh`).then(r => r.data.submission),
+  items: (orderId: number) =>
+    api.get<{ items: BankPaymentSubmissionItem[] }>(`/purchase-invoices/payment-orders/${orderId}/submission/items`).then(r => r.data.items),
 }

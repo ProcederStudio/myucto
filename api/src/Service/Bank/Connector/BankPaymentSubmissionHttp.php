@@ -25,7 +25,7 @@ final class BankPaymentSubmissionHttp
         return match ($errorCode) {
             'payment_order_not_found', 'connection_not_found' => 404,
             'bank_connection_busy', 'bank_rate_limited', 'payment_signature_unavailable', 'payment_order_changed',
-            'payment_signature_expired' => 409,
+            'payment_signature_expired', 'payment_order_no_longer_payable' => 409,
             'submission_failed', 'payment_signature_failed', 'payment_status_unavailable' => 502,
             default => 422,
         };

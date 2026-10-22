@@ -62,7 +62,7 @@ final class CsasApiClientTest extends TestCase
         $readOnly = $this->client([], $history)->authorizationUrl($this->credentials(), str_repeat('b', 64), false);
         parse_str(parse_url($readOnly, PHP_URL_QUERY), $readOnlyQuery);
         self::assertSame('siblings.accounts', $readOnlyQuery['scope']);
-        $url = $this->client([], $history)->authorizationUrl($this->credentials(), str_repeat('b', 64));
+        $url = $this->client([], $history)->authorizationUrl($this->credentials(), str_repeat('b', 64), true);
         self::assertStringStartsWith('https://bezpecnost.csas.cz/api/psd2/fl/oidc/v1/auth?', $url);
         parse_str(parse_url($url, PHP_URL_QUERY), $query);
         self::assertSame('siblings.accounts siblings.payments', $query['scope']);

@@ -227,6 +227,7 @@ $sessionActions = [
     // Podpis dávky v bance je přesměrování prohlížeče; API token ho dokončit nemůže.
     'MyInvoice\\Action\\PurchaseInvoice\\BankPaymentOrderSubmissionAction::sign',
     'MyInvoice\\Action\\PurchaseInvoice\\BankPaymentOrderSubmissionAction::refresh',
+    'MyInvoice\\Action\\PurchaseInvoice\\BankPaymentOrderSubmissionAction::items',
     // Schvalování manažerem střediska (F6) — interní, session-only v akci.
     'MyInvoice\\Action\\PurchaseInvoice\\Approval\\PurchaseInvoiceApprovalAction::forInvoice',
     'MyInvoice\\Action\\PurchaseInvoice\\Approval\\PurchaseInvoiceApprovalAction::request',

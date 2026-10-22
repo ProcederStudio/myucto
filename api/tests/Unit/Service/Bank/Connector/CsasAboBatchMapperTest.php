@@ -54,13 +54,14 @@ final class CsasAboBatchMapperTest extends TestCase
     public function testIdentifiersAreDeterministicAndDifferBetweenOrders(): void
     {
         $mapper = new CsasAboBatchMapper();
-        $first = $mapper->map($this->abo([$this->item(), $this->item()], '000101'), self::PAYER_IBAN);
-        $again = $mapper->map($this->abo([$this->item(), $this->item()], '000101'), self::PAYER_IBAN);
-        $other = $mapper->map($this->abo([$this->item(), $this->item()], '000102'), self::PAYER_IBAN);
+        $items = [$this->item(), ['specific_symbol' => '78'] + $this->item()];
+        $first = $mapper->map($this->abo($items, '000101'), self::PAYER_IBAN);
+        $again = $mapper->map($this->abo($items, '000101'), self::PAYER_IBAN);
+        $other = $mapper->map($this->abo($items, '000102'), self::PAYER_IBAN);
 
         self::assertSame($first, $again, 'Stejné ABO dá po přerušení stejné položky.');
         $ids = array_column($first['payments'], 'instruction_identification');
-        self::assertCount(2, array_unique($ids), 'Shodné řádky v jedné dávce mají různé identifikátory.');
+        self::assertCount(2, array_unique($ids), 'Každý řádek dávky má vlastní identifikátor.');
         self::assertNotSame($ids, array_column($other['payments'], 'instruction_identification'));
         self::assertNotSame($first['exchange_identification'], $other['exchange_identification']);
     }
@@ -68,15 +69,32 @@ final class CsasAboBatchMapperTest extends TestCase
     public function testAcceptsFourHundredItemsAndRejectsMore(): void
     {
         $mapper = new CsasAboBatchMapper();
-        $small = ['account_number' => '1000000005', 'bank_code' => '0100', 'amount_minor' => 1, 'variable_symbol' => '1'];
-        self::assertCount(400, $mapper->map($this->abo(array_fill(0, 400, $small)), self::PAYER_IBAN)['payments']);
+        $small = static fn (int $count): array => array_map(static fn (int $i): array =>
+            ['account_number' => '1000000005', 'bank_code' => '0100', 'amount_minor' => 1, 'variable_symbol' => (string) $i], range(1, $count));
+        self::assertCount(400, $mapper->map($this->abo($small(400)), self::PAYER_IBAN)['payments']);
         try {
-            $mapper->map($this->abo(array_fill(0, 401, $small)), self::PAYER_IBAN);
+            $mapper->map($this->abo($small(401)), self::PAYER_IBAN);
             self::fail('Dávka nad 400 položek se do banky nesmí poslat.');
         } catch (BankConnectorException $e) {
             self::assertSame(BankConnectorException::INVALID_PAYMENT_ORDER, $e->errorCode);
             self::assertFalse($e->ambiguousPaymentOutcome);
         }
+    }
+
+    public function testDuplicateAccountAmountAndSymbolsAreRejectedWithLineNumbersBeforeAnyPayment(): void
+    {
+        $other = ['account_number' => '19-1000000005', 'bank_code' => '0300', 'amount_minor' => 500, 'variable_symbol' => '9'];
+        $items = [$this->item(), $other, ['message' => 'Jiná zpráva'] + $this->item(), $other];
+        try {
+            (new CsasAboBatchMapper())->map($this->abo($items), self::PAYER_IBAN);
+            self::fail('Shodné platby banka v dávce odmítne až po založení; musí se odmítnout předem.');
+        } catch (BankConnectorException $e) {
+            self::assertSame('payment_order_duplicate_items', $e->errorCode);
+            self::assertFalse($e->ambiguousPaymentOutcome);
+            self::assertSame(['duplicate_lines' => [[1, 3], [2, 4]]], $e->details);
+        }
+        $distinct = [$this->item(), ['specific_symbol' => '78'] + $this->item()];
+        self::assertCount(2, (new CsasAboBatchMapper())->map($this->abo($distinct), self::PAYER_IBAN)['payments'], 'Jiný symbol není duplicita.');
     }
 
     public function testRejectsTamperedTotalAndInvalidAccount(): void

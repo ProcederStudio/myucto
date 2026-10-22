@@ -36,6 +36,10 @@ final class BankPaymentSignatureServiceTest extends TestCase
     private array $items = [];
     private SigningConnector $connector;
     private OAuthClientFlow $flow;
+    /** @var list<array<string,mixed>> */
+    private array $logged = [];
+    /** @var list<array{id:int,supplier_id:int}> */
+    private array $due = [];
 
     protected function setUp(): void
     {
@@ -44,7 +48,7 @@ final class BankPaymentSignatureServiceTest extends TestCase
             'provider' => 'csas', 'status' => 'awaiting_signature', 'provider_reference' => 'SYNTHETIC-BATCH',
             'provider_sign_hash' => 'synthetic-batch-hash', 'provider_poll_id' => null, 'signature_state' => null,
             'age_seconds' => 60, 'polled_seconds_ago' => null, 'signature_requested_seconds_ago' => null,
-            'error_code' => null, 'accepted_count' => null, 'rejected_count' => null];
+            'error_code' => null, 'accepted_count' => null, 'rejected_count' => null, 'withdrawn' => false, 'days_to_execution' => 1];
         $this->items = [
             1 => ['line_no' => 1, 'status' => 'created', 'provider_sign_id' => 'SIGN-1', 'instruction_status' => 'ACTC'],
             2 => ['line_no' => 2, 'status' => 'created', 'provider_sign_id' => 'SIGN-2', 'instruction_status' => 'ACTC'],
@@ -118,7 +122,7 @@ final class BankPaymentSignatureServiceTest extends TestCase
         $this->connector->payments = ['SIGN-1' => 'ACSC', 'SIGN-2' => 'ACSP'];
 
         self::assertSame('signed', $this->service()->refresh(1, 501, 'purchase_invoice')['status']);
-        self::assertSame(1800, $this->state['next_poll_seconds']);
+        self::assertSame(12 * 3600, $this->state['next_poll_seconds'], 'Před splatností se ptáme jen dvakrát denně.');
         $this->state['polled_seconds_ago'] = 600;
         $this->connector->payments = ['SIGN-2' => 'ACSC'];
         self::assertSame('completed', $this->service()->refresh(1, 501, 'purchase_invoice')['status']);
@@ -209,8 +213,96 @@ final class BankPaymentSignatureServiceTest extends TestCase
         $flow = $this->createMock(OAuthClientFlow::class);
         $flow->method('claim')->willReturn(null);
         $location = $this->service($flow)->completeCallback($this->returnFromBank([]));
-        self::assertSame('/purchase-invoices/payment-orders?bank_sign=error', $location);
+        self::assertSame('/purchase-invoices/payment-orders?bank_order=501&bank_sign=error', $location);
         self::assertSame(0, $this->connector->polls);
+    }
+
+    public function testArchivedOrderOrDiscardedBatchCannotBeSignedAndStopsPolling(): void
+    {
+        $this->state['withdrawn'] = true;
+        $this->state['next_poll_seconds'] = 60;
+        $flow = $this->createMock(OAuthClientFlow::class);
+        $flow->expects(self::never())->method('store');
+        try {
+            $this->service($flow)->startSignature(1, 501, 'purchase_invoice', 7);
+            self::fail('Archivovaný příkaz se nesmí podepsat.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_no_longer_payable', $e->errorCode);
+            self::assertSame(409, \MyInvoice\Service\Bank\Connector\BankPaymentSubmissionHttp::forError($e->errorCode));
+        }
+        self::assertSame([], $this->connector->signatures, 'Banka nesmí vydat adresu podpisu.');
+        self::assertNull($this->state['next_poll_seconds']);
+        self::assertSame('payment_order_no_longer_payable', $this->state['error_code']);
+        self::assertSame([], $this->logged);
+    }
+
+    public function testArchivedOrderIsNotRefreshedAndCronStopsPolling(): void
+    {
+        $this->state['withdrawn'] = true;
+        $this->state['status'] = 'signed';
+        try {
+            $this->service()->refresh(1, 501, 'purchase_invoice');
+            self::fail('Archivovaný příkaz se neověřuje.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_no_longer_payable', $e->errorCode);
+        }
+        $this->state['next_poll_seconds'] = 60;
+        $this->due = [['id' => 901, 'supplier_id' => 1]];
+        self::assertSame(['polled' => 1, 'errors' => 0, 'calls' => 0], $this->service()->pollDue(['csas']));
+        self::assertNull($this->state['next_poll_seconds']);
+        self::assertSame([], $this->connector->statusQueries);
+    }
+
+    public function testSignatureStartIsWrittenToActivityLog(): void
+    {
+        $flow = $this->createMock(OAuthClientFlow::class);
+        $flow->method('authorize')->willReturn(new OAuthAuthorization(str_repeat('d', 64), null));
+        $flow->method('callbackUrl')->willReturn('https://ucto.example.test/api/oauth/callback');
+        $this->service($flow)->startSignature(1, 501, 'purchase_invoice', 7);
+        self::assertSame([['action' => 'bank.payment_signature_started', 'user' => 7, 'type' => 'payment_order', 'entity' => 501,
+            'payload' => ['submission_id' => 901, 'provider' => 'csas', 'connection_id' => 101]]], $this->logged);
+    }
+
+    public function testCronRespectsCallBudgetAndContinuesLater(): void
+    {
+        $this->state['status'] = 'signed';
+        $this->items = [];
+        foreach (range(1, 5) as $line) {
+            $this->items[$line] = ['line_no' => $line, 'status' => 'created', 'provider_sign_id' => 'SIGN-' . $line, 'instruction_status' => 'ACSP'];
+        }
+        $this->due = [['id' => 901, 'supplier_id' => 1]];
+        $result = $this->service()->pollDue(['csas'], 20, 3);
+        self::assertSame(3, $result['calls']);
+        self::assertCount(3, $this->connector->statusQueries, 'Na jeden běh cronu nejvýš rozpočet volání.');
+        self::assertSame(900, $this->state['next_poll_seconds'], 'Zbytek přijde na řadu brzy v dalším běhu.');
+    }
+
+    #[DataProvider('executionCadence')]
+    public function testSignedBatchIsPolledSparinglyAroundDueDate(int $daysToExecution, int $seconds): void
+    {
+        $this->state['status'] = 'signed';
+        $this->state['days_to_execution'] = $daysToExecution;
+        $this->connector->payments = ['SIGN-1' => 'ACSP', 'SIGN-2' => 'ACSP'];
+        $this->service()->refresh(1, 501, 'purchase_invoice');
+        self::assertSame($seconds, $this->state['next_poll_seconds']);
+    }
+
+    public static function executionCadence(): iterable
+    {
+        yield 'před splatností' => [3, 12 * 3600];
+        yield 'v den splatnosti' => [0, 2 * 3600];
+        yield 'krátce po splatnosti' => [-2, 2 * 3600];
+        yield 'dlouho po splatnosti' => [-10, 24 * 3600];
+    }
+
+    public function testFailedReturnOfPayrollSignatureGoesBackToPayroll(): void
+    {
+        $this->state['payment_order_id'] = null;
+        $this->state['payroll_batch_id'] = 77;
+        $flow = $this->createMock(OAuthClientFlow::class);
+        $flow->method('claim')->willReturn(null);
+        self::assertSame('/payroll/payments?bank_batch=77&bank_sign=error', $this->service($flow)->completeCallback($this->returnFromBank([])));
+        self::assertSame('/payroll/payments?bank_batch=77&bank_sign=error', $this->service()->failureLocation(['supplier_id' => 1, 'subject_id' => 901]));
     }
 
     private function service(?OAuthClientFlow $flow = null): BankPaymentSignatureService
@@ -236,7 +328,12 @@ final class BankPaymentSignatureServiceTest extends TestCase
             'connection' => ['currency_id' => 11]]);
         $calls = $this->createMock(BankConnectorCallGuard::class);
         $calls->method('withConnectionLock')->willReturnCallback(static fn (int $s, int $c, callable $cb): mixed => $cb());
-        return new BankPaymentSignatureService($repository, $engine, $calls, $flow ?? $this->createMock(OAuthClientFlow::class));
+        $repository->method('dueForPolling')->willReturnCallback(fn (): array => $this->due);
+        $activity = $this->createMock(\MyInvoice\Service\ActivityLogger::class);
+        $activity->method('log')->willReturnCallback(function (string $action, ?int $user, ?string $type, ?int $entity, ?array $payload, ...$rest): void {
+            $this->logged[] = compact('action', 'user', 'type', 'entity', 'payload');
+        });
+        return new BankPaymentSignatureService($repository, $engine, $calls, $flow ?? $this->createMock(OAuthClientFlow::class), $activity);
     }
 
     private function session(array $secret): OAuthSession

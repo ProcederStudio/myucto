@@ -261,6 +261,84 @@ final class BankPaymentOrderSubmissionServiceTest extends TestCase
         yield 'EUR položka' => [['payee_account_number' => '1000000005', 'payee_bank_code' => '0100', 'payee_iban' => null, 'currency' => 'EUR']];
     }
 
+    public function testArchivedOrderIsRejectedBeforeAnyAttempt(): void
+    {
+        $connector = new SubmissionConnector();
+        $h = $this->readyHarness($connector);
+        $this->executeCredentialCallback($h['calls']);
+        $orders = $this->createMock(PaymentOrderRepository::class);
+        $orders->method('find')->willReturn(['archived_at' => '2026-10-22 10:00:00'] + $this->order());
+        $orders->method('allItemsStillPayable')->willReturn(true);
+        $paymentOrders = $this->createMock(PaymentOrderService::class);
+        $paymentOrders->expects(self::never())->method('download');
+        $service = new BankPaymentOrderSubmissionService($h['engine'], $orders, $paymentOrders);
+        $h['submissions']->method('find')->willReturn(null);
+        $h['submissions']->expects(self::never())->method('begin');
+
+        try {
+            $service->submit(1, 501, 101, 7);
+            self::fail('Archivovaný příkaz nesmí do banky.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_no_longer_payable', $e->errorCode);
+        }
+        self::assertSame(0, $connector->submitCalls);
+    }
+
+    public function testInterruptedSubmissionOfArchivedOrderIsClosedWithoutBankCall(): void
+    {
+        $connector = new StagedSubmissionConnector();
+        $h = $this->readyHarness(new SubmissionConnector());
+        $h['registry'] = $this->createMock(BankConnectorRegistry::class);
+        $h['registry']->method('get')->willReturn($connector);
+        $h['registry']->method('supportsBankCode')->willReturn(true);
+        $engine = new BankPaymentSubmissionService($h['connections'], $h['submissions'], $h['registry'], $h['calls'], $h['secrets']);
+        $orders = $this->createMock(PaymentOrderRepository::class);
+        $orders->method('find')->willReturn(['archived_at' => '2026-10-22 10:00:00'] + $this->order());
+        $service = new BankPaymentOrderSubmissionService($engine, $orders, $this->createMock(PaymentOrderService::class));
+        $h['submissions']->method('find')->willReturn($this->submission('creating'));
+        $h['submissions']->expects(self::once())->method('fail')->with(1, 901, 'unknown', 'payment_order_no_longer_payable');
+
+        try {
+            $service->submit(1, 501, 101, 7);
+            self::fail('Přerušené odeslání archivovaného příkazu se nesmí dokončit.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_no_longer_payable', $e->errorCode);
+        }
+        self::assertSame(0, $connector->calls);
+    }
+
+    #[DataProvider('transientResumeCodes')]
+    public function testTransientPreflightFailureOnResumeKeepsCreating(string $code): void
+    {
+        $connector = new StagedSubmissionConnector();
+        $h = $this->readyHarness(new SubmissionConnector());
+        $h['registry'] = $this->createMock(BankConnectorRegistry::class);
+        $h['registry']->method('get')->willReturn($connector);
+        $h['registry']->method('supportsBankCode')->willReturn(true);
+        $connector->capabilityFailure = $code === 'submission_failed';
+        $secrets = $this->createMock(SecretEncryption::class);
+        $secrets->method('validateKey')->willReturn($code === 'encryption_key_unavailable' ? 'missing' : null);
+        $secrets->method('decryptFor')->willReturn('synthetic-token');
+        $engine = new BankPaymentSubmissionService($h['connections'], $h['submissions'], $h['registry'], $h['calls'], $secrets);
+        $service = new BankPaymentOrderSubmissionService($engine, $h['orders'], $h['paymentOrders']);
+        $h['submissions']->method('find')->willReturn($this->submission('creating'));
+        $h['submissions']->expects(self::never())->method('fail');
+
+        try {
+            $service->submit(1, 501, 101, 7);
+            self::fail('Přechodná chyba se vrací uživateli.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame($code, $e->errorCode);
+        }
+        self::assertSame(0, $connector->calls);
+    }
+
+    public static function transientResumeCodes(): iterable
+    {
+        yield 'šifrovací klíč' => ['encryption_key_unavailable'];
+        yield 'ověření schopnosti napojení' => ['submission_failed'];
+    }
+
     public function testInvalidAboBecomesValidationErrorInsteadOfServerError(): void
     {
         $connector = new SubmissionConnector();
@@ -397,6 +475,40 @@ final class BankPaymentOrderSubmissionServiceTest extends TestCase
             'created_at' => '2026-09-07 12:00:00',
             'submitted_at' => null,
         ];
+    }
+}
+
+final class StagedSubmissionConnector implements \MyInvoice\Service\Bank\Connector\StagedBankPaymentConnector, BankPaymentCapabilityProvider
+{
+    public int $calls = 0;
+    public bool $capabilityFailure = false;
+
+    public function provider(): string { return 'csas'; }
+
+    public function canSubmitPaymentOrder(#[\SensitiveParameter] string $credential): bool
+    {
+        if ($this->capabilityFailure) throw new BankConnectorException(BankConnectorException::REMOTE_UNAVAILABLE, 'synthetic');
+        return true;
+    }
+
+    public function downloadStatement(#[\SensitiveParameter] string $token, string $from, string $to): string
+    {
+        throw new \LogicException('Výpis se v testu odeslání nestahuje.');
+    }
+
+    public function assertPaymentOrder(#[\SensitiveParameter] string $token, #[\SensitiveParameter] string $abo): void {}
+
+    public function submitPaymentOrder(#[\SensitiveParameter] string $token, #[\SensitiveParameter] string $abo): array
+    {
+        $this->calls++;
+        throw new \LogicException('Bez evidence se neodesílá.');
+    }
+
+    public function submitStagedPaymentOrder(#[\SensitiveParameter] string $token, #[\SensitiveParameter] string $abo,
+        \MyInvoice\Service\Bank\Connector\BankPaymentSubmissionJournal $journal): array
+    {
+        $this->calls++;
+        throw new \LogicException('Pokračování nemělo dojít k bance.');
     }
 }
 

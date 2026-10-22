@@ -61,6 +61,11 @@ final class BankPaymentOrderSubmissionService
         ) {
             throw new BankConnectorOperationException('payment_order_account_mismatch');
         }
+        // Archivovaný příkaz uživatel potvrdil jako zrušený v bance a mohl ho nahradit novým;
+        // přerušené odeslání se u něj nesmí dokončit (stejný kód jako zahozená mzdová dávka).
+        if (($order['archived_at'] ?? null) !== null) {
+            throw new BankConnectorOperationException('payment_order_no_longer_payable');
+        }
         if ((bool) ($order['mark_paid'] ?? false)) {
             throw new BankConnectorOperationException('payment_order_mark_paid_forbidden');
         }

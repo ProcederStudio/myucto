@@ -73,7 +73,8 @@ final class CsasOnboardingService
             || (array_key_exists('payments', $input) && !is_bool($input['payments']))) {
             throw new BankConnectorOperationException('credential_invalid');
         }
-        $payments = $input['payments'] ?? true;
+        // Odesílání plateb je vědomá volba; bez ní souhlas žádá jen čtení účtů.
+        $payments = $input['payments'] ?? false;
         unset($input['payments']);
         if ($this->secrets->validateKey() !== null) throw new BankConnectorOperationException('encryption_key_unavailable');
         $credentials = [];
@@ -192,12 +193,12 @@ final class CsasOnboardingService
 
     /**
      * Accounts v3 vrací u účtu suitableScope; klíč PISP znamená, že účet smí platit přes
-     * Premium Payments. Když banka suitableScope vůbec nepošle, rozhodne až založení platby.
+     * Premium Payments. Bez suitableScope se účet za vhodný nepovažuje.
      */
     private static function suitableForPayments(array $remote): bool
     {
         $scope = $remote['suitableScope'] ?? null;
-        return !is_array($scope) || array_key_exists('PISP', $scope);
+        return is_array($scope) && array_key_exists('PISP', $scope);
     }
 
     private function account(int $supplierId, int $currencyId): array

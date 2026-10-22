@@ -116,13 +116,14 @@ final class BankPaymentOrderSubmissionRepository
             $values = [];
             $params = [];
             foreach ($items as $item) {
-                $values[] = '(?, ?, ?, ?, ?, ?)';
+                $values[] = '(?, ?, ?, ?, ?, ?, ?)';
+                $variable = (string) ($item['variable_symbol'] ?? '');
                 array_push($params, $submissionId, $supplierId, $item['line_no'], $item['instruction_identification'],
-                    $item['amount_minor'], $item['creditor_iban']);
+                    $item['amount_minor'], $item['creditor_iban'], $variable !== '' ? substr($variable, 0, 10) : null);
             }
             $pdo->prepare(
                 'INSERT INTO bank_payment_submission_items
-                    (submission_id, supplier_id, line_no, instruction_identification, amount_minor, creditor_iban)
+                    (submission_id, supplier_id, line_no, instruction_identification, amount_minor, creditor_iban, variable_symbol)
                  VALUES ' . implode(', ', $values)
             )->execute($params);
             $pdo->commit();
@@ -213,6 +214,50 @@ final class BankPaymentOrderSubmissionRepository
         return $result;
     }
 
+    /**
+     * Položky odeslání pro kontrolu uživatelem (nejasný nebo přerušený stav): co banka
+     * podle evidence založila nebo mohla založit. Bez hashe podpisu.
+     *
+     * @return list<array{line_no:int,status:string,amount:string,creditor_iban:string,creditor_account:?string,
+     *     variable_symbol:?string,instruction_identification:string,provider_sign_id:?string,instruction_status:?string}>
+     */
+    public function publicItems(int $supplierId, int $submissionId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT line_no, status, amount_minor, creditor_iban, variable_symbol, instruction_identification, provider_sign_id,
+                    instruction_status
+               FROM bank_payment_submission_items
+              WHERE supplier_id = ? AND submission_id = ?
+              ORDER BY line_no'
+        );
+        $stmt->execute([$supplierId, $submissionId]);
+        $result = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $iban = (string) $row['creditor_iban'];
+            $result[] = [
+                'line_no' => (int) $row['line_no'],
+                'status' => (string) $row['status'],
+                'amount' => number_format(((int) $row['amount_minor']) / 100, 2, '.', ''),
+                'creditor_iban' => $iban,
+                'creditor_account' => self::czechAccount($iban),
+                'variable_symbol' => $row['variable_symbol'] !== null ? (string) $row['variable_symbol'] : null,
+                'instruction_identification' => (string) $row['instruction_identification'],
+                'provider_sign_id' => $row['provider_sign_id'] !== null ? (string) $row['provider_sign_id'] : null,
+                'instruction_status' => $row['instruction_status'] !== null ? (string) $row['instruction_status'] : null,
+            ];
+        }
+        return $result;
+    }
+
+    /** České číslo účtu (předčíslí-číslo/kód banky) z tuzemského IBAN; jiný IBAN nevrací nic. */
+    private static function czechAccount(string $iban): ?string
+    {
+        if (!preg_match('/^CZ\d{2}(\d{4})(\d{6})(\d{10})$/D', $iban, $m)) return null;
+        $prefix = ltrim($m[2], '0');
+        $number = ltrim($m[3], '0');
+        return ($prefix !== '' ? $prefix . '-' : '') . ($number !== '' ? $number : '0') . '/' . $m[1];
+    }
+
     /** Výsledek dotazu na stav platby u banky (jen u založené položky). */
     public function recordItemStatus(int $supplierId, int $submissionId, int $lineNo, string $instructionStatus, ?string $changeInfo): void
     {
@@ -230,21 +275,33 @@ final class BankPaymentOrderSubmissionRepository
     public function signingState(int $supplierId, int $submissionId): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id, supplier_id, payment_order_id, payroll_batch_id, connection_id, provider, status, provider_reference,
-                    provider_sign_hash, provider_poll_id, signature_state,
-                    TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS age_seconds,
-                    TIMESTAMPDIFF(SECOND, last_polled_at, CURRENT_TIMESTAMP) AS polled_seconds_ago,
-                    TIMESTAMPDIFF(SECOND, signature_requested_at, CURRENT_TIMESTAMP) AS signature_requested_seconds_ago
-               FROM bank_payment_order_submissions WHERE supplier_id = ? AND id = ?'
+            // withdrawn: příkaz byl archivován po potvrzení zrušení v bance, nebo mzdová dávka
+            // zahozena. Takové odeslání se už nesmí podepsat ani dokončit (vedle náhradního
+            // příkazu by šlo o druhou platbu).
+            'SELECT s.id, s.supplier_id, s.payment_order_id, s.payroll_batch_id, s.connection_id, s.provider, s.status,
+                    s.provider_reference, s.provider_sign_hash, s.provider_poll_id, s.signature_state,
+                    TIMESTAMPDIFF(SECOND, s.created_at, CURRENT_TIMESTAMP) AS age_seconds,
+                    TIMESTAMPDIFF(SECOND, s.last_polled_at, CURRENT_TIMESTAMP) AS polled_seconds_ago,
+                    TIMESTAMPDIFF(SECOND, s.signature_requested_at, CURRENT_TIMESTAMP) AS signature_requested_seconds_ago,
+                    CASE WHEN s.payment_order_id IS NOT NULL THEN po.archived_at IS NOT NULL
+                         ELSE EXISTS (SELECT 1 FROM payroll_payment_batch_discards d
+                                       WHERE d.supplier_id = s.supplier_id AND d.batch_id = s.payroll_batch_id) END AS withdrawn,
+                    DATEDIFF(COALESCE(po.payment_date, pb.planned_payment_date), CURRENT_DATE) AS days_to_execution
+               FROM bank_payment_order_submissions s
+               LEFT JOIN payment_orders po ON po.supplier_id = s.supplier_id AND po.id = s.payment_order_id
+               LEFT JOIN payroll_payment_batches pb ON pb.supplier_id = s.supplier_id AND pb.id = s.payroll_batch_id
+              WHERE s.supplier_id = ? AND s.id = ?'
         );
         $stmt->execute([$supplierId, $submissionId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row === false) {
             return null;
         }
-        foreach (['id', 'supplier_id', 'connection_id', 'age_seconds', 'polled_seconds_ago', 'signature_requested_seconds_ago'] as $key) {
+        foreach (['id', 'supplier_id', 'connection_id', 'age_seconds', 'polled_seconds_ago', 'signature_requested_seconds_ago',
+            'payment_order_id', 'payroll_batch_id', 'days_to_execution'] as $key) {
             $row[$key] = $row[$key] !== null ? (int) $row[$key] : null;
         }
+        $row['withdrawn'] = (bool) $row['withdrawn'];
         return $row;
     }
 

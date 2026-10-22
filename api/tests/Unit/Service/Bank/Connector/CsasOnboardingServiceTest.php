@@ -103,7 +103,7 @@ final class CsasOnboardingServiceTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('grantedPayments')]
-    public function testConsentStoresGrantedScopeAndAccountSuitability(?bool $requested, string $granted, array $suitableScope, string $scope, bool $suitable): void
+    public function testConsentStoresGrantedScopeAndAccountSuitability(?bool $requested, string $granted, ?array $suitableScope, string $scope, bool $suitable): void
     {
         [$service, , $connections, $api, $vault, $secrets] = $this->setupService();
         $secret = ['api_key' => 'synthetic-key', 'client_id' => 'synthetic-client', 'client_secret' => 'synthetic-secret',
@@ -135,11 +135,12 @@ final class CsasOnboardingServiceTest extends TestCase
         yield 'platby vyžádané i udělené' => [true, 'siblings.accounts siblings.payments', ['AISP' => '', 'PISP' => ''], 'siblings.accounts siblings.payments', true];
         yield 'banka platby neudělila' => [true, 'siblings.accounts', ['AISP' => '', 'PISP' => ''], 'siblings.accounts', true];
         yield 'účet bez PISP' => [true, 'siblings.accounts siblings.payments', ['AISP' => ''], 'siblings.accounts siblings.payments', false];
+        yield 'banka suitableScope neposlala' => [true, 'siblings.accounts siblings.payments', null, 'siblings.accounts siblings.payments', false];
         yield 'jen čtení, i když banka vydá platby' => [false, 'siblings.accounts siblings.payments', ['AISP' => '', 'PISP' => ''], 'siblings.accounts', true];
         yield 'přihlášení z doby před volbou' => [null, 'siblings.accounts siblings.payments', ['AISP' => '', 'PISP' => ''], 'siblings.accounts', true];
     }
 
-    public function testStartPassesPaymentChoiceToAuthorizationAndRejectsNonBoolean(): void
+    public function testStartRequestsPaymentsOnlyOnExplicitChoiceAndRejectsNonBoolean(): void
     {
         [$service, , , $api, , $secrets] = $this->setupService();
         $secrets->method('validateKey')->willReturn(null);
@@ -149,7 +150,8 @@ final class CsasOnboardingServiceTest extends TestCase
         $this->flow->expects(self::once())->method('store')->with(self::anything(), 7, 11, 'bank', 'csas', 3, OAuthClientFlow::FLOW_REDIRECT,
             self::callback(static fn (array $secret): bool => $secret['payments_requested'] === false), 600);
         $input = ['api_key' => 'synthetic-key', 'client_id' => 'synthetic-client', 'client_secret' => 'synthetic-secret'];
-        $service->start(7, 3, 11, $input + ['payments' => false]);
+        // Bez výslovné volby souhlas platby nežádá.
+        $service->start(7, 3, 11, $input);
 
         $this->expectExceptionObject(new BankConnectorOperationException('credential_invalid'));
         $service->start(7, 3, 11, $input + ['payments' => 'yes']);

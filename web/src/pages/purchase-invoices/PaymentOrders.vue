@@ -29,6 +29,7 @@ import JournalSourceDrawer from '@/components/accounting/JournalSourceDrawer.vue
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import BankPaymentSubmission from '@/components/bank/BankPaymentSubmission.vue'
+import { bankConnectionsApi } from '@/api/bankConnections'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -64,7 +65,9 @@ async function deleteOrder(item: PaymentOrderListItem) {
       await paymentOrdersApi.delete(item.id)
     } catch (e) {
       if (apiErrorCode(e) !== 'payment_order_delete_protected') throw e
-      if (!window.confirm(t('bank_connection.archive_cancelled_confirm', { id: item.id }))) return
+      // API České spořitelny založené platby zrušit neumí; uživatel je musí zrušit v George.
+      const provider = await bankConnectionsApi.submission(item.id).then(s => s?.provider ?? '').catch(() => '')
+      if (!window.confirm(t(provider === 'csas' ? 'bank_connection.archive_cancelled_confirm_csas' : 'bank_connection.archive_cancelled_confirm', { id: item.id }))) return
       await paymentOrdersApi.archiveAfterBankCancellation(item.id)
       archived = true
     }

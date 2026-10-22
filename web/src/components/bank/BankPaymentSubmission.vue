@@ -3,7 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useDemoMode } from '@/composables/useDemoMode'
-import { bankConnectionsApi, bankSignatureStatuses, trustedBankSigningUrl, type BankConnection, type BankPaymentSubmission } from '@/api/bankConnections'
+import { bankConnectionsApi, bankSignatureStatuses, needsItemReview, trustedBankSigningUrl, type BankConnection, type BankPaymentSubmission } from '@/api/bankConnections'
+import BankSubmissionItemsReview from './BankSubmissionItemsReview.vue'
 import type { PaymentOrderListItem } from '@/api/paymentOrders'
 import { apiErrorCode, apiErrorMessage } from '@/api/errors'
 import { bankConnectionErrorMessage, bankSubmissionNote } from '@/utils/bankConnectionError'
@@ -38,8 +39,12 @@ const matchingConnections = computed(() => {
   }))
 })
 const selectedConnection = computed(() => matchingConnections.value.find(c => c.id === selectedConnectionId.value) ?? null)
-const awaitingSignature = computed(() => submission.value?.status === 'awaiting_signature')
-const bankStatusAvailable = computed(() => !!submission.value && bankSignatureStatuses.includes(submission.value.status))
+// Archivovaný příkaz server už nepodepíše ani neověří; tlačítka se nenabízejí.
+const withdrawn = computed(() => submission.value?.error_code === 'payment_order_no_longer_payable')
+const awaitingSignature = computed(() => submission.value?.status === 'awaiting_signature' && !withdrawn.value)
+const bankStatusAvailable = computed(() => !!submission.value && bankSignatureStatuses.includes(submission.value.status) && !withdrawn.value)
+const reviewItems = computed(() => needsItemReview(submission.value))
+const loadItems = () => bankConnectionsApi.items(submission.value?.payment_order_id ?? 0)
 const interrupted = computed(() => submission.value?.status === 'creating')
 const note = computed(() => bankSubmissionNote(submission.value?.error_code, t, te))
 const disabledReason = computed(() => {
@@ -167,6 +172,7 @@ async function refreshFromBank() {
       <p v-if="submission.submitted_at">{{ formatDateTime(submission.submitted_at) }}</p>
       <p v-if="submission.provider_reference" class="break-all">{{ t('bank_connection.payment_reference', { reference: submission.provider_reference }) }}</p>
     </div>
+    <BankSubmissionItemsReview v-if="reviewItems && submission" :key="submission.id + submission.status" :load="loadItems" />
     <div class="flex flex-wrap gap-2">
       <button v-if="canSubmit && !submission" type="button" :class="btnFilled('primary')" class="whitespace-nowrap" :disabled="!!disabledReason || loading || submitting" @click="submit"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.send" /></svg>{{ submitting ? t('common.loading') : t('bank_connection.payment_submit') }}</button>
       <button v-if="canSubmit && awaitingSignature" type="button" :class="btnFilled('primary')" class="whitespace-nowrap" :disabled="loading || submitting" data-test="sign" @click="sign"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.edit" /></svg>{{ t('bank_connection.payment_sign') }}</button>

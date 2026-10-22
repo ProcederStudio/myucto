@@ -12,7 +12,7 @@ namespace MyInvoice\Service\Bank\Connector;
 interface BankPaymentSubmissionJournal
 {
     /**
-     * @param list<array{line_no:int,instruction_identification:string,amount_minor:int,creditor_iban:string}> $items
+     * @param list<array{line_no:int,instruction_identification:string,amount_minor:int,creditor_iban:string,variable_symbol?:string}> $items
      * @return array<int,array{status:string,provider_sign_id:?string,provider_hash:?string}> evidence podle čísla řádku
      */
     public function plan(array $items): array;

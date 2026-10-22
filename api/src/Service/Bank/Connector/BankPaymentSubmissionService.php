@@ -13,6 +13,13 @@ final class BankPaymentSubmissionService
 {
     /** První dotaz na stav dávky čekající na podpis, pokud ho dřív nespustí návrat z banky. */
     private const FIRST_POLL_SECONDS = 15 * 60;
+    /** Chyby příkazu samotného: přerušené odeslání po nich už nejde dokončit. */
+    private const TERMINAL_RESUME_ERRORS = [
+        'payment_order_changed', 'payment_order_no_longer_payable', 'payment_order_not_found', 'payment_order_date_expired',
+        'payment_order_date_in_past', 'payment_order_items_not_payable', 'payment_order_not_domestic', 'payment_order_invalid',
+        'payment_order_account_mismatch', 'payment_order_mark_paid_forbidden', 'payment_order_unsupported', 'payment_export_invalid',
+        'payment_order_duplicate_items', 'payment_order_too_many_items',
+    ];
 
     public function __construct(
         private readonly BankConnectionRepository $connections,
@@ -83,8 +90,10 @@ final class BankPaymentSubmissionService
                         }
                     }
                 } catch (BankConnectorOperationException $e) {
-                    // Přerušené odeslání, které už nejde dokončit, se uzavře jako nejasné; nové nevznikne.
-                    if ($submissionId !== null) {
+                    // Přerušené odeslání, které už nejde dokončit (příkaz se změnil, byl archivován,
+                    // propadl), se uzavře jako nejasné; nové nevznikne. Přechodná chyba (souběh,
+                    // časová pojistka, šifrovací klíč) ho nechá ve stavu creating k dalšímu pokusu.
+                    if ($submissionId !== null && in_array($e->errorCode, self::TERMINAL_RESUME_ERRORS, true)) {
                         $this->submissions->fail($supplierId, $submissionId, 'unknown', $e->errorCode);
                     }
                     throw $e;
@@ -167,6 +176,12 @@ final class BankPaymentSubmissionService
                     if ($submissionId === null) {
                         throw $e;
                     }
+                    // Odeslání po položkách drží evidenci konzistentní (položka je „sending“ jen po dobu
+                    // HTTP volání), takže chyba služby ve stavu creating se dá bezpečně zopakovat.
+                    if ($connector instanceof StagedBankPaymentConnector
+                        && ($this->submissions->internalState($supplierId, $submissionId)['status'] ?? null) === 'creating') {
+                        throw $e;
+                    }
                     $this->submissions->fail($supplierId, $submissionId, 'unknown', $e->errorCode);
                 } catch (\Throwable) {
                     if ($submissionId === null) {
@@ -216,7 +231,7 @@ final class BankPaymentSubmissionService
             $connector->assertPaymentOrder($token, $abo);
         } catch (BankConnectorException $e) {
             throw new BankConnectorOperationException($e->errorCode === BankConnectorException::INVALID_PAYMENT_ORDER
-                ? 'payment_order_invalid' : $e->errorCode);
+                ? 'payment_order_invalid' : $e->errorCode, $e->details);
         }
     }
 

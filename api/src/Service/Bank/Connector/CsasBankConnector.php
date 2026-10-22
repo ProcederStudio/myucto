@@ -79,13 +79,14 @@ final class CsasBankConnector implements StructuredBankConnector, BankConnectorC
         if (!$this->canSubmitPaymentOrder($token)) {
             throw new BankConnectorException('csas_payments_scope_missing', 'Souhlas České spořitelny nezahrnuje platby.');
         }
-        $credentials = $this->vault->access($token);
+        $credentials = $this->vault->decode($token);
         $batch = $this->batchMapper->map($abo, (string) $credentials['account_iban']);
         $plan = $journal->plan(array_map(static fn (array $payment): array => [
             'line_no' => $payment['line_no'],
             'instruction_identification' => $payment['instruction_identification'],
             'amount_minor' => $payment['amount_minor'],
             'creditor_iban' => $payment['creditor_iban'],
+            'variable_symbol' => $payment['variable_symbol'],
         ], $batch['payments']));
 
         $signIds = [];
@@ -101,9 +102,12 @@ final class CsasBankConnector implements StructuredBankConnector, BankConnectorC
                 throw new BankConnectorException($status === 'rejected' ? BankConnectorException::PAYMENT_REJECTED : 'csas_payment_outcome_unknown',
                     'Stav položky odeslání vyžaduje ruční kontrolu.', $status !== 'rejected', null, count($signIds));
             }
+            // Obnova tokenu může skončit chybou (souběh, banka) ještě před odesláním platby;
+            // položka proto přejde do „sending“ až těsně před samotným HTTP voláním.
+            $access = $this->freshAccess($token);
             $journal->sending($line);
             try {
-                $created = $this->api->createPayment($this->vault->access($token), $payment['body']);
+                $created = $this->api->createPayment($access, $payment['body']);
             } catch (BankConnectorException $e) {
                 if ($e->ambiguousPaymentOutcome) {
                     $journal->unknown($line, $e->errorCode);
@@ -120,15 +124,29 @@ final class CsasBankConnector implements StructuredBankConnector, BankConnectorC
             $signIds[] = $created['sign_id'];
         }
 
+        $access = $this->freshAccess($token);
         $journal->batchSending();
         try {
-            $signed = $this->api->createBatch($this->vault->access($token), $batch['exchange_identification'], $signIds);
+            $signed = $this->api->createBatch($access, $batch['exchange_identification'], $signIds);
         } catch (BankConnectorException $e) {
             // Platby jsou založené a bez podpisu se neprovedou; dávku ale už nelze bezpečně zopakovat.
             throw new BankConnectorException($e->errorCode, 'Dávku České spořitelny nelze bezpečně založit.',
                 true, $e->remoteHttpStatus, count($signIds));
         }
         return ['accepted' => true, 'reference' => $signed['sign_id'], 'status' => 'awaiting_signature', 'sign_hash' => $signed['hash']];
+    }
+
+    /**
+     * Platný přístup před dalším krokem odeslání. Selhání obnovy tokenu nic neodeslalo a evidence
+     * zůstává konzistentní, proto jde o chybu služby: odeslání zůstane ve stavu creating a lze v něm pokračovat.
+     */
+    private function freshAccess(#[\SensitiveParameter] string $token): array
+    {
+        try {
+            return $this->vault->access($token);
+        } catch (BankConnectorException $e) {
+            throw new BankConnectorOperationException($e->errorCode);
+        }
     }
 
     public function startSignature(#[\SensitiveParameter] string $token, string $batchSignId, string $batchHash, string $callbackUri): array

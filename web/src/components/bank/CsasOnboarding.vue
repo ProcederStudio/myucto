@@ -18,8 +18,8 @@ const sandbox = ref(false)
 const ready = ref(false)
 const busy = ref(false)
 const error = ref(false)
-// Souhlas žádá i zakládání plateb (siblings.payments); vypnutím zůstane připojení jen ke čtení.
-const payments = ref(true)
+// Zakládání plateb (siblings.payments) je vědomá volba; bez ní zůstane připojení jen ke čtení.
+const payments = ref(false)
 type PaymentSubmissionState = 'available' | 'authorization_scope_missing' | 'account_not_suitable' | null
 const paymentSubmission = ref<PaymentSubmissionState>(null)
 let disposed = false

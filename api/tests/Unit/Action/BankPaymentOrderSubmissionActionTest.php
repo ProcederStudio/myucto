@@ -80,6 +80,28 @@ final class BankPaymentOrderSubmissionActionTest extends TestCase
         }
     }
 
+    public function testPayrollSignatureErrorsUseSameHttpStatusesAsPaymentOrders(): void
+    {
+        $payroll = (new \ReflectionClass(\MyInvoice\Action\Payroll\PayrollBankSubmissionAction::class))->newInstanceWithoutConstructor();
+        $failure = new \ReflectionMethod($payroll, 'signatureFailure');
+        foreach (['payment_signature_failed' => 502, 'payment_status_unavailable' => 502, 'payment_order_no_longer_payable' => 409,
+            'payment_signature_unavailable' => 409, 'csas_payments_scope_missing' => 422, 'payment_order_not_found' => 404] as $code => $http) {
+            $response = $failure->invoke($payroll, new Response(), new \MyInvoice\Service\Bank\Connector\BankConnectorOperationException($code));
+            self::assertSame($http, $response->getStatusCode(), $code);
+            self::assertSame(\MyInvoice\Service\Bank\Connector\BankPaymentSubmissionHttp::forError($code), $response->getStatusCode(), $code);
+        }
+    }
+
+    public function testDuplicateLinesAreReturnedToTheClient(): void
+    {
+        $action = (new \ReflectionClass(BankPaymentOrderSubmissionAction::class))->newInstanceWithoutConstructor();
+        $failure = new \ReflectionMethod($action, 'failure');
+        $response = $failure->invoke($action, new Response(),
+            new \MyInvoice\Service\Bank\Connector\BankConnectorOperationException('payment_order_duplicate_items', ['duplicate_lines' => [[1, 3]]]));
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame([[1, 3]], json_decode((string) $response->getBody(), true)['error']['duplicate_lines'] ?? null);
+    }
+
     private function action(string $finalStatus): BankPaymentOrderSubmissionAction
     {
         $connections = $this->createMock(BankConnectionRepository::class);
@@ -141,7 +163,7 @@ final class BankPaymentOrderSubmissionActionTest extends TestCase
         return new BankPaymentOrderSubmissionAction(
             new BankPaymentOrderSubmissionService($engine, $orders, $paymentOrders),
             new \MyInvoice\Service\Bank\Connector\BankPaymentSignatureService($submissions, $engine, $calls,
-                $this->createMock(\MyInvoice\Service\OAuth\OAuthClientFlow::class)),
+                $this->createMock(\MyInvoice\Service\OAuth\OAuthClientFlow::class), $this->createMock(\MyInvoice\Service\ActivityLogger::class)),
         );
     }
 

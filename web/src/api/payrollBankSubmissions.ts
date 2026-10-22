@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { BankPaymentSubmissionStatus } from './bankConnections'
+import type { BankPaymentSubmissionItem, BankPaymentSubmissionStatus } from './bankConnections'
 
 export interface PayrollBankSubmission {
   id: number
@@ -25,4 +25,5 @@ export const payrollBankSubmissionsApi = {
   submit: (batchId: number, connectionId: number) => api.post<{ created: boolean; submission: PayrollBankSubmission }>(`/payroll/payments/batches/${batchId}/bank-submission`, { connection_id: connectionId }).then(response => response.data),
   sign: (batchId: number) => api.post<{ signing_url: string; submission: PayrollBankSubmission }>(`/payroll/payments/batches/${batchId}/bank-submission/sign`).then(response => response.data),
   refreshFromBank: (batchId: number) => api.post<{ submission: PayrollBankSubmission }>(`/payroll/payments/batches/${batchId}/bank-submission/refresh`).then(response => response.data.submission),
+  items: (batchId: number) => api.get<{ items: BankPaymentSubmissionItem[] }>(`/payroll/payments/batches/${batchId}/bank-submission/items`).then(response => response.data.items),
 }

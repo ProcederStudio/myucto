@@ -40,7 +40,21 @@ export function bankSubmissionNote(code: string | null | undefined, t: (key: str
   return te(key) ? t(key) : ''
 }
 
-export function bankConnectionErrorMessage(error: unknown, t: (key: string) => string, fallback: string, provider = ''): string {
+/** Čísla řádků duplicitních plateb z chyby `payment_order_duplicate_items` jako „1 a 3; 2 a 4“. */
+function duplicateLines(error: unknown): string {
+  const groups = (error as any)?.response?.data?.error?.duplicate_lines
+  if (!Array.isArray(groups)) return ''
+  return groups
+    .filter((group): group is number[] => Array.isArray(group) && group.every(line => Number.isInteger(line) && line > 0))
+    .map(group => group.join(', '))
+    .join('; ')
+}
+
+export function bankConnectionErrorMessage(error: unknown, t: (key: string, params?: Record<string, unknown>) => string, fallback: string, provider = ''): string {
+  if (apiErrorCode(error) === 'payment_order_duplicate_items') {
+    const lines = duplicateLines(error)
+    return lines ? t('bank_connection.error_duplicate_items_lines', { lines }) : t('bank_connection.error_duplicate_items')
+  }
   const keys: Record<string, string> = {
     certificate_invalid: 'certificate', certificate_required: 'certificate', certificate_runtime_unavailable: 'certificate_runtime',
     csob_files_pending: 'csob_pending', csob_file_failed: 'csob_pending', csob_download_timeout: 'csob_pending',
@@ -58,7 +72,7 @@ export function bankConnectionErrorMessage(error: unknown, t: (key: string) => s
     encryption_key_unavailable: 'encryption', credential_unavailable: 'encryption', credential_format_invalid: 'encryption',
     statement_account_mismatch: 'account', provider_account_mismatch: 'account', account_changed_revalidation_required: 'account',
     statement_too_large: 'period', period_invalid: 'period', period_incomplete: 'period',
-    payment_order_items_not_payable: 'payable', payment_order_date_expired: 'date',
+    payment_order_items_not_payable: 'payable', payment_order_date_expired: 'date', payment_order_no_longer_payable: 'no_longer_payable',
     payment_submission_unavailable: 'payment_unavailable',
     payment_order_not_domestic: 'not_domestic', payment_order_invalid: 'order_invalid', payment_order_changed: 'order_changed',
     payment_order_too_many_items: 'too_many_items', payment_order_account_mismatch: 'account',

@@ -106,6 +106,22 @@ final class BankPaymentOrderSubmissionAction
         return Json::ok($response, ['submission' => $submission])->withHeader('Cache-Control', 'no-store');
     }
 
+    /** Položky nejasného nebo přerušeného odeslání ke kontrole v George (částka, účet, VS, identifikátor banky). */
+    public function items(Request $request, Response $response, array $args): Response
+    {
+        if (!RequestAuthorization::isSessionAuth($request)
+            || !RequestAuthorization::allows($request, 'purchase_invoices.payment_orders', AccessLevel::READ)
+            || !RequestAuthorization::allows($request, 'settings.bank_accounts', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden', 'Pro tuto akci nemáš oprávnění.', 403);
+        }
+        try {
+            $items = $this->signatures->items(SupplierGuard::currentId($request), (int) ($args['orderId'] ?? 0), 'purchase_invoice');
+        } catch (BankConnectorOperationException $e) {
+            return $this->failure($response, $e);
+        }
+        return Json::ok($response, ['items' => $items])->withHeader('Cache-Control', 'no-store');
+    }
+
     private function mayWrite(Request $request): bool
     {
         return RequestAuthorization::allows($request, 'purchase_invoices.payment_orders', AccessLevel::WRITE)
@@ -119,6 +135,7 @@ final class BankPaymentOrderSubmissionAction
             $e->errorCode,
             'Platební příkaz nelze bezpečně předat bance.',
             BankPaymentSubmissionHttp::forError($e->errorCode),
+            $e->details,
         );
     }
 }

@@ -607,7 +607,18 @@
     "error_signature_failed": "Banka podpis nezahájila. Zkuste to znovu za chvíli.",
     "error_signature_expired": "Dávka už propadla. Připravte nový příkaz.",
     "error_status_unavailable": "Banka stav nevrátila. Další ověření proběhne automaticky.",
-    "error_app_url": "Správce musí nastavit veřejnou adresu aplikace (app.url) s https, aby se šlo vrátit z banky."
+    "error_app_url": "Správce musí nastavit veřejnou adresu aplikace (app.url) s https, aby se šlo vrátit z banky.",
+    "error_no_longer_payable": "Příkaz je archivovaný nebo dávka zahozená, proto ji už nelze podepsat ani dokončit. Platby čekající na podpis zrušte v bankovnictví ručně.",
+    "error_duplicate_items": "Příkaz obsahuje platby se stejným účtem příjemce, částkou i symboly. Banka by dávku odmítla až po založení plateb; sloučte je do jedné platby nebo je odlište symbolem.",
+    "error_duplicate_items_lines": "Příkaz obsahuje platby se stejným účtem příjemce, částkou i symboly (řádky {lines}). Banka by dávku odmítla až po založení plateb; sloučte je do jedné platby nebo je odlište například specifickým symbolem a připravte příkaz znovu.",
+    "payment_note_payment_order_no_longer_payable": "Příkaz je archivovaný nebo dávka zahozená. Dávku už nepodepisujte a platby čekající na podpis zrušte v George.",
+    "archive_cancelled_confirm_csas": "Příkaz #{id} byl předán České spořitelně a nelze jej trvale smazat. MyÚčto u ČS založené platby zrušit neumí: platby a dávku čekající na podpis zrušte v George ručně. Potvrzuji, že jsem je v George zrušil a žádná z nich nebude provedena. Archivovat příkaz? Archivovaný příkaz už MyÚčto nepodepíše ani nedokončí.",
+    "payment_items_review": "Banka mohla založit tyto platby. Než připravíte nový příkaz, zkontrolujte je v George a nepotřebné zrušte; bez podpisu se neprovedou a po 30 dnech propadnou.",
+    "payment_items_failed": "Seznam plateb se nepodařilo načíst. Zkontrolujte platby čekající na podpis přímo v George.",
+    "payment_items_none": "Banka podle evidence žádnou platbu nezaložila.",
+    "payment_item_vs": "VS {vs}",
+    "payment_item_bank_id": "ID v bance {id}",
+    "payment_item_unconfirmed": "Založení banka nepotvrdila, ověřte v George"
   },
   "theme": {
     "switch_to_light": "Přepnout na světlý režim",
@@ -2833,6 +2844,7 @@
         "handover_downloaded": "Dávka už byla stažena.",
         "handover_submitted": "Dávka už byla předána do banky.",
         "handover_body": "Pokud jste ji v bankovnictví neautorizovali, zrušte ji tam ručně (například u CREDITAS: Transakce → Zadané → Hromadné), jinak hrozí dvojí platba.",
+        "handover_csas": "U České spořitelny MyÚčto založené platby zrušit neumí. Platby a dávku čekající na podpis zrušte v George ručně; zahozenou dávku už MyÚčto nepodepíše ani nedokončí.",
         "handover_confirm": "Potvrzuji, že příkaz v bankovnictví není autorizovaný, nebo jsem ho tam zrušil(a).",
         "confirm_required": "Nejprve potvrďte, že příkaz v bankovnictví není autorizovaný.",
         "same_date": "Dávka už má toto datum úhrady.",

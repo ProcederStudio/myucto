@@ -67,7 +67,7 @@ final class BankOAuthCallbackHandler implements OAuthCallbackHandler
         return match ($session['provider'] ?? null) {
             CsasOnboardingService::PROVIDER => self::csasLocation('error'),
             KbPlusOnboardingService::PROVIDER => self::kbPlusLocation($this->baseUrl(), 'error', (int) ($session['subject_id'] ?? 0), $errorCode),
-            BankPaymentSignatureService::OAUTH_PROVIDER => '/purchase-invoices/payment-orders?' . http_build_query(['bank_sign' => 'error']),
+            BankPaymentSignatureService::OAUTH_PROVIDER => $this->signatures->failureLocation($session),
             default => '/bank?' . http_build_query(['tab' => 'accounts']),
         };
     }

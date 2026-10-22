@@ -183,6 +183,62 @@ final class CsasPaymentSubmissionResumeTest extends TestCase
         self::assertSame('unknown', $this->repository->find($this->supplierId, $this->orderId)['status']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('transientResumeFailures')]
+    public function testTransientFailureOnResumeKeepsSubmissionResumable(string $code): void
+    {
+        $this->interrupted(static function (StoredBankPaymentSubmissionJournal $journal): void {
+            $journal->sending(1);
+            $journal->created(1, 'SYNTHETIC-SIGN-1', 'synthetic-hash-1', 'ACTC');
+        });
+        try {
+            $this->engine($code)->submit($this->supplierId, $this->orderId, $this->connectionId, null, fn (): string => $this->abo());
+            self::fail('Přechodná chyba se musí vrátit uživateli.');
+        } catch (\MyInvoice\Service\Bank\Connector\BankConnectorOperationException $e) {
+            self::assertSame($code, $e->errorCode);
+        }
+        self::assertSame('creating', $this->repository->find($this->supplierId, $this->orderId)['status'], 'Odeslání zůstává k pokračování.');
+        self::assertSame([], $this->calls);
+        $result = $this->engine()->submit($this->supplierId, $this->orderId, $this->connectionId, null, fn (): string => $this->abo());
+        self::assertSame('awaiting_signature', $result['submission']['status']);
+        self::assertSame(['payment', 'batch'], $this->calls);
+    }
+
+    public static function transientResumeFailures(): iterable
+    {
+        yield 'časová pojistka po stažení výpisů' => ['bank_rate_limited'];
+        yield 'souběžná operace na napojení' => ['bank_connection_busy'];
+    }
+
+    public function testTokenRefreshFailureBeforeSendingLeavesItemPlannedAndResumable(): void
+    {
+        // Druhé získání tokenu (před druhou platbou) skončí souběhem; nic se neodeslalo.
+        try {
+            $this->engine(busyOnAccess: 2)->submit($this->supplierId, $this->orderId, $this->connectionId, null, fn (): string => $this->abo());
+        } catch (\MyInvoice\Service\Bank\Connector\BankConnectorOperationException $e) {
+            self::assertSame('bank_connection_busy', $e->errorCode);
+        }
+        self::assertSame(['payment'], $this->calls);
+        $submissionId = (int) $this->repository->find($this->supplierId, $this->orderId)['id'];
+        self::assertSame(['created', 'planned'], array_column($this->repository->items($this->supplierId, $submissionId), 'status'),
+            'Položka bez odeslaného požadavku nesmí skončit jako nejasná.');
+        self::assertSame('creating', $this->repository->find($this->supplierId, $this->orderId)['status']);
+    }
+
+    public function testItemsForManualCheckShowAccountAmountSymbolAndBankIdentifier(): void
+    {
+        $submissionId = $this->interrupted(static function (StoredBankPaymentSubmissionJournal $journal): void {
+            $journal->sending(1);
+            $journal->created(1, 'SYNTHETIC-SIGN-1', 'synthetic-hash-1', 'ACTC');
+            $journal->sending(2);
+        });
+        $items = $this->repository->publicItems($this->supplierId, $submissionId);
+        self::assertSame(['line_no' => 1, 'status' => 'created', 'amount' => '100.00', 'creditor_account' => '1000000005/0100',
+            'variable_symbol' => '2026001', 'provider_sign_id' => 'SYNTHETIC-SIGN-1'],
+            array_intersect_key($items[0], array_flip(['line_no', 'status', 'amount', 'creditor_account', 'variable_symbol', 'provider_sign_id'])));
+        self::assertSame(['sending', '19-1000000005/0300', null], [$items[1]['status'], $items[1]['creditor_account'], $items[1]['provider_sign_id']]);
+        self::assertArrayNotHasKey('provider_hash', $items[0]);
+    }
+
     public function testItemTransitionsAreGuardedAgainstReplay(): void
     {
         $submissionId = $this->begin();
@@ -229,6 +285,7 @@ final class CsasPaymentSubmissionResumeTest extends TestCase
         return array_map(static fn (array $payment): array => [
             'line_no' => $payment['line_no'], 'instruction_identification' => $payment['instruction_identification'],
             'amount_minor' => $payment['amount_minor'], 'creditor_iban' => $payment['creditor_iban'],
+            'variable_symbol' => $payment['variable_symbol'],
         ], $batch['payments']);
     }
 
@@ -249,7 +306,11 @@ final class CsasPaymentSubmissionResumeTest extends TestCase
         ]);
     }
 
-    private function engine(): BankPaymentSubmissionService
+    /**
+     * @param ?string $cooldown chyba časové pojistky volání (sdílená se stahováním výpisů)
+     * @param ?int $busyOnAccess kolikáté získání tokenu skončí souběhem (obnova pod zámkem napojení)
+     */
+    private function engine(?string $cooldown = null, ?int $busyOnAccess = null): BankPaymentSubmissionService
     {
         $credentials = ['version' => 1, 'supplier_id' => $this->supplierId, 'connection_id' => $this->connectionId,
             'api_key' => 'synthetic-key', 'client_id' => 'synthetic-client', 'client_secret' => 'synthetic-secret',
@@ -259,7 +320,11 @@ final class CsasPaymentSubmissionResumeTest extends TestCase
             'environment' => 'production', 'scope' => 'siblings.accounts siblings.payments', 'payment_account_suitable' => true];
         $vault = $this->createStub(CsasCredentialVault::class);
         $vault->method('decode')->willReturn($credentials);
-        $vault->method('access')->willReturn($credentials);
+        $accesses = 0;
+        $vault->method('access')->willReturnCallback(static function () use ($credentials, $busyOnAccess, &$accesses): array {
+            if (++$accesses === $busyOnAccess) throw new \MyInvoice\Service\Bank\Connector\BankConnectorOperationException('bank_connection_busy');
+            return $credentials;
+        });
         $api = $this->createStub(CsasApiClient::class);
         $api->method('createPayment')->willReturnCallback(function (): array {
             $this->calls[] = 'payment';
@@ -280,7 +345,10 @@ final class CsasPaymentSubmissionResumeTest extends TestCase
         ]);
         $calls = $this->createStub(BankConnectorCallGuard::class);
         $calls->method('withConnectionLock')->willReturnCallback(static fn (int $s, int $c, callable $cb): mixed => $cb());
-        $calls->method('call')->willReturnCallback(static fn (string $t, callable $cb): mixed => $cb());
+        $calls->method('call')->willReturnCallback(static function (string $t, callable $cb) use ($cooldown): mixed {
+            if ($cooldown !== null) throw new \MyInvoice\Service\Bank\Connector\BankConnectorOperationException($cooldown);
+            return $cb();
+        });
         $secrets = $this->createStub(SecretEncryption::class);
         $secrets->method('validateKey')->willReturn(null);
         $secrets->method('decryptFor')->willReturn('synthetic-token');
