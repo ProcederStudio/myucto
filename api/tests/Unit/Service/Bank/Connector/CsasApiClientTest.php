@@ -108,6 +108,35 @@ final class CsasApiClientTest extends TestCase
         self::assertSame([], $client->transactions($this->credentials(), '2026-01-01', '2026-01-03'));
     }
 
+    /** Chunkovaná odpověď může před koncem streamu vrátit prázdné čtení; to není vadná odpověď. */
+    public function testToleratesTransientEmptyReadsBeforeEndOfStream(): void
+    {
+        $inner = \GuzzleHttp\Psr7\Utils::streamFor(json_encode(['pageNumber' => 0, 'pageCount' => 0, 'pageSize' => 0, 'transactions' => []]));
+        $empty = true;
+        $stream = \GuzzleHttp\Psr7\FnStream::decorate($inner, [
+            'read' => static function (int $length) use ($inner, &$empty): string {
+                $empty = !$empty;
+                return $empty ? '' : $inner->read(min($length, 10));
+            },
+        ]);
+        $history = [];
+        $client = $this->client([new Response(200, ['Transfer-Encoding' => 'chunked'], $stream)], $history);
+        self::assertSame([], $client->transactions($this->credentials(), '2026-01-01', '2026-01-03'));
+    }
+
+    public function testStalledStreamIsInvalidResponse(): void
+    {
+        $inner = \GuzzleHttp\Psr7\Utils::streamFor('{"pageNumber":0');
+        $stream = \GuzzleHttp\Psr7\FnStream::decorate($inner, [
+            'read' => static fn (int $length): string => '',
+            'eof' => static fn (): bool => false,
+        ]);
+        $history = [];
+        $client = $this->client([new Response(200, [], $stream)], $history);
+        $this->expectException(BankConnectorException::class);
+        $client->transactions($this->credentials(), '2026-01-01', '2026-01-03');
+    }
+
     public function testRejectsZeroPageSizeWithNonEmptyPagination(): void
     {
         $history = [];

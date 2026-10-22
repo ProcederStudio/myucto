@@ -9,6 +9,7 @@ use GuzzleHttp\ClientInterface;
 final class CsasApiClient
 {
     private const MAX_BYTES = 2 * 1024 * 1024;
+    private const MAX_EMPTY_READS = 200;
 
     public function __construct(private readonly ClientInterface $http, private readonly bool $sandbox = false,
         private readonly \Psr\Log\LoggerInterface $logger = new \Psr\Log\NullLogger()) {}
@@ -190,9 +191,17 @@ final class CsasApiClient
         try {
             $stream = $response->getBody();
             $body = '';
+            // Chunkovaná odpověď vrací mezi kusy prázdné čtení ještě před koncem streamu
+            // (stejně jako u Fio). Vadná je až odpověď, která se dlouho nehne.
+            $emptyStreak = 0;
             while (!$stream->eof() && strlen($body) <= self::MAX_BYTES) {
                 $chunk = $stream->read(min(8192, self::MAX_BYTES + 1 - strlen($body)));
-                if ($chunk === '') throw new \RuntimeException();
+                if ($chunk === '') {
+                    if (++$emptyStreak > self::MAX_EMPTY_READS) throw new \RuntimeException();
+                    usleep(10_000);
+                    continue;
+                }
+                $emptyStreak = 0;
                 $body .= $chunk;
             }
             $bytes += strlen($body);
