@@ -27235,8 +27235,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BankPaymentOrderSubmissionRead'
-      description: Předání příkazu vyžaduje také právo settings.bank_accounts. Přijatý příkaz čeká na autorizaci v bance; nejistý výsledek
-        se neopakuje. Vyžaduje scope read_write.
+      description: Předání příkazu vyžaduje také právo settings.bank_accounts. Přijatý příkaz (stav accepted_awaiting_authorization
+        nebo import_started) vrací 202 a čeká na autorizaci v bance; nejistý výsledek se neopakuje. Vyžaduje scope read_write.
       requestBody:
         required: true
         content:

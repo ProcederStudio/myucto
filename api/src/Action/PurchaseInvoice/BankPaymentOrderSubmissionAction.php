@@ -79,7 +79,7 @@ final class BankPaymentOrderSubmissionAction
         }
 
         $status = match ($result['submission']['status']) {
-            'accepted_awaiting_authorization' => 202,
+            'accepted_awaiting_authorization', 'import_started' => 202,
             'rejected' => 422,
             default => 502,
         };
