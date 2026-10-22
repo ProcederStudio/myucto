@@ -27471,6 +27471,8 @@
     "azure_api_version": "API version",
     "openai_base_url": "Base URL (optional)",
     "openai_base_url_hint": "For EU data residency set https://eu.api.openai.com (project data residency).",
+    "anthropic_workspace_id": "Workspace ID",
+    "anthropic_workspace_id_hint": "Optional. Fill it in only for a key that is not assigned to any workspace. You can find the ID in the Claude Console, it starts with wrkspc_.",
     "ollama_base_url": "Ollama address",
     "ollama_base_url_hint": "Only http(s)://host:port, no path. From Docker usually http://host.docker.internal:11434. Host names with an underscore (_) are not accepted — use the IP address or a name without \"_\".",
     "ollama_load_models": "Load models",

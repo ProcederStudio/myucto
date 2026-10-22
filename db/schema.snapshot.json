@@ -1018,7 +1018,8 @@
         "2072_oauth_sessions.sql",
         "2073_payment_thanks_stale_guard.sql",
         "2074_journal_document_postings.sql",
-        "2075_purchase_invoice_vat_treatment_permission.sql"
+        "2075_purchase_invoice_vat_treatment_permission.sql",
+        "2076_supplier_anthropic_workspace_id.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21959,6 +21960,7 @@
                 "anthropic_api_key_enc": "varbinary(512) NULL DEFAULT NULL",
                 "anthropic_default_model": "varchar(64) NULL DEFAULT 'claude-haiku-4-5'",
                 "anthropic_extractions_count": "int(10) unsigned NOT NULL DEFAULT 0",
+                "anthropic_workspace_id": "varchar(128) NULL DEFAULT NULL",
                 "auto_generate_recurring": "tinyint(1) NOT NULL DEFAULT 1",
                 "auto_post_invoices": "tinyint(1) NOT NULL DEFAULT 0",
                 "auto_post_purchases": "tinyint(1) NOT NULL DEFAULT 0",

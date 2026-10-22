@@ -27471,6 +27471,8 @@
     "azure_api_version": "API verze",
     "openai_base_url": "Base URL (volitelné)",
     "openai_base_url_hint": "Pro EU rezidenci dat nastavte https://eu.api.openai.com (project data-residency).",
+    "anthropic_workspace_id": "ID workspace",
+    "anthropic_workspace_id_hint": "Nepovinné. Vyplňte jen u klíče, který není přiřazený k žádnému workspace. ID najdete v Claude Console, začíná wrkspc_.",
     "ollama_base_url": "Adresa Ollamy",
     "ollama_base_url_hint": "Jen http(s)://host:port, bez cesty. Z Dockeru typicky http://host.docker.internal:11434. Název hostu s podtržítkem (_) nejde použít - zadejte IP adresu nebo název bez „_“.",
     "ollama_load_models": "Načíst modely",
