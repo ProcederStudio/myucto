@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Import;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\TenantDomainMiddleware;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
@@ -45,7 +46,10 @@ final class ClientAiExtractionPolicy
     public static function canRouteAcrossSuppliers(Request $request): bool
     {
         $context = $request->getAttribute(TenantDomainMiddleware::ATTR_CONTEXT);
+        // API token zůstává ve firmě, kterou integrace zvolila: doklad nesmí bez jejího
+        // vědomí skončit v jiné firmě uživatele ani v jejích příchozích dokladech.
         return !RequestAuthorization::isClientType($request)
+            && $request->getAttribute(AuthMiddleware::ATTR_METHOD) !== 'bearer'
             && !($context instanceof TenantDomainContext && $context->locksSupplier());
     }
 }

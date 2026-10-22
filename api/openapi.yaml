@@ -7187,15 +7187,23 @@ paths:
       tags: [Purchase invoices]
       summary: AI import PDF do konceptu přijaté faktury
       description: |
-        Zpracuje PDF přes embedded ISDOC nebo nastaveného AI poskytovatele.
-        Vyžaduje bearer token se scope `read_write` a oprávnění
-        `purchase_invoices.scan`. Vytvoří pouze koncept.
+        Zpracuje PDF, ISDOCX nebo obrázek dokladu přes embedded ISDOC nebo nastaveného
+        AI poskytovatele. Vyžaduje bearer token se scope `read_write` a oprávnění
+        `purchase_invoices.extract`. Vytvoří pouze koncept, a to vždy ve firmě zvolené
+        hlavičkou `X-Supplier-Id`: token doklad nepřesměruje do jiné firmy uživatele.
+        AI volání sdílí limit uživatele s webovým AI vytěžením (výchozí 30 za 5 minut).
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - in: query
           name: import_batch_id
           required: false
+          description: Označení dávky hromadného importu (jen `A-Z a-z 0-9 _ -`, nejvýš 32 znaků).
           schema: { type: string, maxLength: 32 }
+        - in: query
+          name: model
+          required: false
+          description: Model AI poskytovatele firmy. Musí být mezi povolenými modely, jinak 400 `validation_failed`.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -7204,13 +7212,23 @@ paths:
               type: object
               required: [pdf]
               properties:
-                pdf: { type: string, format: binary }
+                pdf: { type: string, format: binary, description: 'PDF, ISDOCX nebo obrázek dokladu' }
       responses:
-        '201': { description: Koncept vytvořen nebo nalezen jako duplicita }
-        '400': { description: Chybí PDF nebo kontext dodavatele }
+        '201':
+          description: Koncept vytvořen nebo nalezen jako duplicita
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  purchase_invoice_id: { type: integer }
+                  source: { type: string, description: Zdroj dat dokladu (embedded ISDOC nebo AI) }
+        '400': { description: 'Chybí soubor (`no_file`), soubor není platný doklad (`invalid_file`), neplatný model (`validation_failed`) nebo chybí kontext dodavatele' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '413': { description: Soubor je větší než 32 MiB }
-        '422': { description: Extrakce nebo validace selhala }
+        '422': { description: 'AI poskytovatel firmy není nastavený (`ai_not_configured`), nebo extrakce či validace selhala' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /api/v1/reports/dphdp3/preview:
     get:
