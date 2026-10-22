@@ -52,6 +52,19 @@ final class FakturoidSourceDocument
     }
 
     /**
+     * Daňová uznatelnost nákladu pro daň z příjmů (Fakturoid `tax_deductible`, výchozí
+     * true). Neuznatelný je doklad jen při výslovném false; chybějící údaj zůstává
+     * uznatelný jako před převzetím.
+     *
+     * @param array<string,mixed> $doc
+     */
+    public static function taxDeductible(array $doc): bool
+    {
+        $raw = $doc['tax_deductible'] ?? null;
+        return $raw === null || filter_var($raw, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) !== false;
+    }
+
+    /**
      * Poměrný odpočet DPH přijatého dokladu (Fakturoid `proportional_vat_deduction`,
      * celé procento, výchozí 100) jako režim odpočtu dokladu (#229). Poměrný odpočet
      * podle § 75 je `vat_deduction = 'proportional'` s procentem, nula je doklad bez

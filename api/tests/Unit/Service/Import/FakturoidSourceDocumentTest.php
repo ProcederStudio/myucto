@@ -21,6 +21,15 @@ final class FakturoidSourceDocumentTest extends TestCase
         self::assertFalse(FakturoidSourceDocument::pricesIncludeVat(['vat_price_mode' => null, 'lines' => [['unit_price' => 100, 'vat_rate' => 21]]]));
     }
 
+    public function testTaxDeductible(): void
+    {
+        self::assertFalse(FakturoidSourceDocument::taxDeductible(['tax_deductible' => false]));
+        self::assertFalse(FakturoidSourceDocument::taxDeductible(['tax_deductible' => 'false']));
+        self::assertTrue(FakturoidSourceDocument::taxDeductible(['tax_deductible' => true]));
+        self::assertTrue(FakturoidSourceDocument::taxDeductible([]));
+        self::assertTrue(FakturoidSourceDocument::taxDeductible(['tax_deductible' => null]));
+    }
+
     public function testProportionalVatDeduction(): void
     {
         self::assertSame(['vat_deduction' => 'proportional', 'vat_deduction_percent' => 80.0], FakturoidSourceDocument::vatDeduction(['proportional_vat_deduction' => 80]));

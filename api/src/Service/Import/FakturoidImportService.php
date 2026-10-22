@@ -911,6 +911,9 @@ final class FakturoidImportService
         if ($deduction !== null && !($this->vendorIsNonPayer($vendorId) && !$payload['reverse_charge'])) {
             $payload += $deduction;
         }
+        if (!FakturoidSourceDocument::taxDeductible($e)) {
+            $payload['tax_deductible'] = false;
+        }
         // Dedup guard — re-import stejné faktury z Fakturoidu (typicky opakovaný pull)
         // by jinak hodil SQL 23000 duplicate key. Vrátíme existující ID.
         $existingId = $this->purchaseRepo->findIdByVendorInvoice(

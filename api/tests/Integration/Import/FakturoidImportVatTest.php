@@ -202,6 +202,30 @@ final class FakturoidImportVatTest extends FakturoidImportTestCase
         ], array_map(static fn (array $r) => array_map('strval', array_values($r)), $stmt->fetchAll(\PDO::FETCH_ASSOC)));
     }
 
+    /** Daňová uznatelnost nákladu (Fakturoid `tax_deductible`, výchozí true) se převezme. */
+    public function testReceivedTakesOverTaxDeductibility(): void
+    {
+        $line = [['name' => 'Reprezentace', 'quantity' => 1, 'unit_price' => 1000, 'vat_rate' => 21]];
+        $this->api['expenses.json'] = [
+            $this->document(780071, 760002, $line, ['vat_price_mode' => 'without_vat', 'tax_deductible' => false]),
+            $this->document(780072, 760002, $line, ['vat_price_mode' => 'without_vat', 'tax_deductible' => true]),
+            $this->document(780073, 760002, $line, ['vat_price_mode' => 'without_vat']),
+        ];
+
+        $job = $this->runImport(['include_issued' => false]);
+
+        self::assertSame('completed', $job['status'], (string) $job['log_text']);
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT fakturoid_id, tax_deductible FROM purchase_invoices WHERE supplier_id = ? ORDER BY fakturoid_id'
+        );
+        $stmt->execute([$this->sid]);
+        self::assertSame([
+            ['780071', '0'],
+            ['780072', '1'],
+            ['780073', '1'],
+        ], array_map(static fn (array $r) => array_map('strval', array_values($r)), $stmt->fetchAll(\PDO::FETCH_ASSOC)));
+    }
+
     /**
      * Vědomá výjimka z otisku bez DPH (#131): `rounding_adjustment` se převezme i u
      * dokladu neplátce. Mění se jen zaokrouhlení, DPH ani sazba nevznikne.
