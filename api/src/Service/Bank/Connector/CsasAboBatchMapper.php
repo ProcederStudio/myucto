@@ -1,0 +1,71 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Service\Bank\Connector;
+
+/**
+ * Převod ABO dávky na platby Premium Payments v1 České spořitelny. Každá položka se
+ * zakládá zvlášť (POST /my/payments) a dávka (POST /my/batchpayments) je pak jen
+ * seskupí. Identifikátory jsou deterministické: stejné ABO dá po přerušení stejné
+ * položky, takže pokračování z evidence pozná, co už je založené.
+ */
+final class CsasAboBatchMapper
+{
+    /** Limit položek dávky podle specifikace Premium Payments v1. */
+    public const MAX_ITEMS = 400;
+
+    public function __construct(private readonly AboDomesticPaymentParser $parser = new AboDomesticPaymentParser()) {}
+
+    /**
+     * @return array{exchange_identification:string,payments:list<array{line_no:int,instruction_identification:string,
+     *     amount_minor:int,creditor_iban:string,body:array<string,mixed>}>}
+     */
+    public function map(#[\SensitiveParameter] string $abo, string $expectedPayerIban): array
+    {
+        try {
+            $batch = $this->parser->parse($abo, self::MAX_ITEMS);
+        } catch (BankConnectorException) {
+            throw $this->invalid();
+        }
+        if (!hash_equals(strtoupper($expectedPayerIban), $batch['payer_iban'])) {
+            throw new BankConnectorException('payment_order_account_mismatch', 'Účet plátce neodpovídá připojenému účtu České spořitelny.');
+        }
+        $fingerprint = hash('sha256', $abo);
+        $payments = [];
+        foreach ($batch['items'] as $item) {
+            $instruction = sprintf('MU%03d%s', $item['line_no'], substr(hash('sha256', $fingerprint . ':' . $item['line']), 0, 30));
+            $body = [
+                'paymentIdentification' => ['instructionIdentification' => $instruction],
+                'paymentTypeInformation' => ['instructionPriority' => 'NORM'],
+                'amount' => ['instructedAmount' => ['value' => $item['amount_minor'] / 100, 'currency' => 'CZK']],
+                'requestedExecutionDate' => $batch['execution_date'],
+                'debtorAccount' => ['identification' => ['iban' => $batch['payer_iban']], 'currency' => 'CZK'],
+                'creditorAccount' => ['identification' => ['iban' => $item['creditor_iban']], 'currency' => 'CZK'],
+            ];
+            $references = AboDomesticPaymentParser::references($item);
+            if ($item['message'] !== '' || $references !== []) {
+                $body['remittanceInformation'] = [];
+                if ($item['message'] !== '') {
+                    $body['remittanceInformation']['unstructured'] = $item['message'];
+                }
+                if ($references !== []) {
+                    $body['remittanceInformation']['structured'] = ['creditorReferenceInformation' => ['reference' => $references]];
+                }
+            }
+            $payments[] = [
+                'line_no' => $item['line_no'],
+                'instruction_identification' => $instruction,
+                'amount_minor' => $item['amount_minor'],
+                'creditor_iban' => $item['creditor_iban'],
+                'body' => $body,
+            ];
+        }
+        return ['exchange_identification' => 'MU' . substr($fingerprint, 0, 14), 'payments' => $payments];
+    }
+
+    private function invalid(): BankConnectorException
+    {
+        return new BankConnectorException(BankConnectorException::INVALID_PAYMENT_ORDER, 'ABO dávku nelze bezpečně převést pro Českou spořitelnu.');
+    }
+}

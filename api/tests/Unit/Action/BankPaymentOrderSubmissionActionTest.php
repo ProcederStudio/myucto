@@ -47,6 +47,39 @@ final class BankPaymentOrderSubmissionActionTest extends TestCase
         yield 'nejistý výsledek' => ['unknown', 502, true];
     }
 
+    public function testSigningAndRefreshNeedSessionAndBothWritePermissions(): void
+    {
+        $action = (new \ReflectionClass(BankPaymentOrderSubmissionAction::class))->newInstanceWithoutConstructor();
+        $cases = [
+            'API token' => [$this->request()->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'token')],
+            'jen čtení účtů' => [$this->request([
+                'purchase_invoices.payment_orders' => AccessLevel::WRITE->value, 'settings.bank_accounts' => AccessLevel::READ->value,
+            ])->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')],
+            'jen čtení příkazů' => [$this->request([
+                'purchase_invoices.payment_orders' => AccessLevel::READ->value, 'settings.bank_accounts' => AccessLevel::WRITE->value,
+            ])->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')],
+        ];
+        foreach ($cases as $label => [$request]) {
+            foreach (['sign', 'refresh'] as $method) {
+                $response = $action->{$method}($request, new Response(), ['orderId' => 501]);
+                self::assertSame(403, $response->getStatusCode(), $label . ' ' . $method);
+            }
+        }
+    }
+
+    public function testSubmissionStatusesMapToSemanticHttpCodes(): void
+    {
+        foreach (['accepted_awaiting_authorization' => 202, 'import_started' => 202, 'awaiting_signature' => 202, 'signed' => 202,
+            'completed' => 202, 'rejected' => 422, 'partially_rejected' => 422, 'expired' => 422, 'unknown' => 502, 'creating' => 502] as $status => $http) {
+            self::assertSame($http, \MyInvoice\Service\Bank\Connector\BankPaymentSubmissionHttp::forStatus($status), $status);
+        }
+        foreach (['payment_order_not_domestic' => 422, 'csas_payments_scope_missing' => 422, 'payment_order_invalid' => 422,
+            'payment_signature_unavailable' => 409, 'bank_connection_busy' => 409, 'payment_status_unavailable' => 502,
+            'payment_order_not_found' => 404] as $code => $http) {
+            self::assertSame($http, \MyInvoice\Service\Bank\Connector\BankPaymentSubmissionHttp::forError($code), $code);
+        }
+    }
+
     private function action(string $finalStatus): BankPaymentOrderSubmissionAction
     {
         $connections = $this->createMock(BankConnectionRepository::class);
@@ -87,6 +120,7 @@ final class BankPaymentOrderSubmissionActionTest extends TestCase
             'id' => 501, 'supplier_id' => 1, 'currency' => 'CZK', 'payer_currency_id' => 11,
             'payer_account_number' => '1000000005', 'payer_bank_code' => '5500', 'mark_paid' => false,
             'payment_date' => date('Y-m-d'),
+            'items' => [['payee_account_number' => '1000000005', 'payee_bank_code' => '0100', 'payee_iban' => null, 'currency' => 'CZK']],
         ]);
         $orders->method('allItemsStillPayable')->willReturn(true);
         $paymentOrders->method('download')->willReturn(['bytes' => 'SYNTHETIC-ABO']);
@@ -103,20 +137,22 @@ final class BankPaymentOrderSubmissionActionTest extends TestCase
         $submissions->method('find')->willReturnOnConsecutiveCalls(null, $row($finalStatus));
         $submissions->method('begin')->willReturn(['created' => true, 'submission' => $row('unknown')]);
 
-        return new BankPaymentOrderSubmissionAction(new BankPaymentOrderSubmissionService(
-            new BankPaymentSubmissionService($connections, $submissions, $registry, $calls, $secrets),
-            $orders,
-            $paymentOrders,
-        ));
+        $engine = new BankPaymentSubmissionService($connections, $submissions, $registry, $calls, $secrets);
+        return new BankPaymentOrderSubmissionAction(
+            new BankPaymentOrderSubmissionService($engine, $orders, $paymentOrders),
+            new \MyInvoice\Service\Bank\Connector\BankPaymentSignatureService($submissions, $engine, $calls,
+                $this->createMock(\MyInvoice\Service\OAuth\OAuthClientFlow::class)),
+        );
     }
 
-    private function request(): \Psr\Http\Message\ServerRequestInterface
+    /** @param array<string,int>|null $permissions */
+    private function request(?array $permissions = null): \Psr\Http\Message\ServerRequestInterface
     {
         return (new ServerRequestFactory())
             ->createServerRequest('POST', '/api/purchase-invoices/payment-orders/501/submit')
             ->withParsedBody(['connection_id' => 101])
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, 1)
-            ->withAttribute('auth.effective_role', new EffectiveRole(10, 'Testovací role', 'staff', true, [
+            ->withAttribute('auth.effective_role', new EffectiveRole(10, 'Testovací role', 'staff', true, $permissions ?? [
                 'purchase_invoices.payment_orders' => AccessLevel::WRITE->value,
                 'settings.bank_accounts' => AccessLevel::WRITE->value,
             ]));

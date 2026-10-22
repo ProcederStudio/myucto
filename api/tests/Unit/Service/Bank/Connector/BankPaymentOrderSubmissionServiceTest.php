@@ -228,6 +228,63 @@ final class BankPaymentOrderSubmissionServiceTest extends TestCase
         self::assertSame(0, $connector->submitCalls);
     }
 
+    #[DataProvider('foreignItems')]
+    public function testForeignOrNonCzkItemIsRejectedBeforeAnyAttemptOrBankCall(array $item): void
+    {
+        $connector = new SubmissionConnector();
+        $h = $this->harness($connector);
+        $h['connections']->method('findWithCredentialById')->willReturn($this->connection());
+        $h['calls']->method('withConnectionLock')->willReturnCallback(static fn (int $s, int $c, callable $cb): mixed => $cb());
+        $h['orders']->method('find')->willReturn(['items' => [$item]] + $this->order());
+        $h['orders']->method('allItemsStillPayable')->willReturn(true);
+        $h['secrets']->method('validateKey')->willReturn(null);
+        $h['secrets']->method('decryptFor')->willReturn('synthetic-token');
+        $h['registry']->method('get')->willReturn($connector);
+        $h['registry']->method('supportsBankCode')->willReturn(true);
+        $h['submissions']->method('find')->willReturn(null);
+        $h['submissions']->expects(self::never())->method('begin');
+        $h['paymentOrders']->expects(self::never())->method('download');
+
+        try {
+            $h['service']->submit(1, 501, 101, 7);
+            self::fail('Zahraniční nebo cizoměnová položka nesmí do banky.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_not_domestic', $e->errorCode);
+        }
+        self::assertSame(0, $connector->submitCalls);
+    }
+
+    public static function foreignItems(): iterable
+    {
+        yield 'SEPA jen s IBAN' => [['payee_account_number' => null, 'payee_bank_code' => null, 'payee_iban' => 'DE89370400440532013000', 'currency' => 'CZK']];
+        yield 'cizí IBAN u čísla účtu' => [['payee_account_number' => '1000000005', 'payee_bank_code' => '0100', 'payee_iban' => 'SK3112000000198742637541', 'currency' => 'CZK']];
+        yield 'EUR položka' => [['payee_account_number' => '1000000005', 'payee_bank_code' => '0100', 'payee_iban' => null, 'currency' => 'EUR']];
+    }
+
+    public function testInvalidAboBecomesValidationErrorInsteadOfServerError(): void
+    {
+        $connector = new SubmissionConnector();
+        $h = $this->harness($connector);
+        $h['connections']->method('findWithCredentialById')->willReturn($this->connection());
+        $h['calls']->method('withConnectionLock')->willReturnCallback(static fn (int $s, int $c, callable $cb): mixed => $cb());
+        $h['orders']->method('find')->willReturn($this->order());
+        $h['orders']->method('allItemsStillPayable')->willReturn(true);
+        $h['paymentOrders']->method('download')->willThrowException(new \RuntimeException('ABO/KPC export je možný jen pro CZK příkazy.'));
+        $h['secrets']->method('validateKey')->willReturn(null);
+        $h['secrets']->method('decryptFor')->willReturn('synthetic-token');
+        $h['registry']->method('get')->willReturn($connector);
+        $h['registry']->method('supportsBankCode')->willReturn(true);
+        $h['submissions']->method('find')->willReturn(null);
+        $h['submissions']->expects(self::never())->method('begin');
+
+        try {
+            $h['service']->submit(1, 501, 101, 7);
+            self::fail('Neplatné ABO musí skončit validační chybou.');
+        } catch (BankConnectorOperationException $e) {
+            self::assertSame('payment_order_invalid', $e->errorCode);
+        }
+    }
+
     /** @return array<string,mixed> */
     private function readyHarness(SubmissionConnector $connector): array
     {
@@ -316,6 +373,7 @@ final class BankPaymentOrderSubmissionServiceTest extends TestCase
             'payer_bank_code' => '2010',
             'mark_paid' => false,
             'payment_date' => date('Y-m-d'),
+            'items' => [['payee_account_number' => '1000000005', 'payee_bank_code' => '0100', 'payee_iban' => null, 'currency' => 'CZK']],
         ];
     }
 

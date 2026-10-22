@@ -9,6 +9,7 @@ use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\Connector\BankConnectorOperationException;
+use MyInvoice\Service\Bank\Connector\BankPaymentSignatureService;
 use MyInvoice\Service\Payroll\PayrollModuleAccess;
 use MyInvoice\Service\Payroll\Payment\PayrollBankSubmissionService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -22,6 +23,7 @@ final class PayrollBankSubmissionAction
         private readonly PayrollBankSubmissionService $service,
         private readonly PayrollModuleAccess $moduleAccess,
         private readonly ActivityLogger $activity,
+        private readonly BankPaymentSignatureService $signatures,
     ) {}
 
     public function get(Request $request, Response $response, array $args): Response
@@ -52,6 +54,32 @@ final class PayrollBankSubmissionAction
                 ['connection_id' => $connectionId, 'status' => $result['submission']['status'], 'created' => $result['created']],
                 supplierId: $supplierId);
             return Json::ok($response, $result, $result['created'] ? 201 : 200)->withHeader('Cache-Control', 'no-store');
+        } catch (BankConnectorOperationException $e) {
+            return $this->failure($response, $e);
+        }
+    }
+
+    /** Adresa podpisu mzdové dávky v bance (Česká spořitelna). */
+    public function sign(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->denied($request, $response, AccessLevel::WRITE)) return $denied;
+        $userId = $this->userId($request);
+        if ($userId === null) return Json::error($response, 'forbidden', 'Pro tuto akci nemáš oprávnění.', 403);
+        try {
+            return Json::ok($response, $this->signatures->startSignature($this->currentSupplierId($request), (int) $args['batchId'],
+                'payroll', $userId))->withHeader('Cache-Control', 'no-store');
+        } catch (BankConnectorOperationException $e) {
+            return $this->failure($response, $e);
+        }
+    }
+
+    /** Stav podpisu a provedení mzdové dávky u banky; nic znovu neposílá. */
+    public function refresh(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->denied($request, $response, AccessLevel::WRITE)) return $denied;
+        try {
+            return Json::ok($response, ['submission' => $this->signatures->refresh($this->currentSupplierId($request),
+                (int) $args['batchId'], 'payroll')])->withHeader('Cache-Control', 'no-store');
         } catch (BankConnectorOperationException $e) {
             return $this->failure($response, $e);
         }

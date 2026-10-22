@@ -27235,8 +27235,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BankPaymentOrderSubmissionRead'
-      description: Předání příkazu vyžaduje také právo settings.bank_accounts. Přijatý příkaz (stav accepted_awaiting_authorization
-        nebo import_started) vrací 202 a čeká na autorizaci v bance; nejistý výsledek se neopakuje. Vyžaduje scope read_write.
+      description: Předání příkazu vyžaduje také právo settings.bank_accounts. Přijatý příkaz (stav accepted_awaiting_authorization,
+        import_started nebo awaiting_signature) vrací 202 a čeká na autorizaci v bance; nejistý výsledek se neopakuje. Přímo
+        do banky jdou jen tuzemské platby v CZK. Podpis dávky České spořitelny vyžaduje přesměrování přihlášeného uživatele do
+        banky a přes API token ho dokončit nelze. Vyžaduje scope read_write.
       requestBody:
         required: true
         content:
@@ -47715,9 +47717,18 @@ components:
           type: string
         status:
           type: string
+          description: creating znamená přerušené zakládání plateb (pokračuje se jen z evidence); awaiting_signature
+            čeká na podpis v bance, signed je podepsáno, completed provedeno, partially_rejected a expired jsou konečné
+            stavy podepsané nebo propadlé dávky.
           enum:
           - accepted_awaiting_authorization
           - import_started
+          - creating
+          - awaiting_signature
+          - signed
+          - completed
+          - partially_rejected
+          - expired
           - rejected
           - unknown
         provider_reference:

@@ -1019,7 +1019,8 @@
         "2073_payment_thanks_stale_guard.sql",
         "2074_journal_document_postings.sql",
         "2075_purchase_invoice_vat_treatment_permission.sql",
-        "2076_supplier_anthropic_workspace_id.sql"
+        "2076_supplier_anthropic_workspace_id.sql",
+        "2077_bank_payment_submission_items.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2789,14 +2790,20 @@
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "error_code": "varchar(80) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "last_polled_at": "datetime NULL DEFAULT NULL",
+                "next_poll_at": "datetime NULL DEFAULT NULL",
                 "payload_hash": "char(64) NOT NULL",
                 "payment_order_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "payroll_batch_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "provider": "varchar(32) NOT NULL",
+                "provider_poll_id": "varchar(64) NULL DEFAULT NULL",
                 "provider_reference": "text NULL DEFAULT NULL",
+                "provider_sign_hash": "varchar(128) NULL DEFAULT NULL",
                 "rejected_count": "int(10) unsigned NULL DEFAULT NULL",
                 "remote_http_status": "smallint(5) unsigned NULL DEFAULT NULL",
-                "status": "enum('accepted_awaiting_authorization','rejected','unknown','import_started') NOT NULL",
+                "signature_requested_at": "datetime NULL DEFAULT NULL",
+                "signature_state": "varchar(40) NULL DEFAULT NULL",
+                "status": "enum('accepted_awaiting_authorization','rejected','unknown','import_started','creating','awaiting_signature','signed','completed','partially_rejected','expired') NOT NULL",
                 "submitted_at": "datetime NULL DEFAULT NULL",
                 "submitted_by_user_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
@@ -2805,6 +2812,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_bank_submission_user": "BTREE (submitted_by_user_id)",
                 "idx_bank_submission_connection": "BTREE (supplier_id, connection_id)",
+                "idx_bank_submission_poll": "BTREE (provider, status, next_poll_at)",
                 "uq_bank_submission_order": "UNIQUE BTREE (supplier_id, payment_order_id)",
                 "uq_bank_submission_payroll": "UNIQUE BTREE (supplier_id, payroll_batch_id)"
             },
@@ -2817,6 +2825,37 @@
             "checks": {
                 "chk_bank_submission_source": "(`payment_order_id` is not null) + (`payroll_batch_id` is not null) = 1"
             }
+        },
+        "bank_payment_submission_items": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_minor": "bigint(20) unsigned NOT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "creditor_iban": "varchar(34) NOT NULL",
+                "error_code": "varchar(80) NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "instruction_identification": "varchar(35) NOT NULL",
+                "instruction_status": "varchar(8) NULL DEFAULT NULL",
+                "line_no": "smallint(5) unsigned NOT NULL",
+                "provider_hash": "varchar(128) NULL DEFAULT NULL",
+                "provider_sign_id": "varchar(64) NULL DEFAULT NULL",
+                "status": "enum('planned','sending','created','rejected','unknown') NOT NULL DEFAULT 'planned'",
+                "status_change_info": "varchar(64) NULL DEFAULT NULL",
+                "submission_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_bank_submission_item_supplier": "BTREE (supplier_id, submission_id)",
+                "uq_bank_submission_item_line": "UNIQUE BTREE (submission_id, line_no)"
+            },
+            "foreign_keys": {
+                "fk_bank_submission_item_submission": "(submission_id) -> bank_payment_order_submissions (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
         },
         "bank_posting_rules": {
             "type": "BASE TABLE",

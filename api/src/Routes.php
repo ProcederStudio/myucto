@@ -830,6 +830,8 @@ final class Routes
         $app->get    ('/api/purchase-invoices/payment-orders/{id:[0-9]+}/download', [PaymentOrderAction::class, 'download']);
         $app->get    ('/api/purchase-invoices/payment-orders/{orderId:[0-9]+}/submission', [BankPaymentOrderSubmissionAction::class, 'get']);
         $app->post   ('/api/purchase-invoices/payment-orders/{orderId:[0-9]+}/submit', [BankPaymentOrderSubmissionAction::class, 'post']);
+        $app->post   ('/api/purchase-invoices/payment-orders/{orderId:[0-9]+}/submission/sign', [BankPaymentOrderSubmissionAction::class, 'sign']);
+        $app->post   ('/api/purchase-invoices/payment-orders/{orderId:[0-9]+}/submission/refresh', [BankPaymentOrderSubmissionAction::class, 'refresh']);
         $app->get    ('/api/purchase-invoices/payment-orders/{id:[0-9]+}',          [PaymentOrderAction::class, 'show']);
         $app->delete ('/api/purchase-invoices/payment-orders/{id:[0-9]+}',          [PaymentOrderAction::class, 'delete']);
         $app->post   ('/api/purchase-invoices/payment-orders/{id:[0-9]+}/archive',  [PaymentOrderAction::class, 'archive']);
@@ -1089,6 +1091,8 @@ final class Routes
             $g->get('/payments/batches', [PayrollPaymentAction::class, 'listBatches']);
             $g->get('/payments/batches/{batchId:[0-9]+}/bank-submission', [\MyInvoice\Action\Payroll\PayrollBankSubmissionAction::class, 'get']);
             $g->post('/payments/batches/{batchId:[0-9]+}/bank-submission', [\MyInvoice\Action\Payroll\PayrollBankSubmissionAction::class, 'post']);
+            $g->post('/payments/batches/{batchId:[0-9]+}/bank-submission/sign', [\MyInvoice\Action\Payroll\PayrollBankSubmissionAction::class, 'sign']);
+            $g->post('/payments/batches/{batchId:[0-9]+}/bank-submission/refresh', [\MyInvoice\Action\Payroll\PayrollBankSubmissionAction::class, 'refresh']);
             $g->post('/payments/batches', [PayrollPaymentAction::class, 'createBatch']);
             // Zahození dávky (i stažené / předané bance, po potvrzení zrušení
             // v bankovnictví) a náhradní dávka s jiným datem úhrady.

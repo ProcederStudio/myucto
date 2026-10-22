@@ -27,6 +27,17 @@ export function bankReconciliationCandidates(error: unknown): BankReconciliation
 const providerKeys: Record<string, Record<string, string>> = {
   kb_plus: { token: 'token_kb_plus', history: 'history_kb_plus' },
   moneta: { token: 'token_moneta', history: 'history_moneta' },
+  csas: { payment_unavailable: 'csas_scope' },
+}
+
+/**
+ * Doplňující text k uloženému stavu odeslání podle jeho error_code (např. vypršelý
+ * podpis, ruční kontrola nejasné položky). Neznámý kód text nemá.
+ */
+export function bankSubmissionNote(code: string | null | undefined, t: (key: string) => string, te: (key: string) => boolean): string {
+  if (!code || !/^[a-z0-9_]{1,80}$/.test(code)) return ''
+  const key = `bank_connection.payment_note_${code}`
+  return te(key) ? t(key) : ''
 }
 
 export function bankConnectionErrorMessage(error: unknown, t: (key: string) => string, fallback: string, provider = ''): string {
@@ -49,6 +60,12 @@ export function bankConnectionErrorMessage(error: unknown, t: (key: string) => s
     statement_too_large: 'period', period_invalid: 'period', period_incomplete: 'period',
     payment_order_items_not_payable: 'payable', payment_order_date_expired: 'date',
     payment_submission_unavailable: 'payment_unavailable',
+    payment_order_not_domestic: 'not_domestic', payment_order_invalid: 'order_invalid', payment_order_changed: 'order_changed',
+    payment_order_too_many_items: 'too_many_items', payment_order_account_mismatch: 'account',
+    payment_execution_date_too_early: 'date', payment_execution_date_too_far: 'date_too_far',
+    csas_payments_scope_missing: 'csas_scope', csas_mass_authorization_forbidden: 'csas_mass_authorization',
+    payment_signature_unavailable: 'signature_unavailable', payment_signature_failed: 'signature_failed',
+    payment_signature_expired: 'signature_expired', payment_status_unavailable: 'status_unavailable', app_url_invalid: 'app_url',
     kb_plus_statements_unavailable: 'kb_plus_statements', kb_plus_statement_pending: 'kb_plus_statement_pending',
     bank_sync_failed: 'server',
   }

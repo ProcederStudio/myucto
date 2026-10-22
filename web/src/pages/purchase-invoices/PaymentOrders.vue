@@ -96,7 +96,12 @@ const markPaid = ref(false)
 
 // Historie
 const history = ref<PaymentOrderListItem[]>([])
-const bankOrderId = ref<number | null>(null)
+// Návrat z podpisu v bance (?bank_order=ID) otevře stav odeslání tohoto příkazu.
+const bankOrderId = ref<number | null>((() => {
+  const raw = route.query.bank_order
+  const id = typeof raw === 'string' && /^[1-9][0-9]{0,18}$/.test(raw) ? Number(raw) : null
+  return id !== null && Number.isSafeInteger(id) ? id : null
+})())
 const historyLoading = ref(false)
 const historyLoadingMore = ref(false)
 const historyPage = ref(1)

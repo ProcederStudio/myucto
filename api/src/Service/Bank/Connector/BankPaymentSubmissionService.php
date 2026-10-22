@@ -11,6 +11,9 @@ use MyInvoice\Service\Bank\AccountNumberNormalizer;
 
 final class BankPaymentSubmissionService
 {
+    /** První dotaz na stav dávky čekající na podpis, pokud ho dřív nespustí návrat z banky. */
+    private const FIRST_POLL_SECONDS = 15 * 60;
+
     public function __construct(
         private readonly BankConnectionRepository $connections,
         private readonly BankPaymentOrderSubmissionRepository $submissions,
@@ -24,11 +27,21 @@ final class BankPaymentSubmissionService
         return $this->submissions->find($supplierId, $orderId, $source);
     }
 
-    /** @return array{created:bool,submission:array<string,mixed>} */
+    /**
+     * Předá příkaz bance. Každý příkaz má nejvýš jeden pokus o odeslání (unikátní klíč) a
+     * ten se zapíše dřív, než se banka osloví; opakované volání banku znovu neosloví.
+     *
+     * Výjimkou je odeslání po položkách ({@see StagedBankPaymentConnector}), které zůstalo
+     * ve stavu creating, protože proces skončil uprostřed (timeout, pád). Opakované volání
+     * pak pod zámkem napojení pokračuje z evidence položek: založené položky se neposílají
+     * znovu a položka s nejasným výsledkem odeslání zastaví k ruční kontrole.
+     *
+     * @return array{created:bool,submission:array<string,mixed>}
+     */
     public function submit(int $supplierId, int $orderId, int $connectionId, ?int $userId, callable $prepare, string $source = 'purchase_invoice'): array
     {
         $existing = $this->submissions->find($supplierId, $orderId, $source);
-        if ($existing !== null) {
+        if ($existing !== null && !$this->resumable($existing, $connectionId)) {
             return ['created' => false, 'submission' => $existing];
         }
 
@@ -40,18 +53,42 @@ final class BankPaymentSubmissionService
         return $this->calls->withConnectionLock(
             $supplierId,
             (int) $connection['currency_id'],
-            function () use ($supplierId, $orderId, $connectionId, $userId, $prepare, $source): array {
+            function () use ($supplierId, $orderId, $connectionId, $userId, $prepare, $source, $existing): array {
+                // Nové odeslání chrání unikátní klíč v begin(); pokračování se pod zámkem ověří znovu.
+                $resume = $existing !== null ? $this->submissions->find($supplierId, $orderId, $source) : null;
+                if ($existing !== null && ($resume === null || !$this->resumable($resume, $connectionId))) {
+                    return ['created' => false, 'submission' => $resume ?? $existing];
+                }
                 $connection = $this->connections->findWithCredentialById($supplierId, $connectionId);
                 if ($connection === null) {
                     throw new BankConnectorOperationException('connection_not_found');
                 }
-                $this->assertConnection($connection);
-
-                $token = $this->decryptToken($connection);
                 $connector = $this->connectors->get((string) $connection['provider']);
-                $this->assertPaymentCapability($connector, $token);
-                $abo = $prepare($connection);
-                $submissionId = null;
+                if ($resume !== null && !$connector instanceof StagedBankPaymentConnector) {
+                    return ['created' => false, 'submission' => $resume];
+                }
+                $submissionId = $resume !== null ? (int) $resume['id'] : null;
+                try {
+                    $this->assertConnection($connection);
+                    $token = $this->decryptToken($connection);
+                    $this->assertPaymentCapability($connector, $token);
+                    $abo = $prepare($connection);
+                    if ($connector instanceof StagedBankPaymentConnector) {
+                        $this->assertStagedOrder($connector, $token, $abo);
+                    }
+                    if ($submissionId !== null) {
+                        $state = $this->submissions->internalState($supplierId, $submissionId);
+                        if ($state === null || $state['status'] !== 'creating' || !hash_equals($state['payload_hash'], hash('sha256', $abo))) {
+                            throw new BankConnectorOperationException('payment_order_changed');
+                        }
+                    }
+                } catch (BankConnectorOperationException $e) {
+                    // Přerušené odeslání, které už nejde dokončit, se uzavře jako nejasné; nové nevznikne.
+                    if ($submissionId !== null) {
+                        $this->submissions->fail($supplierId, $submissionId, 'unknown', $e->errorCode);
+                    }
+                    throw $e;
+                }
                 try {
                     $callResult = $this->calls->call(
                         $connector instanceof BankConnectorCredentialKeyProvider ? $connector->callGuardCredential($token) : $token,
@@ -67,22 +104,29 @@ final class BankPaymentSubmissionService
                             $token,
                             &$submissionId,
                         ): array {
-                            $attempt = $this->submissions->begin(
-                                $supplierId,
-                                $orderId,
-                                $connectionId,
-                                (string) $connection['provider'],
-                                hash('sha256', $abo),
-                                $userId,
-                                $source,
-                            );
-                            if (!$attempt['created']) {
-                                return ['attempt' => $attempt, 'provider_result' => null];
+                            if ($submissionId === null) {
+                                $attempt = $this->submissions->begin(
+                                    $supplierId,
+                                    $orderId,
+                                    $connectionId,
+                                    (string) $connection['provider'],
+                                    hash('sha256', $abo),
+                                    $userId,
+                                    $source,
+                                );
+                                if (!$attempt['created']) {
+                                    return ['attempt' => $attempt, 'provider_result' => null];
+                                }
+                                $submissionId = (int) $attempt['submission']['id'];
+                            } else {
+                                $attempt = ['created' => true];
                             }
-                            $submissionId = (int) $attempt['submission']['id'];
                             return [
                                 'attempt' => $attempt,
-                                'provider_result' => $connector->submitPaymentOrder($token, $abo),
+                                'provider_result' => $connector instanceof StagedBankPaymentConnector
+                                    ? $connector->submitStagedPaymentOrder($token, $abo,
+                                        new StoredBankPaymentSubmissionJournal($this->submissions, $supplierId, $submissionId))
+                                    : $connector->submitPaymentOrder($token, $abo),
                             ];
                         },
                     );
@@ -93,8 +137,16 @@ final class BankPaymentSubmissionService
                     if (($result['accepted'] ?? false) !== true || trim((string) ($result['reference'] ?? '')) === '') {
                         throw new BankConnectorOperationException('provider_response_invalid');
                     }
+                    $staged = $connector instanceof StagedBankPaymentConnector;
+                    if ($staged && (($result['status'] ?? '') !== 'awaiting_signature' || !is_string($result['sign_hash'] ?? null))) {
+                        throw new BankConnectorOperationException('provider_response_invalid');
+                    }
                     $this->submissions->accept($supplierId, $submissionId, (string) $result['reference'],
-                        ($result['status'] ?? '') === 'import_started' ? 'import_started' : 'accepted_awaiting_authorization');
+                        $staged ? 'awaiting_signature' : (($result['status'] ?? '') === 'import_started' ? 'import_started' : 'accepted_awaiting_authorization'),
+                        $staged ? (string) $result['sign_hash'] : null);
+                    if ($staged) {
+                        $this->submissions->updateSigning($supplierId, $submissionId, ['awaiting_signature'], ['next_poll_seconds' => self::FIRST_POLL_SECONDS]);
+                    }
                 } catch (BankConnectorException $e) {
                     if ($submissionId === null) {
                         throw new BankConnectorOperationException('submission_failed');
@@ -132,6 +184,42 @@ final class BankPaymentSubmissionService
         );
     }
 
+    /**
+     * Konektor a přístup napojení pro podpis a dotazy na stav dávky. Napojení musí projít
+     * stejnými kontrolami jako při odeslání (aktivní, ověřený účet, šifrovací klíč).
+     *
+     * @return array{connector:SignableBankPaymentConnector,token:string,connection:array<string,mixed>}
+     */
+    public function signingAccess(int $supplierId, int $connectionId): array
+    {
+        $connection = $this->connections->findWithCredentialById($supplierId, $connectionId);
+        if ($connection === null) {
+            throw new BankConnectorOperationException('connection_not_found');
+        }
+        $this->assertConnection($connection);
+        $connector = $this->connectors->get((string) $connection['provider']);
+        if (!$connector instanceof SignableBankPaymentConnector) {
+            throw new BankConnectorOperationException('payment_signature_unavailable');
+        }
+        return ['connector' => $connector, 'token' => $this->decryptToken($connection), 'connection' => $connection];
+    }
+
+    /** Pokračovat smí jen přerušené odeslání po položkách, a to přes totéž napojení. */
+    private function resumable(array $submission, int $connectionId): bool
+    {
+        return ($submission['status'] ?? null) === 'creating' && (int) ($submission['connection_id'] ?? 0) === $connectionId;
+    }
+
+    private function assertStagedOrder(StagedBankPaymentConnector $connector, #[\SensitiveParameter] string $token, #[\SensitiveParameter] string $abo): void
+    {
+        try {
+            $connector->assertPaymentOrder($token, $abo);
+        } catch (BankConnectorException $e) {
+            throw new BankConnectorOperationException($e->errorCode === BankConnectorException::INVALID_PAYMENT_ORDER
+                ? 'payment_order_invalid' : $e->errorCode);
+        }
+    }
+
     private function assertPaymentCapability(BankConnector $connector, #[\SensitiveParameter] string $token): void
     {
         if (!$connector instanceof BankPaymentCapabilityProvider) {
@@ -160,7 +248,7 @@ final class BankPaymentSubmissionService
         }
         if (
             !$this->connectors->supportsBankCode((string) $connection['provider'], (string) ($connection['bank_code'] ?? ''))
-            || !in_array((string) ($connection['bank_code'] ?? ''), ['2010', '5500', '0300', '0100', '2250', '0600'], true)
+            || !in_array((string) ($connection['bank_code'] ?? ''), ['2010', '5500', '0300', '0100', '2250', '0600', '0800'], true)
             || (string) ($connection['verified_bank_code'] ?? '') !== (string) ($connection['bank_code'] ?? '')
             || strtoupper((string) ($connection['account_code'] ?? '')) !== 'CZK'
             || strtoupper((string) ($connection['verified_currency'] ?? '')) !== 'CZK'

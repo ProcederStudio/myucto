@@ -3,12 +3,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import BankPaymentSubmission from '../BankPaymentSubmission.vue'
 import type { BankPaymentSubmission as Submission } from '@/api/bankConnections'
 
-const m = vi.hoisted(() => ({ list: vi.fn(), submission: vi.fn(), submit: vi.fn(), canWrite: vi.fn(), canRead: vi.fn() }))
-vi.mock('@/api/bankConnections', () => ({ bankConnectionsApi: m }))
+const m = vi.hoisted(() => ({ list: vi.fn(), submission: vi.fn(), submit: vi.fn(), sign: vi.fn(), refreshFromBank: vi.fn(), canWrite: vi.fn(), canRead: vi.fn(), navigate: vi.fn() }))
+vi.mock('@/api/bankConnections', async importOriginal => ({ ...(await importOriginal<typeof import('@/api/bankConnections')>()), bankConnectionsApi: m }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: m.canRead, canWrite: m.canWrite }) }))
 vi.mock('@/composables/useDemoMode', () => ({ useDemoMode: () => ({ blockDemoMutation: () => false }) }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (s: string) => s, formatDateTime: (s: string) => s, formatMoney: (n: number) => String(n) }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, te: () => true }) }))
+vi.mock('@/workspace/fullPageNavigation', () => ({ navigateFullPage: m.navigate }))
 
 const order = {
   id: 11, currency: 'CZK', payment_date: '2026-09-07', total_amount: 100, item_count: 1,
@@ -105,6 +106,81 @@ describe('Bank payment submission', () => {
     await flushPromises()
     expect(sendButton(wrapper).attributes('disabled')).toBeDefined()
     expect(m.submit).not.toHaveBeenCalled()
+  })
+
+  describe('Česká spořitelna', () => {
+    const csasOrder = { ...order, payer_bank_code: '0800' }
+    const csasConnection = { ...connection, provider: 'csas', account: { ...connection.account, bank_code: '0800' } }
+    const pending = (status: Submission['status'], extra: Partial<Submission> = {}): Submission =>
+      ({ id: 1, payment_order_id: order.id, connection_id: 4, provider: 'csas', status, submitted_at: '2026-10-22', ...extra })
+    const button = (wrapper: ReturnType<typeof mount>, test: string) => wrapper.find(`[data-test="${test}"]`)
+    beforeEach(() => {
+      m.list.mockResolvedValue({ providers: [{ code: 'csas', implemented: true, capabilities: { payment_order_submission: true } }], connections: [csasConnection] })
+    })
+
+    it('offers a connected ČS account for submission', async () => {
+      m.submit.mockResolvedValue(pending('awaiting_signature'))
+      const wrapper = mount(BankPaymentSubmission, { props: { orders: [csasOrder], modelValue: order.id } })
+      await flushPromises()
+      await sendButton(wrapper).trigger('click')
+      await flushPromises()
+      expect(m.submit).toHaveBeenCalledExactlyOnceWith(11, 4)
+      expect(wrapper.text()).toContain('bank_connection.payment_status_awaiting_signature')
+      expect(button(wrapper, 'sign').exists()).toBe(true)
+    })
+
+    it('redirects to the bank only for a bank signing address', async () => {
+      m.submission.mockResolvedValue(pending('awaiting_signature'))
+      m.sign.mockResolvedValueOnce({ signing_url: 'https://george.csas.cz/sign?id=1', submission: pending('awaiting_signature') })
+      m.sign.mockResolvedValueOnce({ signing_url: 'https://evil.example/sign', submission: pending('awaiting_signature') })
+      const wrapper = mount(BankPaymentSubmission, { props: { orders: [csasOrder], modelValue: order.id } })
+      await flushPromises()
+      expect(sendButton(wrapper)).toBeUndefined()
+      await button(wrapper, 'sign').trigger('click')
+      await flushPromises()
+      expect(m.navigate).toHaveBeenCalledOnce()
+      expect(String(m.navigate.mock.calls[0][0])).toBe('https://george.csas.cz/sign?id=1')
+      await button(wrapper, 'sign').trigger('click')
+      await flushPromises()
+      expect(m.navigate).toHaveBeenCalledOnce()
+      expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+      expect(m.submit).not.toHaveBeenCalled()
+    })
+
+    it.each<Submission['status']>(['awaiting_signature', 'signed'])('checks %s status at the bank without submitting again', async status => {
+      m.submission.mockResolvedValue(pending(status))
+      m.refreshFromBank.mockResolvedValue(pending('completed', { accepted_count: 2 }))
+      const wrapper = mount(BankPaymentSubmission, { props: { orders: [csasOrder], modelValue: order.id } })
+      await flushPromises()
+      await button(wrapper, 'bank-status').trigger('click')
+      await flushPromises()
+      expect(m.refreshFromBank).toHaveBeenCalledExactlyOnceWith(11)
+      expect(wrapper.text()).toContain('bank_connection.payment_status_completed')
+      expect(m.submit).not.toHaveBeenCalled()
+    })
+
+    it('resumes an interrupted submission through the same connection after confirmation', async () => {
+      m.submission.mockResolvedValue(pending('creating'))
+      m.submit.mockResolvedValue(pending('awaiting_signature'))
+      const wrapper = mount(BankPaymentSubmission, { props: { orders: [csasOrder], modelValue: order.id } })
+      await flushPromises()
+      expect(wrapper.text()).toContain('bank_connection.payment_status_creating')
+      expect(sendButton(wrapper)).toBeUndefined()
+      await button(wrapper, 'resume').trigger('click')
+      await flushPromises()
+      expect(window.confirm).toHaveBeenCalledWith('bank_connection.payment_resume_confirm')
+      expect(m.submit).toHaveBeenCalledExactlyOnceWith(11, 4)
+    })
+
+    it.each<Submission['status']>(['unknown', 'rejected', 'expired', 'completed', 'partially_rejected'])('offers neither signing nor resume for %s', async status => {
+      m.submission.mockResolvedValue(pending(status, { error_code: 'csas_payment_outcome_unknown' }))
+      const wrapper = mount(BankPaymentSubmission, { props: { orders: [csasOrder], modelValue: order.id } })
+      await flushPromises()
+      expect(button(wrapper, 'sign').exists()).toBe(false)
+      expect(button(wrapper, 'resume').exists()).toBe(false)
+      expect(sendButton(wrapper)).toBeUndefined()
+      expect(wrapper.text()).toContain('bank_connection.payment_note_csas_payment_outcome_unknown')
+    })
   })
 
   it.each(['bank_rate_limited', 'bank_connection_busy'])('allows an explicit retry after a safe %s preflight refusal', async code => {
