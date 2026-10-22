@@ -27020,6 +27020,8 @@
       "bank_sync_reconciliation": "Načítání čeká na kontrolu nejednoznačných shod. Otevřete účet a načtěte pohyby.",
       "bank_sync_failed": "Automatické načítání selhalo. Otevřete účet a zkontrolujte připojení.",
       "bank_processing_title": "Dokončete párování výpisu: {account}",
+      "bank_notice_unprocessed_title": "Zkontrolujte nezpracovaná bankovní avíza",
+      "bank_notice_unprocessed": "Avízo se nepodařilo rozparsovat, takže pohyb v evidenci není. Otevřete avíza a chybějící pohyb doplňte.",
       "bank_processing_failed": "Výpis je uložený, ale párování pohybů se nepodařilo dokončit. Otevřete výpis a použijte „Přepárovat výpis“.",
       "title": "Akce pro vás",
       "go_to": "Přejít na detail",

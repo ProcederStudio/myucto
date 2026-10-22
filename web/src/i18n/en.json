@@ -27020,6 +27020,8 @@
       "bank_sync_reconciliation": "Synchronization needs a review of ambiguous matches. Open the account and load transactions.",
       "bank_sync_failed": "Automatic synchronization failed. Open the account and check the connection.",
       "bank_processing_title": "Finish matching the statement: {account}",
+      "bank_notice_unprocessed_title": "Check unprocessed bank notices",
+      "bank_notice_unprocessed": "A notice could not be parsed, so its movement is missing from the records. Open the notices and add it.",
       "bank_processing_failed": "The statement was saved, but matching its transactions could not be completed. Open the statement and use “Re-match statement”.",
       "title": "Action items",
       "go_to": "Go to detail",

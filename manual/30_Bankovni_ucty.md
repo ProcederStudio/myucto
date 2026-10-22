@@ -603,6 +603,23 @@ Hlavní stav se průběžně odvozuje z aktuálního párování transakce. Poku
 
 Smazání záznamu (**Smazat záznam**) zde nemaže transakci ani fakturu. Maže jen deduplikační záznam, takže je možné stejný e-mail znovu zpracovat při dalším scanu. Používejte to jen jako emergency/debug akci.
 
+### 30.11.14a Nepřečtené avízo v Akcích pro tebe
+
+E-mail, který parser nepřečetl (stav **parse_failed**), nezaloží pohyb. Chybí pak nejen
+v párování, ale i v kontrole plateb bez dokladu a v součtech výpisu — a opakovaný scan
+ho už nezpracuje, protože zprávu zná. Typickou příčinou je šablona banky, kterou provider
+nepokrývá: platba bez variabilního symbolu, jiný formát datumu u karetní transakce.
+
+Takové avízo se proto objeví v **Akcích pro tebe** na přehledu jako položka *Zkontrolujte
+nezpracovaná bankovní avíza* s odkazem do sekce avíz. Počítají se zprávy za posledních
+180 dnů; starší už neupozorňují. Stav **match_failed** (pohyb vznikl, jen se nenašla
+faktura) se tu nepočítá — ten řeší párování.
+
+Co s tím: otevřít **Zpracované e-maily**, u zprávy zkontrolovat důvod a pohyb do evidence
+doplnit — ručně, nebo úpravou parser provideru tak, aby šablonu pokryl, a následným
+smazáním deduplikačního záznamu (viz § 30.11.14). Položku lze z přehledu odložit;
+nově propadlé avízo se objeví znovu.
+
 ### 30.11.15 Když k avízu dorazí GPC výpis
 
 Zdroj pravdy je GPC. Když se importuje transakce, která už předtím přišla avízem a je spárovaná, aplikace **párování převezme z avíza na GPC transakci**: platba se přepojí, avízo zůstane rozpárované a nevznikne dvojí započtení. Je to důležité i účetně: **avízo se nikdy neúčtuje**, takže dokud platba visí na něm, nedostane se platební noha (u cizoměnové faktury včetně kurzového rozdílu) do deníku vůbec.

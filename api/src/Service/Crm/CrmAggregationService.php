@@ -1293,6 +1293,39 @@ final class CrmAggregationService
             ];
         }
 
+        // 1b. Avíza, která se nepodařilo rozparsovat. Pohyb se do evidence vůbec
+        // nedostal, takže nechybí jen v párování — nevidí ho ani kontrola „platba bez
+        // dokladu" a v součtu výpisu po něm nezůstane stopa. Dosud se o tom uživatel
+        // dozvěděl jen z červeného řádku v seznamu avíz, kam se ale nedívá, dokud něco
+        // nehledá. Typická příčina je šablona banky, kterou parser nezná (chybějící
+        // variabilní symbol, jiný formát datumu), takže to samo nezmizí.
+        $stmt = $pdo->prepare(
+            "SELECT id FROM bank_email_processed_messages
+              WHERE supplier_id = ?
+                AND status = 'parse_failed'
+                AND message_date >= DATE_SUB(?, INTERVAL 180 DAY)
+              ORDER BY id DESC"
+        );
+        $stmt->execute([$supplierId, $today]);
+        $noticeIds = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        // Odložení se váže na konkrétní zprávy, ne na celou položku — nově propadlé
+        // avízo se tak objeví i poté, co uživatel ty starší odklidil.
+        $noticeIds = $this->filterByDismissal($noticeIds, $dismissals, 'bank_notice_unprocessed');
+        $noticeCount = count($noticeIds);
+        if ($noticeCount > 0) {
+            $items[] = [
+                'type'      => 'bank_notice_unprocessed',
+                'severity'  => 'high',
+                'title'     => '',
+                'title_key' => 'crm.action_items.bank_notice_unprocessed_title',
+                'hint'      => '',
+                // Hint se v widgetu překládá bez parametrů, počet ukazuje `count`.
+                'hint_key'  => 'crm.action_items.bank_notice_unprocessed',
+                'link'      => '/bank?tab=email',
+                'count'     => $noticeCount,
+            ];
+        }
+
         // 2. Recurring s next_run_date v <= 3 dnech (nové faktury k vystavení)
         $stmt = $pdo->prepare(
             "SELECT id FROM recurring_invoice_templates
