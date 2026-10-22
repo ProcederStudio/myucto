@@ -2333,9 +2333,10 @@ final class AiPdfExtractor
         //
         // `maybeFlagTotalsMismatch()` to nechytí: hlídá odchylku nad 2 % a tohle je
         // 0,4 %. Dohadovat chybějící řádek by znamenalo vymýšlet si položku, takže se
-        // jen zapíše varování s čísly a uživatel doklad doplní.
+        // jen zapíše varování s čísly a uživatel doklad doplní. Připojuje se (append), protože
+        // před touto metodou už může být zapsané varování o náhradním datu přijetí.
         try {
-            $this->repo->setExtractionWarning($id, $supplierId, self::totalGapWarning(
+            $this->repo->appendExtractionWarning($id, $supplierId, self::totalGapWarning(
                 $pdfTotal,
                 $exactTotal,
                 $diff,
@@ -2369,7 +2370,7 @@ final class AiPdfExtractor
         return sprintf(
             'Doklad uvádí k úhradě %s %s, ale jeho řádky dávají %s %s (rozdíl %s %s). '
                 . 'Zkontrolujte, jestli doklad nemá řádek mimo daňovou rekapitulaci '
-                . '(spropitné, vratná záloha, poplatek, doprava) — takový se do položek '
+                . '(spropitné, vratná záloha, poplatek, doprava). Takový řádek se do položek '
                 . 'nedostane a doklad pak nesedne na platbu.',
             $fmt($pdfTotal),
             $currency,
