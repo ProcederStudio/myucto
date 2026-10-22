@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "148527b1f88ef0ace722326f7e55c8e1",
+    "content-hash": "650641e4e153518dfe6179257d716d89",
     "packages": [
         {
             "name": "blondak/nx1-reader",
@@ -10995,7 +10995,7 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.5",
+        "php": "^8.5.12",
         "ext-bcmath": "*",
         "ext-ctype": "*",
         "ext-dom": "*",

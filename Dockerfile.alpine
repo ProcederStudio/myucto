@@ -37,7 +37,7 @@ RUN composer dump-autoload --optimize --classmap-authoritative \
  && php bin/cleanup-mpdf-fonts.php
 
 # ---------- Stage 3: runtime (alpine) ----------
-FROM php:8.5-fpm-alpine AS runtime
+FROM php:8.5.12-fpm-alpine AS runtime
 
 # librsvg fallback pro konverzi SVG loga, když Imagick nemá SVG delegate (viz
 # Dockerfile). Default zap; pro menší image `--build-arg INSTALL_RSVG=0`.

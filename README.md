@@ -1,7 +1,7 @@
 # MyÚčto.cz
 
 [![License: MIT + Commercial](https://img.shields.io/badge/License-MIT%20%2B%20Commercial-6f42c1.svg)](LICENCE.txt)
-[![PHP 8.5+](https://img.shields.io/badge/PHP-8.5+-777BB4?logo=php&logoColor=white)](https://www.php.net/)
+[![PHP 8.5.12+](https://img.shields.io/badge/PHP-8.5.12+-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![MariaDB 11.8+](https://img.shields.io/badge/MariaDB-11.8+-003545?logo=mariadb&logoColor=white)](https://mariadb.org/)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-multi--arch-2496ED?logo=docker&logoColor=white)](https://github.com/radekhulan/myucto/pkgs/container/myucto)

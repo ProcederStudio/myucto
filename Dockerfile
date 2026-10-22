@@ -42,7 +42,7 @@ RUN composer dump-autoload --optimize --classmap-authoritative \
 FROM node:24-bookworm-slim AS mcp-node
 
 # ---------- Stage 3: runtime ----------
-FROM php:8.5-apache AS runtime
+FROM php:8.5.12-apache AS runtime
 
 # librsvg2-bin (~30–50 MB i s cairo/pango/gdk-pixbuf deps) je FALLBACK pro konverzi
 # SVG loga dodavatele, když Imagick nemá SVG delegate. Pro menší image lze vypnout

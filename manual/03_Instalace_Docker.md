@@ -594,7 +594,7 @@ Aktivní vlastní doména používá oddělenou host-only session cookie. Přihl
 
 ### 3.12.9 Image: Alpine/nginx (výchozí) a Debian
 
-Pro hosting s omezeným diskem a pamětí je výchozí image **Alpine/nginx**: `php:8.5-fpm-alpine` + nginx + php-fpm místo Debian/Apache. Funkčně je identický (stejné API, `.htaccess` přeložený 1:1 do konfigurace nginx), jen štíhlejší.
+Pro hosting s omezeným diskem a pamětí je výchozí image **Alpine/nginx**: `php:8.5.12-fpm-alpine` + nginx + php-fpm místo Debian/Apache. Funkčně je identický (stejné API, `.htaccess` přeložený 1:1 do konfigurace nginx), jen štíhlejší.
 
 | Metrika | Debian/Apache (fallback) | **Alpine/nginx (výchozí)** |
 |---|---|---|
