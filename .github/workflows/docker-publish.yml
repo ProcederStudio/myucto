@@ -24,7 +24,7 @@ env:
 #   2) `merge` job stáhne digesty obou platforem a vytvoří manifest list se všemi
 #      semver tagy (1.3.0, 1.3, latest). Bez QEMU = ~5-8 min total místo 28 min.
 #
-# Image se staví z `Dockerfile.alpine` (php:8.5.12-fpm-alpine + nginx) — ~136 MB, méně RAM.
+# Image se staví z `Dockerfile.alpine` (php:8.5-fpm-alpine + nginx, min. PHP 8.5.12) — ~136 MB, méně RAM.
 # `Dockerfile` (Debian/Apache) zůstává v repu jako lokální fallback, CI ho NEpublikuje.
 # Rollback na Debian: pinni starší version tag (≤ v4.31.0) nebo build z `Dockerfile` lokálně.
 jobs:
