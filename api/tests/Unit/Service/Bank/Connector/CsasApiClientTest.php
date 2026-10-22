@@ -101,6 +101,21 @@ final class CsasApiClientTest extends TestCase
         self::assertSame('Bearer synthetic-access', $history[0]['request']->getHeaderLine('Authorization'));
     }
 
+    public function testEmptyPeriodWithZeroPageSizeReturnsNoTransactions(): void
+    {
+        $history = [];
+        $client = $this->client([new Response(200, [], json_encode(['pageNumber' => 0, 'pageCount' => 0, 'pageSize' => 0, 'transactions' => []]))], $history);
+        self::assertSame([], $client->transactions($this->credentials(), '2026-01-01', '2026-01-03'));
+    }
+
+    public function testRejectsZeroPageSizeWithNonEmptyPagination(): void
+    {
+        $history = [];
+        $client = $this->client([new Response(200, [], json_encode(['pageNumber' => 0, 'pageCount' => 1, 'pageSize' => 0, 'transactions' => []]))], $history);
+        $this->expectException(BankConnectorException::class);
+        $client->transactions($this->credentials(), '2026-01-01', '2026-01-31');
+    }
+
     public function testRejectsIncompletePaginationInsteadOfPartialImport(): void
     {
         $history = [];

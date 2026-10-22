@@ -133,7 +133,7 @@ final class CsasApiClient
                 'pagination' => $metadata, 'collection_type' => get_debug_type($data[$field] ?? null),
                 'collection_count' => is_array($data[$field] ?? null) ? count($data[$field]) : null]);
             if (!is_int($count) || $count < 0 || $count > 50 || ($data['pageNumber'] ?? null) !== $page
-                || !is_int($data['pageSize'] ?? null) || $data['pageSize'] < 1 || $data['pageSize'] > 200
+                || !is_int($data['pageSize'] ?? null) || $data['pageSize'] < ($count === 0 ? 0 : 1) || $data['pageSize'] > 200
                 || !is_array($data[$field] ?? null) || !array_is_list($data[$field]) || count($data[$field]) > $data['pageSize']
                 || ($expectedPages !== null && $count !== $expectedPages)) throw $this->invalid();
             $expectedPages = $count;
