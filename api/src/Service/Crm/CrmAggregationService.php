@@ -1299,18 +1299,12 @@ final class CrmAggregationService
         // dozvěděl jen z červeného řádku v seznamu avíz, kam se ale nedívá, dokud něco
         // nehledá. Typická příčina je šablona banky, kterou parser nezná (chybějící
         // variabilní symbol, jiný formát datumu), takže to samo nezmizí.
-        $stmt = $pdo->prepare(
-            "SELECT id FROM bank_email_processed_messages
-              WHERE supplier_id = ?
-                AND status = 'parse_failed'
-                AND message_date >= DATE_SUB(?, INTERVAL 180 DAY)
-              ORDER BY id DESC"
-        );
-        $stmt->execute([$supplierId, $today]);
-        $noticeIds = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
-        // Odložení se váže na konkrétní zprávy, ne na celou položku — nově propadlé
-        // avízo se tak objeví i poté, co uživatel ty starší odklidil.
-        $noticeIds = $this->filterByDismissal($noticeIds, $dismissals, 'bank_notice_unprocessed');
+        // Seznam avíz je záložka jen pro správu bankovních účtů, ostatním by odkaz nic neukázal.
+        // Odložení „historická" se váže na konkrétní zprávy (snímek v snapshotCurrentIds),
+        // nově propadlé avízo se tak objeví i poté, co uživatel ty starší odklidil.
+        $noticeIds = $canManageBankConnections ? $this->filterByDismissal(
+            $this->unprocessedBankNoticeIds($supplierId, $today), $dismissals, 'bank_notice_unprocessed',
+        ) : [];
         $noticeCount = count($noticeIds);
         if ($noticeCount > 0) {
             $items[] = [
@@ -3072,7 +3066,7 @@ final class CrmAggregationService
         $validTypes = ['overdue_invoices', 'bank_unmatched', 'recurring_due', 'overdue_payables',
             'purchase_drafts', 'unbooked_documents', 'journal_integrity', 'tax_deadline', 'kh_deadline',
             'shv_deadline', 'churn_risk', 'dppo_balance_due', 'tax_advance_due',
-            'purchase_approvals_pending', 'purchase_approvals_rejected'];
+            'purchase_approvals_pending', 'purchase_approvals_rejected', 'bank_notice_unprocessed'];
         $validModes = ['day', 'week', 'forever', 'historical'];
         if (!in_array($itemType, $validTypes, true)) {
             throw new \InvalidArgumentException("Invalid item_type: {$itemType}");
@@ -3238,6 +3232,8 @@ final class CrmAggregationService
                 );
                 $stmt->execute([$supplierId, $today]);
                 break;
+            case 'bank_notice_unprocessed':
+                return $this->unprocessedBankNoticeIds($supplierId, $today);
             case 'tax_deadline':
             case 'kh_deadline':
             case 'shv_deadline':
@@ -3245,6 +3241,25 @@ final class CrmAggregationService
             default:
                 return [];
         }
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Avíza za posledních 180 dnů, která parser nepřečetl (`parse_failed`). Starší
+     * zprávu, kterou nikdo půl roku neřešil, už položka nenabízí.
+     *
+     * @return list<int>
+     */
+    private function unprocessedBankNoticeIds(int $supplierId, string $today): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT id FROM bank_email_processed_messages
+              WHERE supplier_id = ?
+                AND status = 'parse_failed'
+                AND message_date >= DATE_SUB(?, INTERVAL 180 DAY)
+              ORDER BY id DESC"
+        );
+        $stmt->execute([$supplierId, $today]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 

@@ -62,6 +62,9 @@ final class CrmUnprocessedBankNoticeTest extends TestCase
         $this->db->pdo()
             ->prepare('DELETE FROM bank_email_processed_messages WHERE fallback_hash LIKE ?')
             ->execute([self::MARKER . '%']);
+        $this->db->pdo()
+            ->prepare("DELETE FROM crm_action_item_dismissals WHERE supplier_id = ? AND item_type = 'bank_notice_unprocessed'")
+            ->execute([$this->supplierId]);
     }
 
     /** Vloží zprávu daného stavu a vrátí její id. */
@@ -87,9 +90,9 @@ final class CrmUnprocessedBankNoticeTest extends TestCase
     }
 
     /** @return array<string,mixed>|null */
-    private function item(): ?array
+    private function item(?int $userId = null, bool $canManageBankConnections = true): ?array
     {
-        $result = $this->crm->actionItems($this->supplierId);
+        $result = $this->crm->actionItems($this->supplierId, $userId, null, $canManageBankConnections);
         foreach ($result['items'] ?? [] as $item) {
             if (($item['type'] ?? '') === 'bank_notice_unprocessed') {
                 return $item;
@@ -134,5 +137,34 @@ final class CrmUnprocessedBankNoticeTest extends TestCase
         $this->notice('parse_failed', '-200 days');
 
         self::assertNull($this->item(), 'avízo starší 180 dnů už se nenabízí');
+    }
+
+    /** Seznam avíz je záložka správy bankovních účtů; bez toho práva by odkaz nic neukázal. */
+    public function testBezSpravyBankovnichUctuSePolozkaNenabizi(): void
+    {
+        $this->notice('parse_failed');
+
+        self::assertNull($this->item(null, false));
+        self::assertNotNull($this->item(null, true));
+    }
+
+    /**
+     * Odložení „historická" schová jen avíza, která už propadla; avízo, které propadne
+     * později, se ozve znovu. Typ položky musí jít odložit vůbec.
+     */
+    public function testOdlozeniSchovaJenStavajiciAviza(): void
+    {
+        $userId = (int) ($this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
+        if ($userId === 0) {
+            $this->markTestSkipped('Chybí uživatel.');
+        }
+        $this->notice('parse_failed');
+        $this->crm->dismissActionItem($this->supplierId, $userId, 'bank_notice_unprocessed', 'historical');
+        self::assertNull($this->item($userId), 'odložené avízo se už nenabízí');
+
+        $this->notice('parse_failed');
+        $item = $this->item($userId);
+        self::assertNotNull($item, 'nově propadlé avízo se ozve i po odložení starších');
+        self::assertSame(1, $item['count']);
     }
 }
