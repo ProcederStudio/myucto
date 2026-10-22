@@ -279,8 +279,8 @@ const canBuild = computed(() => {
               {{ t('diagnostics.imported_postings.first') }}
             </button>
             <button v-if="report.imported_posting_ambiguities.next_after !== null" type="button" :class="btnOutline('neutral')" :disabled="loading" @click="load(report.imported_posting_ambiguities.next_after)">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.search" /></svg>
               {{ t('diagnostics.imported_postings.next') }}
+              <svg class="w-4 h-4 -rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.chevron" /></svg>
             </button>
           </div>
         </template>

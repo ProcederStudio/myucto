@@ -23183,6 +23183,7 @@
       "matched_not_posted": "Matched, posting pending: {reason}",
       "reason_fx_not_supported": "foreign currency (FX differences not supported yet)",
       "reason_document_not_posted": "the invoice entry is not posted",
+      "reason_posting_group_saldo_ambiguous": "the invoice balance account in the posting group is ambiguous, post the payment manually",
       "reason_not_double_entry": "the company does not use double-entry accounting",
       "reason_already_paid_verify": "the transaction is matched, but the invoice's earlier payment cannot be linked safely — check for a duplicate",
       "reason_overpaid_verify": "the invoice payments exceed the amount due — check for a double payment",

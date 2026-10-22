@@ -23183,6 +23183,7 @@
       "matched_not_posted": "Spárováno, zaúčtování čeká: {reason}",
       "reason_fx_not_supported": "cizí měna (kurzové rozdíly zatím nepodporovány)",
       "reason_document_not_posted": "předpis faktury není zaúčtovaný",
+      "reason_posting_group_saldo_ambiguous": "saldokonto faktury ve skupině zaúčtování nelze jednoznačně určit, úhradu zaúčtujte ručně",
       "reason_not_double_entry": "firma neúčtuje podvojně",
       "reason_already_paid_verify": "transakce je spárovaná, ale dřívější úhradu faktury nelze bezpečně propojit - ověřte duplicitu",
       "reason_overpaid_verify": "platby faktury přesahují částku k úhradě - ověřte dvojí úhradu",

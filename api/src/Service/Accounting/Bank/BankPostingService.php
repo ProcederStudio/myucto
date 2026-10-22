@@ -818,11 +818,11 @@ final class BankPostingService
             throw new PostingException('fx_not_supported', 'Křížovou měnu této vydané faktury nelze automaticky zaúčtovat.');
         }
 
-        $entry = $this->journal->findBySource($supplierId, 'invoice', $invoiceId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.');
-        }
-        $rate = $this->predpisFxRate($supplierId, (int) $entry['id'], $invoice);
+        $saldo = $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'invoice', $invoiceId, false,
+            'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.',
+        ), $receivable);
+        $rate = $this->predpisFxRate($supplierId, $saldo, $invoice);
         $foreign = round($foreignAmount, 2);
         $predpisCzk = FxPaymentSettlement::expectedLocalAmount($foreign, $rate);
         $bankCzk = round(abs((float) $tx['amount']), 2);
@@ -830,7 +830,7 @@ final class BankPostingService
         $lines = [
             $this->line($bankAcc, 'debit', $bankCzk),
             $this->withFxTrace(
-                $this->line($this->predpisSaldoCode($supplierId, (int) $entry['id'], $receivable), 'credit', $predpisCzk),
+                $this->line($saldo['code'], 'credit', $predpisCzk),
                 (string) $invoice['currency'],
                 $rate,
                 $foreign,
@@ -1002,15 +1002,15 @@ final class BankPostingService
                 throw new PostingException('fx_not_supported', 'Křížovou měnu přijaté faktury #' . $purchaseId . ' nelze automaticky zaúčtovat.');
             }
 
-            $entry = $this->journal->findBySource($supplierId, 'purchase_invoice', $purchaseId);
-            if ($entry === null || ($entry['posted_at'] ?? null) === null || ($entry['reversed_by'] ?? null) !== null) {
-                throw new PostingException('document_not_posted', 'Přijatá faktura #' . $purchaseId . ' nemá zaúčtovaný předpis.');
-            }
-            $rate = $this->predpisFxRate($supplierId, (int) $entry['id'], [
+            $saldo = $this->predpisSaldo($supplierId, $this->predpis(
+                $supplierId, 'purchase_invoice', $purchaseId, true,
+                'Přijatá faktura #' . $purchaseId . ' nemá zaúčtovaný předpis.',
+            ), $payable);
+            $rate = $this->predpisFxRate($supplierId, $saldo, [
                 'exchange_rate' => $allocation['purchase_exchange_rate'] ?? null,
             ]);
             $lines[] = $this->withFxTrace(
-                $this->line($this->predpisSaldoCode($supplierId, (int) $entry['id'], $payable), 'debit', FxPaymentSettlement::expectedLocalAmount($foreign, $rate)),
+                $this->line($saldo['code'], 'debit', FxPaymentSettlement::expectedLocalAmount($foreign, $rate)),
                 $currency,
                 $rate,
                 $foreign,
@@ -1045,11 +1045,11 @@ final class BankPostingService
             throw new PostingException('fx_not_supported', 'Křížovou měnu této přijaté faktury nelze automaticky zaúčtovat.');
         }
 
-        $entry = $this->journal->findBySource($supplierId, 'purchase_invoice', $purchaseId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Přijatá faktura #' . $purchaseId . ' nemá zaúčtovaný předpis.');
-        }
-        $rate = $this->predpisFxRate($supplierId, (int) $entry['id'], $purchase);
+        $saldo = $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'purchase_invoice', $purchaseId, false,
+            'Přijatá faktura #' . $purchaseId . ' nemá zaúčtovaný předpis.',
+        ), $payable);
+        $rate = $this->predpisFxRate($supplierId, $saldo, $purchase);
         $bankCzk = round(abs((float) $tx['amount']), 2);
         // Odúčtovat se smí jen ZBYTEK dokladu (bez tohoto pohybu) a jen když ho korunová
         // platba v kurzové toleranci pokryje. Menší platba je částečná úhrada: ruční
@@ -1077,7 +1077,7 @@ final class BankPostingService
 
         $lines = [
             $this->withFxTrace(
-                $this->line($this->predpisSaldoCode($supplierId, (int) $entry['id'], $payable), 'debit', $predpisCzk),
+                $this->line($saldo['code'], 'debit', $predpisCzk),
                 (string) $purchase['currency'],
                 $rate,
                 $foreign,
@@ -1106,11 +1106,10 @@ final class BankPostingService
             $rule = $this->postingRules->resolve($supplierId, 'advance.received.collection');
             return ($rule['credit_account_code'] ?? null) ?: '324';
         }
-        $entry = $this->journal->findBySource($supplierId, 'invoice', $invoiceId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.');
-        }
-        return $this->predpisSaldoCode($supplierId, (int) $entry['id'], $receivable);
+        return $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'invoice', $invoiceId, false,
+            'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.',
+        ), $receivable)['code'];
     }
 
     /**
@@ -1154,11 +1153,10 @@ final class BankPostingService
             $rule = $this->postingRules->resolve($supplierId, 'advance.paid.payment');
             return ($rule['debit_account_code'] ?? null) ?: '314';
         }
-        $entry = $this->journal->findBySource($supplierId, 'purchase_invoice', $pfId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Přijatá faktura #' . $pfId . ' nemá zaúčtovaný předpis.');
-        }
-        return $this->predpisSaldoCode($supplierId, (int) $entry['id'], $payable);
+        return $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'purchase_invoice', $pfId, false,
+            'Přijatá faktura #' . $pfId . ' nemá zaúčtovaný předpis.',
+        ), $payable)['code'];
     }
 
     /**
@@ -1189,6 +1187,100 @@ final class BankPostingService
         return count($codes) === 1 ? (string) $codes[0] : $code;
     }
 
+    /**
+     * Aktivní předpis dokladu, proti kterému se úhrada odúčtuje. Nativní doklad (jen přímý
+     * zápis, případně skupina s jediným přímým členem) se čte beze změny přes findBySource.
+     * Doklad se skupinou zaúčtování ({@see DocumentPostingGroup}) má předpis, dokud skupina
+     * drží aktivní člen: ruční storno přímého člena převzatého dokladu předpis neruší.
+     *
+     * @return array{grouped:bool, entry_ids:list<int>, doc_type:string, doc_id:int}
+     */
+    private function predpis(int $supplierId, string $docType, int $docId, bool $requirePosted, string $notPostedMessage): array
+    {
+        $group = (new DocumentPostingGroup($this->db))->active($supplierId, $docType, $docId);
+        if (DocumentPostingGroup::hasOwnedEntries($group) && !DocumentPostingGroup::isSingleDirectEntry($group, $docType, $docId)) {
+            return [
+                'grouped' => true,
+                'entry_ids' => array_map(static fn (array $entry): int => (int) $entry['id'], $group),
+                'doc_type' => $docType,
+                'doc_id' => $docId,
+            ];
+        }
+        $entry = $this->journal->findBySource($supplierId, $docType, $docId);
+        if ($entry === null
+            || ($requirePosted && ($entry['posted_at'] ?? null) === null)
+            || ($entry['reversed_by'] ?? null) !== null
+        ) {
+            throw new PostingException('document_not_posted', $notPostedMessage);
+        }
+        return ['grouped' => false, 'entry_ids' => [(int) $entry['id']], 'doc_type' => $docType, 'doc_id' => $docId];
+    }
+
+    /**
+     * Saldokontní účet předpisu a zápisy, které ho nesou. U nativního předpisu beze změny
+     * {@see predpisSaldoCode}. Ve skupině se účet bere jen z aktivních členů, které saldokontní
+     * řádek (účet z pravidla nebo jeho analytika) skutečně nesou; každý člen se vyhodnotí
+     * stejně jako nativní zápis. Nenese-li ho žádný člen, nebo ho dva nesou na různých účtech,
+     * úhrada se automaticky nezaúčtuje: odhad by nechal otevřené saldo na jiném účtu.
+     * Kurz předpisu se u skupiny bere z cizoměnové stopy saldokontních řádků nosičů.
+     *
+     * @param array{grouped:bool, entry_ids:list<int>, doc_type:string, doc_id:int} $predpis
+     * @return array{code:string, entry_ids:list<int>, fx_rate:?float}
+     */
+    private function predpisSaldo(int $supplierId, array $predpis, string $code): array
+    {
+        if (!$predpis['grouped']) {
+            return [
+                'code' => $this->predpisSaldoCode($supplierId, $predpis['entry_ids'][0], $code),
+                'entry_ids' => $predpis['entry_ids'],
+                'fx_rate' => null,
+            ];
+        }
+        $byEntry = [];
+        foreach ((new DocumentPostingGroup($this->db))->lines($supplierId, $predpis['entry_ids']) as $line) {
+            $account = (string) $line['account_code'];
+            if ($account === $code || str_starts_with($account, $code . '.')) {
+                $byEntry[(int) $line['entry_id']][] = $line;
+            }
+        }
+        $label = ($predpis['doc_type'] === 'invoice' ? 'vydané faktury #' : 'přijaté faktury #') . $predpis['doc_id'];
+        if ($byEntry === []) {
+            throw new PostingException(
+                'posting_group_saldo_ambiguous',
+                'Žádný aktivní zápis skupiny zaúčtování ' . $label . ' nenese saldokontní řádek na účtu ' . $code
+                    . '. Úhradu zaúčtujte ručně.',
+            );
+        }
+        $codes = [];
+        $rates = [];
+        foreach ($byEntry as $lines) {
+            $analytics = array_values(array_unique(array_filter(
+                array_map(static fn (array $line): string => (string) $line['account_code'], $lines),
+                static fn (string $account): bool => str_starts_with($account, $code . '.'),
+            )));
+            $codes[] = preg_match('/^\d{3}$/', $code) === 1 && count($analytics) === 1 ? $analytics[0] : $code;
+            foreach ($lines as $line) {
+                if ($line['currency_code'] !== null && $line['fx_rate'] !== null && (float) $line['fx_rate'] > 0) {
+                    $rates[] = (string) (float) $line['fx_rate'];
+                }
+            }
+        }
+        $codes = array_values(array_unique($codes));
+        $rates = array_values(array_unique($rates));
+        if (count($codes) > 1 || count($rates) > 1) {
+            throw new PostingException(
+                'posting_group_saldo_ambiguous',
+                'Saldokonto ' . $label . ' nesou ve skupině zaúčtování různé účty nebo kurzy ('
+                    . implode(', ', count($codes) > 1 ? $codes : $rates) . '). Úhradu zaúčtujte ručně.',
+            );
+        }
+        return [
+            'code' => $codes[0],
+            'entry_ids' => array_keys($byEntry),
+            'fx_rate' => $rates === [] ? null : (float) $rates[0],
+        ];
+    }
+
     private function incomingPurchaseRefundCounter(int $supplierId, int $pfId): string
     {
         $pf = $this->loadPurchase($supplierId, $pfId);
@@ -1206,10 +1298,7 @@ final class BankPostingService
         if ((string) $pf['currency'] !== 'CZK') {
             throw new PostingException('fx_not_supported', 'Cizoměnová refundace dobropisu se zatím neúčtuje automaticky.');
         }
-        $entry = $this->journal->findBySource($supplierId, 'purchase_invoice', $pfId);
-        if ($entry === null || ($entry['posted_at'] ?? null) === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Přijatý dobropis #' . $pfId . ' nemá zaúčtovaný předpis.');
-        }
+        $this->predpis($supplierId, 'purchase_invoice', $pfId, true, 'Přijatý dobropis #' . $pfId . ' nemá zaúčtovaný předpis.');
         $rule = $this->postingRules->resolve($supplierId, 'payment.payable.bank');
         return ($rule['debit_account_code'] ?? null) ?: '321';
     }
@@ -1232,10 +1321,7 @@ final class BankPostingService
         if ((string) $inv['currency'] !== 'CZK') {
             throw new PostingException('fx_not_supported', 'Cizoměnová refundace dobropisu se zatím neúčtuje automaticky.');
         }
-        $entry = $this->journal->findBySource($supplierId, 'invoice', $invoiceId);
-        if ($entry === null || ($entry['posted_at'] ?? null) === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Vydaný dobropis #' . $invoiceId . ' nemá zaúčtovaný předpis.');
-        }
+        $this->predpis($supplierId, 'invoice', $invoiceId, true, 'Vydaný dobropis #' . $invoiceId . ' nemá zaúčtovaný předpis.');
         $rule = $this->postingRules->resolve($supplierId, 'payment.receivable.bank');
         return ($rule['credit_account_code'] ?? null) ?: '311';
     }
@@ -1435,10 +1521,7 @@ final class BankPostingService
         if ((string) $inv['invoice_type'] === 'proforma') {
             throw new PostingException('cross_currency', 'Cizoměnová úhrada korunové proformy vyžaduje ruční ověření.');
         }
-        $entry = $this->journal->findBySource($supplierId, 'invoice', $invoiceId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.');
-        }
+        $this->predpis($supplierId, 'invoice', $invoiceId, false, 'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.');
         $allocCzk = $allocAmount !== null
             ? round((float) $allocAmount, 2)
             : round((float) ($inv['amount_to_pay'] ?? 0) - (float) ($inv['paid_total'] ?? 0), 2);
@@ -1540,11 +1623,11 @@ final class BankPostingService
         if ((string) $inv['invoice_type'] === 'proforma') {
             throw new PostingException('fx_not_supported', 'Cizoměnová záloha (proforma) se zatím neúčtuje automaticky.');
         }
-        $entry = $this->journal->findBySource($supplierId, 'invoice', $invoiceId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.');
-        }
-        return [$receivable, $this->predpisFxRate($supplierId, (int) $entry['id'], $inv)];
+        $saldo = $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'invoice', $invoiceId, false,
+            'Vydaná faktura #' . $invoiceId . ' nemá zaúčtovaný předpis.',
+        ), $receivable);
+        return [$receivable, $this->predpisFxRate($supplierId, $saldo, $inv)];
     }
 
     /**
@@ -1568,11 +1651,11 @@ final class BankPostingService
         if ((string) $pf['document_kind'] === 'advance') {
             throw new PostingException('fx_not_supported', 'Cizoměnová poskytnutá záloha se zatím neúčtuje automaticky.');
         }
-        $entry = $this->journal->findBySource($supplierId, 'purchase_invoice', $pfId);
-        if ($entry === null || ($entry['reversed_by'] ?? null) !== null) {
-            throw new PostingException('document_not_posted', 'Přijatá faktura #' . $pfId . ' nemá zaúčtovaný předpis.');
-        }
-        return [$payable, $this->predpisFxRate($supplierId, (int) $entry['id'], $pf)];
+        $saldo = $this->predpisSaldo($supplierId, $this->predpis(
+            $supplierId, 'purchase_invoice', $pfId, false,
+            'Přijatá faktura #' . $pfId . ' nemá zaúčtovaný předpis.',
+        ), $payable);
+        return [$payable, $this->predpisFxRate($supplierId, $saldo, $pf)];
     }
 
     /**
@@ -1580,13 +1663,22 @@ final class BankPostingService
      * při zaúčtování, i kdyby se exchange_rate hlavičky dokladu později změnil). Fallback
      * na exchange_rate dokladu, když stopa chybí (předpis bez FX stopy).
      *
+     * Skupina zaúčtování bere kurz ze saldokontních řádků svých nosičů ({@see predpisSaldo}),
+     * bez stopy z ostatních řádků těchže nosičů.
+     *
+     * @param array{code:string, entry_ids:list<int>, fx_rate:?float} $saldo
      * @param array<string,mixed> $doc
      */
-    private function predpisFxRate(int $supplierId, int $entryId, array $doc): float
+    private function predpisFxRate(int $supplierId, array $saldo, array $doc): float
     {
-        foreach ($this->journal->linesForEntry($entryId, $supplierId) as $l) {
-            if ($l['currency_code'] !== null && $l['fx_rate'] !== null && (float) $l['fx_rate'] > 0) {
-                return (float) $l['fx_rate'];
+        if ($saldo['fx_rate'] !== null) {
+            return $saldo['fx_rate'];
+        }
+        foreach ($saldo['entry_ids'] as $entryId) {
+            foreach ($this->journal->linesForEntry($entryId, $supplierId) as $l) {
+                if ($l['currency_code'] !== null && $l['fx_rate'] !== null && (float) $l['fx_rate'] > 0) {
+                    return (float) $l['fx_rate'];
+                }
             }
         }
         $rate = isset($doc['exchange_rate']) ? (float) $doc['exchange_rate'] : 0.0;

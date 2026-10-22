@@ -69,6 +69,29 @@ final class DocumentPostingGroup
                  WHERE jdp.supplier_id = {$supplierId} AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL";
     }
 
+    /**
+     * Aktivní členové dokladů, které mají skupinu zaúčtování: vlastněné zápisy i přímý
+     * zápis se zdrojem dokladu. Doklady bez skupiny ve výsledku nejsou, kontroly je dál
+     * vyhodnocují po jednotlivém přímém zápisu. Dotaz vychází z vazeb skupin firmy
+     * (uq_jdp_doc_entry) a přímý zápis dohledává po idx_je_supplier_source.
+     */
+    public static function groupedActiveMembersSql(int $supplierId): string
+    {
+        return "SELECT m.doc_type, m.doc_id, e.id AS entry_id
+                  FROM (SELECT jdp.doc_type, jdp.doc_id, jdp.entry_id
+                          FROM journal_document_postings jdp FORCE INDEX (uq_jdp_doc_entry)
+                         WHERE jdp.supplier_id = {$supplierId}
+                        UNION
+                        SELECT g.doc_type, g.doc_id, d.id
+                          FROM (SELECT DISTINCT jdp.doc_type, jdp.doc_id
+                                  FROM journal_document_postings jdp FORCE INDEX (uq_jdp_doc_entry)
+                                 WHERE jdp.supplier_id = {$supplierId}) g
+                          JOIN journal_entries d FORCE INDEX (idx_je_supplier_source)
+                            ON d.supplier_id = {$supplierId} AND d.source_type = g.doc_type AND d.source_id = g.doc_id) m
+                  JOIN journal_entries e ON e.supplier_id = {$supplierId} AND e.id = m.entry_id
+                 WHERE e.posted_at IS NOT NULL AND e.reversed_by IS NULL";
+    }
+
     private static function directDocumentKeySql(string $alias): string
     {
         // Historické vlastnictví přežívá smazání dokladu. Smír pak musí nabídnout
