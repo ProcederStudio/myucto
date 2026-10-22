@@ -51,6 +51,31 @@ final class FakturoidSourceDocument
         return false;
     }
 
+    /**
+     * Poměrný odpočet DPH přijatého dokladu (Fakturoid `proportional_vat_deduction`,
+     * celé procento, výchozí 100) jako režim odpočtu dokladu (#229). Poměrný odpočet
+     * podle § 75 je `vat_deduction = 'proportional'` s procentem, nula je doklad bez
+     * nároku. Plný odpočet nebo chybějící údaj vrací null: režim pak určí výchozí
+     * pravidlo zakládání dokladu, stejně jako před opravou.
+     *
+     * @param array<string,mixed> $doc
+     * @return array{vat_deduction: string, vat_deduction_percent: float}|null
+     */
+    public static function vatDeduction(array $doc): ?array
+    {
+        $raw = $doc['proportional_vat_deduction'] ?? null;
+        if (!is_numeric($raw)) {
+            return null;
+        }
+        $percent = round((float) $raw, 2);
+        if ($percent >= 100.0 || $percent < 0.0) {
+            return null;
+        }
+        return $percent === 0.0
+            ? ['vat_deduction' => 'none', 'vat_deduction_percent' => 0.0]
+            : ['vat_deduction' => 'proportional', 'vat_deduction_percent' => $percent];
+    }
+
     /** @param array<string,mixed> $line */
     public static function lineRate(array $line): float
     {
